@@ -1,0 +1,9 @@
+*.json
+*.geojson
+*.xlsx
+*.xls
+*.csv
+
+.mypy_cache
+.vscode
+__pycache__
