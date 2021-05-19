@@ -27,8 +27,6 @@ def ensure_tables(conn: psycopg2.extensions.connection, object_class: str, commi
 def ensure_service(conn: psycopg2.extensions.connection, service_type: str, service_code: Optional[str],
         capacity_min: Optional[int], capacity_max: Optional[int], city_function: Union[int, str], commit: bool = True) -> int:
     with conn.cursor() as cur:
-        # AND code = %s AND capacity_min = %s AND capacity_max = %s AND city_function = ' + 
-        #        ('%s' if isinstance(city_function, int) else '(SELECT id from city_functions WHERE name = %s)'),
         cur.execute('SELECT id FROM service_types WHERE name = %s', (service_type,))
         res = cur.fetchone()
         if res is not None:
@@ -95,6 +93,7 @@ def insert_object(conn: psycopg2.extensions.connection, row: pd.Series, phys_id:
         cur.execute('SELECT st.capacity_min, st.capacity_max, cf.id, st.id, it.id FROM infrastructure_types it JOIN city_functions cf ON cf.infrastructure_type_id = it.id JOIN'
                 '               service_types st ON st.city_function_id = cf.id WHERE st.id = %s', (service_type_id,))
         mn, mx, *ids = cur.fetchone()
+        assert ids[0] is not None and ids[1] is not None and ids[2] is not None
         cur.execute('INSERT INTO functional_objects (name, opening_hours, website, phone, city_function_id, service_type_id, infrastructure_type_id, capacity)'
                 ' VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id',
                     (row.get(mapping['name']) or '(не указано)', row.get(mapping['opening_hours']), row.get(mapping['website']),
@@ -247,8 +246,8 @@ def add_objects(conn: psycopg2.extensions.connection, objects: pd.DataFrame,
                 conn.rollback()
                 results[i] = f'Skipped, caused exception: {ex}'
                 skipped += 1
-    objects['result'] = pd.Series(results)
-    objects['functional_obj_id'] = pd.Series(functional_ids)
+    objects['result'] = pd.Series(results, index=objects.index)
+    objects['functional_obj_id'] = pd.Series(functional_ids, index=objects.index)
     print(f'Insertion finished. {len(objects)} objects processed: {added_as_points + added_to_building_adr + added_to_building_geom}'
         f' were added ({added_as_points} added as points, {added_to_building_adr} found buildings by address'
         f' and {added_to_building_geom} found buildings by geometry), {present} objects were already present, {skipped} objects were skipped')
@@ -318,7 +317,7 @@ def load_objects_xlsx(filename: str, default_values: Optional[Dict[str, Any]] = 
     return res.where(pd.DataFrame.notnull(res), None)
 
 def load_objects_excel(filename: str, default_values: Optional[Dict[str, Any]] = None, needed_columns: Optional[Iterable[str]] = None) -> pd.DataFrame:
-    '''load_objects_excel loads objects as DataFrame from xls or ods by calling pd.read_excel (need to have `xlrd` Pyhton module installed).
+    '''load_objects_excel loads objects as DataFrame from xls or ods by calling pd.read_excel (need to have `xlrd` Pyhton module installed for xls and `odfpy` for ods).
     Calls `replace_with_default` after load if `default_values` is present
     '''
     res: pd.DataFrame = pd.read_excel(filename)
@@ -332,7 +331,7 @@ def load_objects(filename: str, default_values: Optional[Dict[str, Any]] = None,
     funcs = {'csv': load_objects_csv, 'xlsx': load_objects_xlsx, 'xls': load_objects_excel,
             'ods': load_objects_excel, 'json': load_objects_json, 'geojson': load_objects_geojson}
     try:
-        return funcs[filename[filename.rfind('.') + 1:]](filename)
+        return funcs[filename[filename.rfind('.') + 1:]](filename, default_values, needed_columns)
     except KeyError:
         raise ValueError(f'File extension "{args.filename[args.filename.rfind(".") + 1:]}" is not supported')
     

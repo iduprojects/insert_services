@@ -1,6 +1,5 @@
-# from PyQt5 import QtCore, QtWidgets, QtGui
 from PySide6 import QtCore, QtWidgets, QtGui
-from typing import Any, Callable, Optional, NamedTuple, List, Tuple, Dict
+from typing import Any, Callable, Optional, NamedTuple, List, Tuple, Dict, Set
 import time
 import json
 import traceback
@@ -13,7 +12,7 @@ import adding_functional_objects
 class ColorizingLine(QtWidgets.QLineEdit):
     def __init__(self, callback: Callable[[Optional[QtWidgets.QLineEdit], Optional[str]], None], parent: Optional[QtWidgets.QWidget] = None):
         super().__init__(parent)
-        self._state: str = self.text()
+        self._state: str = ''
         self._callback = callback
     
     def focusInEvent(self, event: QtGui.QFocusEvent) -> None:
@@ -25,6 +24,20 @@ class ColorizingLine(QtWidgets.QLineEdit):
             self._callback(self, self._state)
             self._state = self.text()
         return super().focusOutEvent(event)
+
+
+class ColorizingComboBox(QtWidgets.QComboBox):
+    def __init__(self, callback: Callable[[], None], parent: Optional[QtWidgets.QWidget] = None):
+        super().__init__(parent)
+        self._callback = callback
+        self._state = 0
+        self.currentIndexChanged.connect(callback)
+
+    def wheelEvent(self, event: QtGui.QWheelEvent) -> None:
+        super().wheelEvent(event)
+        if self.currentIndex() != self._state:
+            self._callback()
+            self._state = self.currentIndex()
 
 
 class CheckableTableView(QtWidgets.QTableView):
@@ -48,12 +61,16 @@ class CheckableTableView(QtWidgets.QTableView):
         else:
             return super().mouseDoubleClickEvent(event)
 
-class DropPushButton(QtWidgets.QPushButton):
+    def is_turned_on(self, row: int) -> bool:
+        return self.model().itemData(self.model().index(row, 0)) == '+'
 
+
+class DropPushButton(QtWidgets.QPushButton):
     def __init__(self, text: str, formats: List[str], callback: Callable[[str], None], parent: Optional[QtWidgets.QWidget] = None):
         self.formats = tuple((f'.{format}' for format in formats))
         self._callback = callback
         super().__init__(text, parent=parent)
+        self.setAcceptDrops(True)
 
     def dragEnterEvent(self, event: QtGui.QDragEnterEvent) -> None:
         if event.mimeData().text().startswith('file:///') and event.mimeData().text().endswith(self.formats):
@@ -89,15 +106,15 @@ MainWindowDefaultValues = NamedTuple('MainWindowDefaultValues', [
     ]
 )
 
-# def get_main_window_default_values() -> MainWindowDefaultValues:
-#     return MainWindowDefaultValues('127.0.0.1', 5432, 'citydb', 'postgres', 'postgres', '', '', '', '', '', '', '', 'x', 'y',
-#             'yand_adr', 'amenity', 'name', 'opening_hours', 'contact:website', 'contact:phone', 'id')
 def get_main_window_default_values() -> MainWindowDefaultValues:
-    return MainWindowDefaultValues('127.0.0.1', 5432, 'citydb', 'kanu', 'postgres', 'testt', 'Баня', 'bathh', 'healthcare', '3', '6', '', 'x', 'y',
-            'yand_adr', 'type', 'name', 'opening_hours', 'contact:website', 'contact:phone', 'id')
+    return MainWindowDefaultValues('127.0.0.1', 5432, 'citydb', 'postgres', 'postgres', '', '', '', '', '', '', '', 'x', 'y',
+            'yand_adr', 'amenity', 'name', 'opening_hours', 'contact:website', 'contact:phone', 'id')
 
 def get_main_window_default_address_prefixes() -> List[str]:
     return ['Россия, Санкт-Петербург']
+
+def get_default_city_functions() -> List[str]:
+    return ['(Не выбрано, необходимо соединение с базой)']
 
 class MainWindow(QtWidgets.QWidget):
 
@@ -113,10 +130,10 @@ class MainWindow(QtWidgets.QWidget):
             ('object_class', QtWidgets.QLineEdit),
             ('service_type', QtWidgets.QLineEdit),
             ('service_code', QtWidgets.QLineEdit),
-            ('city_function', QtWidgets.QLineEdit),
             ('min_capacity', QtWidgets.QLineEdit),
             ('max_capacity', QtWidgets.QLineEdit),
-            ('override_amenity', QtWidgets.QLineEdit)
+            ('override_amenity', QtWidgets.QLineEdit),
+            ('city_function', QtWidgets.QComboBox)
         ]
     )
 
@@ -168,7 +185,6 @@ class MainWindow(QtWidgets.QWidget):
 
         self._open_file_btn = DropPushButton('Открыть файл', ['xlsx', 'xls', 'json', 'geojson', 'ods', 'csv'], self.on_open_file)
         self._open_file_btn.clicked.connect(self.on_open_file)
-        self._open_file_btn.setAcceptDrops(True)
         self._load_objects_btn = QtWidgets.QPushButton('Загрузить объекты')
         self._load_objects_btn.setStyleSheet('font-weight: bold')
         self._load_objects_btn.clicked.connect(self.on_load_objects)
@@ -203,7 +219,15 @@ class MainWindow(QtWidgets.QWidget):
         self._options_group_box = QtWidgets.QGroupBox('Опции вставки')
         self._options_group = QtWidgets.QFormLayout()
         self._options_group_box.setLayout(self._options_group)
-        self._options_fields = MainWindow.InsertionOptionsFields(*(QtWidgets.QLineEdit() for _ in range(6)), ColorizingLine(self.colorize_table)) # type: ignore
+        self._options_fields = MainWindow.InsertionOptionsFields(
+                ColorizingLine(self.on_options_change),
+                ColorizingLine(self.on_options_change),
+                ColorizingLine(self.on_options_change),
+                ColorizingLine(self.on_options_change),
+                ColorizingLine(self.on_options_change),
+                ColorizingLine(self.colorize_table),
+                ColorizingComboBox(self.on_options_change)
+        )
         self._options_group.addRow('Название таблицы:', self._options_fields.object_class)
         self._options_group.addRow('Тип сервиса:', self._options_fields.service_type)
         self._options_group.addRow('Код сервиса:', self._options_fields.service_code)
@@ -245,12 +269,8 @@ class MainWindow(QtWidgets.QWidget):
         self._prefixes_group.addWidget(self._address_prefix_add_btn)
         self._prefixes_group.addWidget(self._address_prefix_remove_btn)
         self._prefixes_group.addWidget(self._address_prefix_check_btn)
-        # self._update_colors_btn = QtWidgets.QPushButton('Обновить')
-        # self._update_colors_btn.clicked.connect(self.colorize_table)
-        # self._update_colors_btn.setEnabled(False)
-        # self._document_group.addRow('Проверить соответствие:', self._update_colors_btn)
         self._right.addWidget(self._prefixes_group_box)
-
+        
         self._types_group_box = QtWidgets.QGroupBox('Внутренние типы сервисов')
         self._types_group = QtWidgets.QVBoxLayout()
         self._types_group_box.setLayout(self._types_group)
@@ -270,7 +290,7 @@ class MainWindow(QtWidgets.QWidget):
         self._right.setAlignment(QtCore.Qt.AlignTop)
         right_width = max(map(lambda box: box.sizeHint().width(), (self._db_group_box, self._options_group_box,
                 self._document_group_box, self._prefixes_group_box, self._types_group_box)))
-
+        
         self._right_scroll.setFixedWidth(int(right_width * 1.15))
         self._db_group_box.setFixedWidth(right_width)
         self._options_group_box.setFixedWidth(right_width)
@@ -282,11 +302,12 @@ class MainWindow(QtWidgets.QWidget):
         self._database_fields.name.setText(MainWindow.default_values.db_name)
         self._database_fields.user.setText(MainWindow.default_values.db_user)
         self._database_fields.password.setText(MainWindow.default_values.db_pass)
-
+        
         self._options_fields.object_class.setText(MainWindow.default_values.object_class)
         self._options_fields.service_type.setText(MainWindow.default_values.service_type)
         self._options_fields.service_code.setText(MainWindow.default_values.service_code)
-        self._options_fields.city_function.setText(MainWindow.default_values.city_function)
+        self._options_fields.city_function.addItems(get_default_city_functions())
+        self._options_fields.city_function.view().setMinimumWidth(len(max(get_default_city_functions(), key=len)) * 8)
         self._options_fields.min_capacity.setText(MainWindow.default_values.min_capacity)
         self._options_fields.max_capacity.setText(MainWindow.default_values.max_capacity)
         self._options_fields.override_amenity.setText(MainWindow.default_values.override_amenity)
@@ -303,6 +324,11 @@ class MainWindow(QtWidgets.QWidget):
         for line, prefix_line in zip(self._document_address_prefixes, get_main_window_default_address_prefixes()):
             line.setText(prefix_line)
             line.setMinimumWidth(250)
+
+        self._is_options_ok = False
+        self._is_document_ok = False
+        
+        self.on_options_change()
 
     def on_open_file(self, filepath: Optional[str] = None) -> None:
         if not filepath:
@@ -341,7 +367,6 @@ class MainWindow(QtWidgets.QWidget):
         if self._table is None:
             self._table = CheckableTableView()
             self._left.insertWidget(0, self._table)
-            # self._update_colors_btn.setEnabled(True)
             self._address_prefix_check_btn.setEnabled(True)
             self._types_check_btn.setEnabled(True)
 
@@ -351,7 +376,7 @@ class MainWindow(QtWidgets.QWidget):
         self.colorize_table()
 
         self._table.setModel(self._table_model)
-        # for item in self._table_model.takeColumn(0):
+        self._table.horizontalHeader().setMinimumSectionSize(0)
         self._table.resizeColumnsToContents()
 
     def table_as_DataFrame(self, include_all: bool = True) -> pd.DataFrame:
@@ -376,14 +401,14 @@ class MainWindow(QtWidgets.QWidget):
 
     def on_load_objects(self) -> None:
         self._load_objects_btn.setVisible(False)
-        QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.BusyCursor)
+        app.setOverrideCursor(QtCore.Qt.BusyCursor)
         try:
             adding_functional_objects.ensure_tables(self._db_properties.conn, self._options_fields.object_class.text(), False)
             service_type_id = adding_functional_objects.ensure_service(self._db_properties.conn,
                     self._options_fields.service_type.text(), self._options_fields.service_code.text(),
                     int(self._options_fields.min_capacity.text()) if self._options_fields.min_capacity.text() not in ('', '-') else None,
                     int(self._options_fields.max_capacity.text()) if self._options_fields.max_capacity.text() not in ('', '-') else None,
-                    self._options_fields.city_function.text())
+                    self._options_fields.city_function.currentText())
             results = adding_functional_objects.add_objects(
                     self._db_properties.conn,
                     self.table_as_DataFrame(False),
@@ -417,11 +442,11 @@ class MainWindow(QtWidgets.QWidget):
             traceback.print_exc()
             return
         finally:
-            QtWidgets.QApplication.restoreOverrideCursor()
+            app.restoreOverrideCursor()
         df = self.table_as_DataFrame().join(results[['result', 'functional_obj_id']]).fillna('')
         self._table_axes += ['Результат', 'id Функционального объекта']
         self._table_model.appendColumn(list(map(lambda text: QtGui.QStandardItem(text), df['result'])))
-        self._table_model.appendColumn(list(map(lambda text: QtGui.QStandardItem(str(text) if isinstance(text, float) else ''), df['functional_obj_id'])))
+        self._table_model.appendColumn(list(map(lambda text: QtGui.QStandardItem(str(int(text)) if isinstance(text, (int, float)) else ''), df['functional_obj_id'])))
         self._table_model.setHorizontalHeaderLabels(self._table_axes)
         self._table.resizeColumnToContents(len(self._table_axes) - 2) # type: ignore
         self._table.resizeColumnToContents(len(self._table_axes) - 1) # type: ignore
@@ -495,16 +520,65 @@ class MainWindow(QtWidgets.QWidget):
             with self._db_properties.conn.cursor() as cur:
                 cur.execute('SELECT 1')
                 assert cur.fetchone()[0] == 1
+                cur.execute('SELECT name FROM city_functions order by 1')
+                self._options_fields.city_function.clear()
+                self._options_fields.city_function.addItem('(не выбрано)')
+                self._options_fields.city_function.addItems(map(lambda x: x[0], cur.fetchall()))
+                self._options_fields.city_function.view().setMinimumWidth(len(max(get_default_city_functions(), key=len)) * 8)
         except Exception:
             self._db_properties.close()
             self._db_check_res.setText('<b style=color:red;>x</b>')
         else:        
             self._db_check_res.setText('<b style=color:green;>v</b>')
 
+    def on_options_change(self, _: Optional[QtWidgets.QLineEdit] = None, _1: Optional[str] = None):
+        allowed_chars = set((chr(i) for i in range(ord('a'), ord('z'))))
+        self._is_options_ok = True
+
+        if len(self._options_fields.object_class.text()) == 0 or len(set(self._options_fields.object_class.text()) - allowed_chars) != 0:
+            self._is_options_ok = False
+            self._options_fields.object_class.setStyleSheet('background-color: rgb({}, {}, {})'.format(*MainWindow.colorTable.light_red.getRgb()[:3]))
+        else:
+            self._options_fields.object_class.setStyleSheet('background-color: rgb({}, {}, {})'.format(*MainWindow.colorTable.light_green.getRgb()[:3]))
+        if self._options_fields.service_type.text() != '' and '"' not in self._options_fields.service_type.text() \
+                and "'" not in self._options_fields.service_type.text():
+            self._options_fields.service_type.setStyleSheet('background-color: rgb({}, {}, {})'.format(*MainWindow.colorTable.light_green.getRgb()[:3]))
+        else:
+            self._options_fields.service_type.setStyleSheet('background-color: rgb({}, {}, {})'.format(*MainWindow.colorTable.light_red.getRgb()[:3]))
+        if len(self._options_fields.service_code.text()) == 0:
+            self._options_fields.service_code.setStyleSheet('background-color: rgb({}, {}, {})'.format(*MainWindow.colorTable.grey.getRgb()[:3]))
+        elif len(set(self._options_fields.service_code.text()) - allowed_chars) == 0:
+            self._options_fields.service_code.setStyleSheet('background-color: rgb({}, {}, {})'.format(*MainWindow.colorTable.light_green.getRgb()[:3]))
+        else:
+            self._is_options_ok = False
+            self._options_fields.service_code.setStyleSheet('background-color: rgb({}, {}, {})'.format(*MainWindow.colorTable.light_red.getRgb()[:3]))
+
+        if self._options_fields.city_function.currentIndex() == 0:
+            self._is_options_ok = False
+            self._options_fields.city_function.setStyleSheet('background-color: rgb({}, {}, {})'.format(*MainWindow.colorTable.light_red.getRgb()[:3]))
+        else:
+            self._options_fields.city_function.setStyleSheet('background-color: rgb({}, {}, {})'.format(*MainWindow.colorTable.light_green.getRgb()[:3]))
+        
+        for line in (self._options_fields.min_capacity, self._options_fields.max_capacity):
+            if line.text().isdigit():
+                line.setStyleSheet('background-color: rgb({}, {}, {})'.format(*MainWindow.colorTable.light_green.getRgb()[:3]))
+            elif line.text() == '':
+                line.setStyleSheet('background-color: rgb({}, {}, {})'.format(*MainWindow.colorTable.grey.getRgb()[:3]))
+            else:
+                self._is_options_ok = False
+                line.setStyleSheet('background-color: rgb({}, {}, {})'.format(*MainWindow.colorTable.light_red.getRgb()[:3]))
+            
+        if self._is_options_ok and self._is_document_ok:
+            self._load_objects_btn.setEnabled(True)
+        else:
+            self._load_objects_btn.setEnabled(False)
+            
+
+
     def colorize_table(self, what_changed: Optional[QtWidgets.QLineEdit] = None, previous_value: Optional[str] = None) -> None:
         if self._table is None:
             return
-        allow_objects_load = True
+        self._is_document_ok = True
         if what_changed is not None:
             if what_changed is self._options_fields.override_amenity or \
                     what_changed is self._document_fields.amenity and self._options_fields.override_amenity.text() not in ('', '-'):
@@ -514,7 +588,13 @@ class MainWindow(QtWidgets.QWidget):
                     for row in range(self._table_model.rowCount()):
                         self._table_model.setData(self._table_model.index(row, col), MainWindow.colorTable.grey, QtCore.Qt.BackgroundRole)
             elif what_changed.text() not in self._table_axes:
-                what_changed.setStyleSheet('background-color: rgb({}, {}, {});'.format(*MainWindow.colorTable.light_red.getRgb()[:3]))
+                if (what_changed.text() in ('', '-') and not (what_changed is self._document_fields.address or
+                        what_changed is self._document_fields.latitude or what_changed is self._document_fields.longitude)) or \
+                        (what_changed is self._document_fields.amenity and self._options_fields.override_amenity.text() not in ('', '-')):
+                    what_changed.setStyleSheet('background-color: rgb({}, {}, {});'.format(*MainWindow.colorTable.grey.getRgb()[:3]))
+                else:
+                    what_changed.setStyleSheet('background-color: rgb({}, {}, {});'.format(*MainWindow.colorTable.light_red.getRgb()[:3]))
+                    self._is_document_ok = False
             else:
                 what_changed.setStyleSheet('')
                 col = self._table_axes.index(what_changed.text())
@@ -525,10 +605,6 @@ class MainWindow(QtWidgets.QWidget):
                 col = self._table_axes.index(previous_value)
                 for row in range(self._table_model.rowCount()):
                     self._table_model.setData(self._table_model.index(row, col), QtGui.QColor(QtCore.Qt.white), QtCore.Qt.BackgroundRole)
-            for field in self._document_fields:
-                if field.text() not in self._table_axes and not (field is self._document_fields.amenity and self._options_fields.override_amenity not in ('', '-')):
-                    allow_objects_load = False
-                    break
         else:
             for field in self._document_fields:
                 if field.text() not in self._table_axes:
@@ -538,8 +614,7 @@ class MainWindow(QtWidgets.QWidget):
                         field.setStyleSheet('background-color: rgb({}, {}, {});'.format(*MainWindow.colorTable.grey.getRgb()[:3]))
                     else:
                         field.setStyleSheet('background-color: rgb({}, {}, {});'.format(*MainWindow.colorTable.light_red.getRgb()[:3]))
-                        allow_objects_load = False
-                        self._load_objects_btn.setEnabled(False)
+                        self._is_document_ok = False
                 else:
                     field.setStyleSheet('')
                     col = self._table_axes.index(field.text())
@@ -551,7 +626,8 @@ class MainWindow(QtWidgets.QWidget):
                     col = self._table_axes.index(self._document_fields.amenity.text())
                     for row in range(self._table_model.rowCount()):
                         self._table_model.setData(self._table_model.index(row, col), MainWindow.colorTable.grey, QtCore.Qt.BackgroundRole)
-        if allow_objects_load:
+
+        if self._is_options_ok and self._is_document_ok:
             self._load_objects_btn.setEnabled(True)
         else:
             self._load_objects_btn.setEnabled(False)
