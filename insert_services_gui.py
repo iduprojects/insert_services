@@ -1,8 +1,7 @@
 from PySide6 import QtCore, QtWidgets, QtGui
-from typing import Any, Callable, Optional, NamedTuple, List, Tuple, Dict, Set
-import time
+from typing import Any, Callable, Optional, NamedTuple, List, Tuple, Dict, Union
+import os, time, traceback, itertools
 import json
-import traceback
 import pandas as pd
 import psycopg2
 
@@ -10,9 +9,10 @@ from database_properties import Properties
 import adding_functional_objects
 
 class ColorizingLine(QtWidgets.QLineEdit):
-    def __init__(self, callback: Callable[[Optional[QtWidgets.QLineEdit], Optional[str]], None], parent: Optional[QtWidgets.QWidget] = None):
+    def __init__(self, callback: Callable[[Optional[QtWidgets.QLineEdit], Optional[str]], None], text: Optional[str] = None, parent: Optional[QtWidgets.QWidget] = None):
         super().__init__(parent)
-        self._state: str = ''
+        self._state: str = text or ''
+        self.setText(text or '')
         self._callback = callback
     
     def focusInEvent(self, event: QtGui.QFocusEvent) -> None:
@@ -27,16 +27,16 @@ class ColorizingLine(QtWidgets.QLineEdit):
 
 
 class ColorizingComboBox(QtWidgets.QComboBox):
-    def __init__(self, callback: Callable[[], None], parent: Optional[QtWidgets.QWidget] = None):
+    def __init__(self, callback: Callable[[Optional[QtWidgets.QComboBox]], None], parent: Optional[QtWidgets.QWidget] = None):
         super().__init__(parent)
         self._callback = callback
         self._state = 0
-        self.currentIndexChanged.connect(callback)
+        self.currentIndexChanged.connect(lambda: callback(self))
 
     def wheelEvent(self, event: QtGui.QWheelEvent) -> None:
         super().wheelEvent(event)
         if self.currentIndex() != self._state:
-            self._callback()
+            self._callback(self)
             self._state = self.currentIndex()
 
 
@@ -116,6 +116,13 @@ def get_main_window_default_address_prefixes() -> List[str]:
 def get_default_city_functions() -> List[str]:
     return ['(Не выбрано, необходимо соединение с базой)']
 
+def get_default_object_classes() -> List[str]:
+    return ['(Не выбрано, необходимо соединение с базой)']
+
+def get_default_service_types() -> List[str]:
+    return ['(Не выбрано, необходимо соединение с базой)']
+
+    
 class MainWindow(QtWidgets.QWidget):
 
     DatabaseFields = NamedTuple('DatabaseFields', [
@@ -133,7 +140,11 @@ class MainWindow(QtWidgets.QWidget):
             ('min_capacity', QtWidgets.QLineEdit),
             ('max_capacity', QtWidgets.QLineEdit),
             ('override_amenity', QtWidgets.QLineEdit),
-            ('city_function', QtWidgets.QComboBox)
+            ('city_function', QtWidgets.QComboBox),
+            ('object_class_choose', QtWidgets.QComboBox),
+            ('service_type_choose', QtWidgets.QComboBox),
+            ('object_class_choosable', QtWidgets.QCheckBox),
+            ('service_type_choosable', QtWidgets.QCheckBox)
         ]
     )
 
@@ -167,6 +178,8 @@ class MainWindow(QtWidgets.QWidget):
                 MainWindow.default_values.db_name, MainWindow.default_values.db_user, MainWindow.default_values.db_pass)
         super().__init__(parent)
 
+        self._additionals_cnt = 0
+
         self._layout = QtWidgets.QHBoxLayout()
         self._left = QtWidgets.QVBoxLayout()
         self._right_scroll = QtWidgets.QScrollArea()
@@ -185,7 +198,7 @@ class MainWindow(QtWidgets.QWidget):
 
         self._open_file_btn = DropPushButton('Открыть файл', ['xlsx', 'xls', 'json', 'geojson', 'ods', 'csv'], self.on_open_file)
         self._open_file_btn.clicked.connect(self.on_open_file)
-        self._load_objects_btn = QtWidgets.QPushButton('Загрузить объекты')
+        self._load_objects_btn = QtWidgets.QPushButton('Загрузить сервисы')
         self._load_objects_btn.setStyleSheet('font-weight: bold')
         self._load_objects_btn.clicked.connect(self.on_load_objects)
         self._load_objects_btn.setVisible(False)
@@ -210,7 +223,7 @@ class MainWindow(QtWidgets.QWidget):
         self._db_group.addRow('База:', self._database_fields.name)
         self._db_group.addRow('Пользователь:', self._database_fields.user)
         self._db_group.addRow('Пароль:', self._database_fields.password)
-        self._db_check_btn = QtWidgets.QPushButton('Проверка')
+        self._db_check_btn = QtWidgets.QPushButton('Проверить подключение')
         self._db_check_btn.clicked.connect(self.on_connection_check)
         self._db_check_res = QtWidgets.QLabel('?')
         self._db_group.addRow(self._db_check_btn, self._db_check_res)
@@ -226,10 +239,23 @@ class MainWindow(QtWidgets.QWidget):
                 ColorizingLine(self.on_options_change),
                 ColorizingLine(self.on_options_change),
                 ColorizingLine(self.colorize_table),
-                ColorizingComboBox(self.on_options_change)
+                ColorizingComboBox(self.on_options_change),
+                ColorizingComboBox(self.on_options_change),
+                ColorizingComboBox(self.on_options_change),
+                QtWidgets.QCheckBox(),
+                QtWidgets.QCheckBox()                
         )
-        self._options_group.addRow('Название таблицы:', self._options_fields.object_class)
+        self._options_fields.object_class_choosable.clicked.connect(lambda: self.on_choose_change(self._options_fields.object_class_choosable))
+        self._options_fields.service_type_choosable.clicked.connect(lambda: self.on_choose_change(self._options_fields.service_type_choosable))
+        self._options_fields.object_class_choose.addItems(get_default_object_classes())
+        self._options_fields.service_type_choose.addItems(get_default_service_types())
+        self._options_fields.object_class_choose.view().setMinimumWidth(len(max(get_default_object_classes(), key=len)) * 8)
+        self._options_fields.service_type_choose.view().setMinimumWidth(len(max(get_default_service_types(), key=len)) * 8)
+
+        self._options_group.addRow('Класс сервиса:', self._options_fields.object_class)
+        self._options_group.addRow('Выбрать класс:', self._options_fields.object_class_choosable)
         self._options_group.addRow('Тип сервиса:', self._options_fields.service_type)
+        self._options_group.addRow('Выбрать сервис:', self._options_fields.service_type_choosable)
         self._options_group.addRow('Код сервиса:', self._options_fields.service_code)
         self._options_group.addRow('Городская функция:', self._options_fields.city_function)
         self._options_group.addRow('Минимальная мощность:', self._options_fields.min_capacity)
@@ -252,6 +278,25 @@ class MainWindow(QtWidgets.QWidget):
         self._document_group.addRow('Телефон:', self._document_fields.phone)
         self._document_group.addRow('OSM id:', self._document_fields.osm_id)
         self._right.addWidget(self._document_group_box)
+
+        self._additionals_group_box = QtWidgets.QGroupBox('Дополнительные поля')
+        self._additionals_group = QtWidgets.QGridLayout()
+        self._additionals_group_box.setLayout(self._additionals_group)
+        self._additional_add_btn = QtWidgets.QPushButton('Добавить')
+        self._additional_add_btn.clicked.connect(self.on_additional_add)
+        self._additional_delete_btn = QtWidgets.QPushButton('Удалить')
+        self._additional_delete_btn.clicked.connect(self.on_additional_delete)
+        self._additional_delete_btn.setEnabled(False)
+        self._additionals_group.addWidget(self._additional_add_btn, 0, 0)
+        self._additionals_group.addWidget(self._additional_delete_btn, 0, 1, 1, 2)
+        self._additionals_group.addWidget(QtWidgets.QLabel('В базе'), 1, 0)
+        self._additionals_group.addWidget(QtWidgets.QLabel('Тип данных'), 1, 1)
+        self._additionals_group.addWidget(QtWidgets.QLabel('В документе'), 1, 2)
+        for i in range(3):
+            self._additionals_group.itemAtPosition(1, i).widget().setVisible(False)
+            self._additionals_group.itemAtPosition(1, i).widget().setAlignment(QtCore.Qt.AlignCenter)
+            self._additionals_group.itemAtPosition(1, i).widget().setStyleSheet('font-weight: bold;')
+        self._right.addWidget(self._additionals_group_box)
 
         self._prefixes_group_box = QtWidgets.QGroupBox('Префиксы адреса')
         self._prefixes_group = QtWidgets.QVBoxLayout()
@@ -283,13 +328,21 @@ class MainWindow(QtWidgets.QWidget):
         self._types_group.addWidget(self._types_check_btn)
         self._right.addWidget(self._types_group_box)
 
-        self._types_window = TypesWindow()
+        types: Optional[Dict[str, Tuple[str, str]]]
+        if os.path.isfile('types.json'):
+            with open('types.json', 'rt', encoding='utf-8') as f:
+                types = json.load(f)
+            types = dict(map(lambda x: (x[0].lower(), x[1]), types.items())) # type: ignore
+        else:
+            types = None
+
+        self._types_window = TypesWindow(types)
         self._types_window.resize(self._types_window.sizeHint().width(), self._types_window.sizeHint().height() * 2)
         self._types_window.setHidden(True)
 
         self._right.setAlignment(QtCore.Qt.AlignTop)
         right_width = max(map(lambda box: box.sizeHint().width(), (self._db_group_box, self._options_group_box,
-                self._document_group_box, self._prefixes_group_box, self._types_group_box)))
+                self._document_group_box, self._prefixes_group_box, self._types_group_box, self._additionals_group_box)))
         
         self._right_scroll.setFixedWidth(int(right_width * 1.15))
         self._db_group_box.setFixedWidth(right_width)
@@ -297,6 +350,7 @@ class MainWindow(QtWidgets.QWidget):
         self._document_group_box.setFixedWidth(right_width)
         self._prefixes_group_box.setFixedWidth(right_width)
         self._types_group_box.setFixedWidth(right_width)
+        self._additionals_group_box.setFixedWidth(right_width)
 
         self._database_fields.address.setText(f'{MainWindow.default_values.db_address}:{MainWindow.default_values.db_port}')
         self._database_fields.name.setText(MainWindow.default_values.db_name)
@@ -324,6 +378,8 @@ class MainWindow(QtWidgets.QWidget):
         for line, prefix_line in zip(self._document_address_prefixes, get_main_window_default_address_prefixes()):
             line.setText(prefix_line)
             line.setMinimumWidth(250)
+
+        self._service_type_params: Dict[str, Tuple[str, Optional[int], Optional[int]]] = {}
 
         self._is_options_ok = False
         self._is_document_ok = False
@@ -396,23 +452,36 @@ class MainWindow(QtWidgets.QWidget):
             if self._document_fields.longitude.text() in self._table_axes:
                 df[self._document_fields.longitude.text()] = df[self._document_fields.longitude.text()].astype(float)
         except Exception as ex:
-            QtWidgets.QMessageBox(self, 'Ошибка при конвертации таблицы', f'Произошла ошибка при переводе данных в DataFrame: {ex}')
+            QtWidgets.QMessageBox.critical(self, 'Ошибка при конвертации таблицы', f'Произошла ошибка при переводе данных в DataFrame: {ex}')
         return df
 
     def on_load_objects(self) -> None:
         self._load_objects_btn.setVisible(False)
         app.setOverrideCursor(QtCore.Qt.BusyCursor)
+        is_commit = not bool(QtWidgets.QApplication.keyboardModifiers() & QtCore.Qt.ShiftModifier)
         try:
-            adding_functional_objects.ensure_tables(self._db_properties.conn, self._options_fields.object_class.text(), False)
+            types_mapping = {'целое': int, 'нецелое': float, 'строка': str}
+            adding_functional_objects.ensure_tables(
+                    self._db_properties.conn, self._options_fields.object_class.text() if not self._options_fields.object_class_choosable.isChecked() else \
+                    self._options_fields.object_class_choose.currentText(), 
+                    {self._additionals_group.itemAtPosition(i + 2, 0).widget().text(): types_mapping[self._additionals_group.itemAtPosition(i + 2, 1).widget().currentText()] \
+                            for i in range(self._additionals_cnt)},
+                    is_commit)
             service_type_id = adding_functional_objects.ensure_service(self._db_properties.conn,
-                    self._options_fields.service_type.text(), self._options_fields.service_code.text(),
-                    int(self._options_fields.min_capacity.text()) if self._options_fields.min_capacity.text() not in ('', '-') else None,
-                    int(self._options_fields.max_capacity.text()) if self._options_fields.max_capacity.text() not in ('', '-') else None,
+                    self._options_fields.service_type.text() if not self._options_fields.service_type_choosable.isChecked() else \
+                             self._options_fields.service_type_choose.currentText(),
+                    self._options_fields.service_code.text() if not self._options_fields.service_type_choosable.isChecked() else \
+                             None,
+                    (int(self._options_fields.min_capacity.text()) if self._options_fields.min_capacity.text() not in ('', '-') else None) \
+                            if not self._options_fields.service_type_choosable.isChecked() else None,
+                    (int(self._options_fields.max_capacity.text()) if self._options_fields.max_capacity.text() not in ('', '-') else None) \
+                            if not self._options_fields.service_type_choosable.isChecked() else None,
                     self._options_fields.city_function.currentText())
             results = adding_functional_objects.add_objects(
                     self._db_properties.conn,
                     self.table_as_DataFrame(False),
-                    self._options_fields.object_class.text(),
+                    self._options_fields.object_class.text() if not self._options_fields.object_class_choosable.isChecked() else \
+                            self._options_fields.object_class_choose.currentText(),
                     self._types_window.types(),
                     service_type_id,
                     self._options_fields.override_amenity.text() if self._options_fields.override_amenity.text() not in ('', '-') else None,
@@ -428,8 +497,13 @@ class MainWindow(QtWidgets.QWidget):
                         'osm_id': self._document_fields.osm_id.text()
                     },
                     list(map(lambda line_edit: line_edit.text(), self._document_address_prefixes)),
-                    False
+                    {self._additionals_group.itemAtPosition(i + 2, 0).widget().text():
+                            (self._additionals_group.itemAtPosition(i + 2, 2).widget().text(), types_mapping[self._additionals_group.itemAtPosition(i + 2, 1).widget().currentText()]) \
+                                    for i in range(self._additionals_cnt)},
+                    is_commit
             )
+            if not is_commit:
+                self._db_properties.conn.rollback()
         except psycopg2.OperationalError as ex:
             self._load_objects_btn.setVisible(True)
             QtWidgets.QMessageBox.critical(self, 'Ошибка при загрузке',
@@ -454,7 +528,10 @@ class MainWindow(QtWidgets.QWidget):
             self._table_model.setData(self._table_model.index(row, len(self._table_axes) - 2), MainWindow.colorTable.sky_blue, QtCore.Qt.BackgroundRole)
             self._table_model.setData(self._table_model.index(row, len(self._table_axes) - 1), MainWindow.colorTable.sky_blue, QtCore.Qt.BackgroundRole)
         self._save_results_btn.setVisible(True)
-
+        # set table not-editable
+        # for i in range(self._table_model.rowCount()):
+        #     for j in range(self._table_model.columnCount()):
+        #         self._table_model.index(i, j)
 
     def on_save_results(self) -> None:
         fileDialog = QtWidgets.QFileDialog(self)
@@ -520,34 +597,96 @@ class MainWindow(QtWidgets.QWidget):
             with self._db_properties.conn.cursor() as cur:
                 cur.execute('SELECT 1')
                 assert cur.fetchone()[0] == 1
-                cur.execute('SELECT name FROM city_functions order by 1')
+                cur.execute('SELECT name FROM city_functions ORDER BY 1')
+                items = list(map(lambda x: x[0], cur.fetchall()))
                 self._options_fields.city_function.clear()
                 self._options_fields.city_function.addItem('(не выбрано)')
-                self._options_fields.city_function.addItems(map(lambda x: x[0], cur.fetchall()))
-                self._options_fields.city_function.view().setMinimumWidth(len(max(get_default_city_functions(), key=len)) * 8)
+                self._options_fields.city_function.addItems(items)
+                self._options_fields.city_function.view().setMinimumWidth(len(max(items, key=len)) * 8)
+
+                cur.execute("SELECT substring(tablename, 0, length(tablename) - 7) FROM pg_tables WHERE tablename like '%_objects' AND tablename NOT IN ('physical_objects', 'functional_objects') ORDER BY 1")
+                items = list(map(lambda x: x[0], cur.fetchall()))
+                self._options_fields.object_class_choose.clear()
+                self._options_fields.object_class_choose.addItem('(не выбрано)')
+                self._options_fields.object_class_choose.addItems(items)
+                self._options_fields.object_class_choose.view().setMinimumWidth(len(max(items, key=len)) * 8)
+
+                cur.execute('SELECT name, code, capacity_min, capacity_max FROM service_types ORDER BY 1')
+                self._service_type_params = dict(map(lambda x: (x[0], x[1:4]), cur.fetchall()))
+                self._options_fields.service_type_choose.clear()
+                self._options_fields.service_type_choose.addItem('(не выбрано)')
+                self._options_fields.service_type_choose.addItems(sorted(self._service_type_params.keys()))
+                self._options_fields.service_type_choose.view().setMinimumWidth(len(max(self._service_type_params.keys(), key=len)) * 8)
         except Exception:
             self._db_properties.close()
+            if QtWidgets.QApplication.keyboardModifiers() & QtCore.Qt.ShiftModifier:
+                QtWidgets.QMessageBox.critical(self, 'Ошибка при попытке подключиться к БД', traceback.format_exc())
             self._db_check_res.setText('<b style=color:red;>x</b>')
         else:        
             self._db_check_res.setText('<b style=color:green;>v</b>')
 
-    def on_options_change(self, _: Optional[QtWidgets.QLineEdit] = None, _1: Optional[str] = None):
-        allowed_chars = set((chr(i) for i in range(ord('a'), ord('z'))))
+    def on_options_change(self, what_changed: Optional[Union[QtWidgets.QLineEdit, QtWidgets.QComboBox]] = None, _: Optional[str] = None):
+        allowed_chars = set((chr(i) for i in range(ord('a'), ord('z') + 1))) | {'_'}
         self._is_options_ok = True
 
-        if len(self._options_fields.object_class.text()) == 0 or len(set(self._options_fields.object_class.text()) - allowed_chars) != 0:
-            self._is_options_ok = False
-            self._options_fields.object_class.setStyleSheet('background-color: rgb({}, {}, {})'.format(*MainWindow.colorTable.light_red.getRgb()[:3]))
+        if what_changed is self._options_fields.object_class_choose:
+            if what_changed.currentIndex() > 0:
+                while self._additionals_cnt > 0:
+                    self.on_additional_delete()
+                try:
+                    with self._db_properties.conn.cursor() as cur:
+                        cur.execute('SELECT column_name, data_type from information_schema.columns where table_name = %s', (what_changed.currentText() + '_objects',))
+                        for column_name, datatype in filter(lambda column_and_type: column_and_type[0] not in ('id', 'properties', 'functional_object_id', 'type_id', 'created_at', 'updated_at'),
+                                map(lambda column_and_type: (column_and_type[0], int if column_and_type[1] == 'integer' else \
+                                        float if column_and_type[1] == 'double precision' else str), cur.fetchall())):
+                            self.on_additional_add(column_name, datatype)
+                except Exception:
+                    traceback.print_exc()
+        elif what_changed is self._options_fields.service_type_choose:
+            if what_changed.currentIndex() > 0:
+                try:
+                    with self._db_properties.conn.cursor() as cur:
+                        cur.execute('SELECT cf.name FROM service_types st JOIN city_functions cf ON st.city_function_id = cf.id WHERE st.name = %s', (what_changed.currentText(),))
+                        self._options_fields.city_function.setCurrentText(cur.fetchone()[0])
+                except Exception:
+                    traceback.print_exc()
+            else:
+                self._options_fields.city_function.setCurrentIndex(0)
+
+        if self._options_fields.object_class_choosable.isChecked():
+            if self._options_fields.object_class_choose.currentIndex() == 0:
+                self._is_options_ok = False
+                self._options_fields.object_class_choose.setStyleSheet('background-color: rgb({}, {}, {})'.format(*MainWindow.colorTable.light_red.getRgb()[:3]))
+            else:
+                self._options_fields.object_class_choose.setStyleSheet('background-color: rgb({}, {}, {})'.format(*MainWindow.colorTable.light_green.getRgb()[:3]))
         else:
-            self._options_fields.object_class.setStyleSheet('background-color: rgb({}, {}, {})'.format(*MainWindow.colorTable.light_green.getRgb()[:3]))
-        if self._options_fields.service_type.text() != '' and '"' not in self._options_fields.service_type.text() \
-                and "'" not in self._options_fields.service_type.text():
-            self._options_fields.service_type.setStyleSheet('background-color: rgb({}, {}, {})'.format(*MainWindow.colorTable.light_green.getRgb()[:3]))
+            if len(self._options_fields.object_class.text()) == 0 or len(set(self._options_fields.object_class.text()) - allowed_chars) != 0:
+                self._is_options_ok = False
+                self._options_fields.object_class.setStyleSheet('background-color: rgb({}, {}, {})'.format(*MainWindow.colorTable.light_red.getRgb()[:3]))
+            else:
+                self._options_fields.object_class.setStyleSheet('background-color: rgb({}, {}, {})'.format(*MainWindow.colorTable.light_green.getRgb()[:3]))
+
+        if self._options_fields.service_type_choosable.isChecked():
+            if self._options_fields.service_type_choose.currentIndex() == 0:
+                self._is_options_ok = False
+                self._options_fields.service_type_choose.setStyleSheet('background-color: rgb({}, {}, {})'.format(*MainWindow.colorTable.light_red.getRgb()[:3]))
+            else:
+                self._options_fields.service_type_choose.setStyleSheet('background-color: rgb({}, {}, {})'.format(*MainWindow.colorTable.light_green.getRgb()[:3]))
+            service = self._service_type_params.get(self._options_fields.service_type_choose.currentText(), (None,) * 3)
+            self._options_fields.service_code.setText(service[0] or '')
+            self._options_fields.min_capacity.setText(str(service[1] or ''))
+            self._options_fields.max_capacity.setText(str(service[2] or ''))
         else:
-            self._options_fields.service_type.setStyleSheet('background-color: rgb({}, {}, {})'.format(*MainWindow.colorTable.light_red.getRgb()[:3]))
+            if self._options_fields.service_type.text() != '' and '"' not in self._options_fields.service_type.text() \
+                    and "'" not in self._options_fields.service_type.text():
+                self._options_fields.service_type.setStyleSheet('background-color: rgb({}, {}, {})'.format(*MainWindow.colorTable.light_green.getRgb()[:3]))
+            else:
+                self._is_options_ok = False
+                self._options_fields.service_type.setStyleSheet('background-color: rgb({}, {}, {})'.format(*MainWindow.colorTable.light_red.getRgb()[:3]))
+
         if len(self._options_fields.service_code.text()) == 0:
             self._options_fields.service_code.setStyleSheet('background-color: rgb({}, {}, {})'.format(*MainWindow.colorTable.grey.getRgb()[:3]))
-        elif len(set(self._options_fields.service_code.text()) - allowed_chars) == 0:
+        elif len(set(self._options_fields.service_code.text()) - allowed_chars - {'-'}) == 0:
             self._options_fields.service_code.setStyleSheet('background-color: rgb({}, {}, {})'.format(*MainWindow.colorTable.light_green.getRgb()[:3]))
         else:
             self._is_options_ok = False
@@ -567,13 +706,81 @@ class MainWindow(QtWidgets.QWidget):
             else:
                 self._is_options_ok = False
                 line.setStyleSheet('background-color: rgb({}, {}, {})'.format(*MainWindow.colorTable.light_red.getRgb()[:3]))
+
+        for line in (self._additionals_group.itemAtPosition(i + 2, 0).widget() for i in range(self._additionals_cnt)):
+            if len(line.text()) == 0 or len(set(line.text()) - allowed_chars - {'-', '_'}) != 0:
+                self._is_options_ok = False
+                line.setStyleSheet('background-color: rgb({}, {}, {})'.format(*MainWindow.colorTable.light_red.getRgb()[:3]))
+            else:
+                line.setStyleSheet('')
             
         if self._is_options_ok and self._is_document_ok:
             self._load_objects_btn.setEnabled(True)
         else:
             self._load_objects_btn.setEnabled(False)
-            
 
+    def on_choose_change(self, what_changed: QtWidgets.QCheckBox) -> None:
+        if what_changed is self._options_fields.object_class_choosable:
+            if what_changed.isChecked():
+                self._options_group.replaceWidget(self._options_fields.object_class, self._options_fields.object_class_choose)
+                self._options_fields.object_class.setVisible(False)
+                self._options_fields.object_class_choose.setVisible(True)
+            else:
+                self._options_group.replaceWidget(self._options_fields.object_class_choose, self._options_fields.object_class)
+                self._options_fields.object_class_choose.setVisible(False)
+                self._options_fields.object_class.setVisible(True)
+        elif what_changed is self._options_fields.service_type_choosable:
+            if what_changed.isChecked():
+                self._options_group.replaceWidget(self._options_fields.service_type, self._options_fields.service_type_choose)
+                self._options_fields.service_type.setVisible(False)
+                self._options_fields.service_type_choose.setVisible(True)
+                self._options_fields.service_code.setEnabled(False)
+                self._options_fields.min_capacity.setEnabled(False)
+                self._options_fields.max_capacity.setEnabled(False)
+                self._options_fields.city_function.setEnabled(False)
+                self.on_options_change(self._options_fields.service_type_choose)
+            else:
+                self._options_group.replaceWidget(self._options_fields.service_type_choose, self._options_fields.service_type)
+                self._options_fields.service_type_choose.setVisible(False)
+                self._options_fields.service_type.setVisible(True)
+                self._options_fields.service_code.setEnabled(True)
+                self._options_fields.min_capacity.setEnabled(True)
+                self._options_fields.max_capacity.setEnabled(True)
+                self._options_fields.city_function.setEnabled(True)
+        self.on_options_change()
+
+    def on_additional_add(self, db_column: Optional[str] = None, datatype: Optional[type] = None) -> None:
+        self._additionals_group.addWidget(ColorizingLine(self.on_options_change, ), self._additionals_cnt + 2, 0)
+        self._additionals_group.addWidget(QtWidgets.QComboBox(), self._additionals_cnt + 2, 1)
+        self._additionals_group.addWidget(ColorizingLine(self.colorize_table), self._additionals_cnt + 2, 2)
+        self.colorize_table(self._additionals_group.itemAtPosition(self._additionals_cnt + 2, 2).widget())
+        self._additionals_group.itemAtPosition(self._additionals_cnt + 2, 1).widget().addItems(['строка', 'целое', 'нецелое'])
+        if db_column is not None:
+            self._additionals_group.itemAtPosition(self._additionals_cnt + 2, 0).widget().setText(db_column)
+        if datatype is not None:
+            self._additionals_group.itemAtPosition(self._additionals_cnt + 2, 1).widget().setCurrentIndex({str: 0, int: 1, float: 2}[datatype])
+        self._additionals_cnt += 1
+        if self._additionals_cnt == 1:
+            for i in range(3):
+                self._additionals_group.itemAtPosition(1, i).widget().setVisible(True)
+            self._additional_delete_btn.setEnabled(True)
+        self.on_options_change()
+
+    def on_additional_delete(self) -> None:
+        self._additionals_cnt -= 1
+        for i in range(2, -1, -1):
+            widget = self._additionals_group.itemAtPosition(self._additionals_cnt + 2, i).widget()
+            if i == 2:
+                if self._table is not None:
+                    old_text = widget.text()
+                    widget.setText(max(self._table_axes, key=len) + self._table_axes[0])
+                    self.colorize_table(widget, old_text)
+            self._additionals_group.removeWidget(widget)
+            widget.setVisible(False)
+        if self._additionals_cnt == 0:
+            for i in range(3):
+                self._additionals_group.itemAtPosition(1, i).widget().setVisible(False)
+            self._additional_delete_btn.setEnabled(False)
 
     def colorize_table(self, what_changed: Optional[QtWidgets.QLineEdit] = None, previous_value: Optional[str] = None) -> None:
         if self._table is None:
@@ -606,7 +813,8 @@ class MainWindow(QtWidgets.QWidget):
                 for row in range(self._table_model.rowCount()):
                     self._table_model.setData(self._table_model.index(row, col), QtGui.QColor(QtCore.Qt.white), QtCore.Qt.BackgroundRole)
         else:
-            for field in self._document_fields:
+            field: QtWidgets.QLineEdit
+            for field in itertools.chain(self._document_fields, (self._additionals_group.itemAtPosition(i + 2, 2).widget() for i in range(self._additionals_cnt))): # type: ignore
                 if field.text() not in self._table_axes:
                     if (field.text() in ('', '-') and not (field is self._document_fields.address or
                             field is self._document_fields.latitude or field is self._document_fields.longitude)) or \
@@ -660,10 +868,13 @@ class MainWindow(QtWidgets.QWidget):
 
 
 class TypesWindow(QtWidgets.QWidget):
-    def __init__(self, types: Dict[str, Tuple[str, str]] = {}, parent: Optional[QtWidgets.QWidget] = None):
+    def __init__(self, types: Optional[Dict[str, Tuple[str, str]]] = None, parent: Optional[QtWidgets.QWidget] = None):
         super().__init__(parent)
 
         self.setWindowTitle('Соответствие внутренних типов')
+
+        if types is None:
+            types = {}
 
         self._layout = QtWidgets.QGridLayout()
         self._scroll = QtWidgets.QScrollArea()
@@ -784,10 +995,7 @@ class TypesWindow(QtWidgets.QWidget):
 
 if __name__ == '__main__':
     app = QtWidgets.QApplication([])
-    try:
-        app.setWindowIcon(QtGui.QIcon(QtGui.QPixmap('icon.png')))
-    except Exception as ex:
-        traceback.print_exc()
+    app.setWindowIcon(QtGui.QIcon(QtGui.QPixmap('icon.png')))
     app.setApplicationName('Добавление сервисов')
 
     window = MainWindow()
