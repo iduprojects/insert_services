@@ -1,0 +1,6 @@
+PySide6
+pandas
+psycopg2
+openpyxl
+xlrd
+odfpy

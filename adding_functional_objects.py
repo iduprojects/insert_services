@@ -1,6 +1,7 @@
 import argparse
 import psycopg2
 import pandas as pd, json
+from numpy import nan
 import os, time, random
 import traceback, itertools
 from typing import Dict, Iterable, Tuple, List, Any, Union, Optional, Set
@@ -51,6 +52,7 @@ def ensure_tables(conn: psycopg2.extensions.connection, object_class: str, addit
         if commit:
             conn.commit()
 
+
 def ensure_service(conn: psycopg2.extensions.connection, service_type: str, service_code: Optional[str],
         capacity_min: Optional[int], capacity_max: Optional[int], city_function: Union[int, str], commit: bool = True) -> int:
     with conn.cursor() as cur:
@@ -69,6 +71,7 @@ def ensure_service(conn: psycopg2.extensions.connection, service_type: str, serv
             conn.commit()
         return cur.fetchone()[0]
 
+
 def get_type_name(row_or_name: Union[str, pd.Series], amenity_field: Optional[str] = 'amenity') -> str:
     '''get_type_name is a function that takes name or concrete functional object Series and returns its type name in lowercase
     
@@ -82,6 +85,7 @@ def get_type_name(row_or_name: Union[str, pd.Series], amenity_field: Optional[st
         else:
             raise ValueError(f'get_type_name error: no {amenity_field} found in entity. You need to set default value')
     return row_or_name.lower() # type: ignore
+
 
 _type_ids: Dict[Tuple[str, str], int] = {}
 def get_type_id(cur: psycopg2.extensions.connection, object_class: str, row_or_name: Union[str, pd.Series],
@@ -108,12 +112,17 @@ def get_type_id(cur: psycopg2.extensions.connection, object_class: str, row_or_n
     _type_ids[(object_class, name)] = res[0]
     return _type_ids[(object_class, name)]
 
+
 def safe_typecast(value: Any, need_type: type) -> Any:
     if value is None or value != value or (isinstance(value, str) and value == ''):
         return None
-    if need_type is int:
-        return int(float(value))
-    return need_type(value)
+    try:
+        if need_type is int:
+            return int(float(value))
+        return need_type(value)
+    except Exception:
+        return None
+
 
 def insert_object(conn: psycopg2.extensions.connection, row: pd.Series, phys_id: int, object_class: str,
         service_type_id: int, type_id: int, mapping: Dict[str, str] = {'name': 'name',
@@ -144,6 +153,7 @@ def insert_object(conn: psycopg2.extensions.connection, row: pd.Series, phys_id:
         if commit:
             conn.commit()
         return func_id
+
 
 def update_object(conn: psycopg2.extensions.connection, row: pd.Series, object_class: str, func_id: int, mapping: Dict[str, str] = {'name': 'name',
                 'opening_hours': 'opening_hours', 'website': 'contact:website', 'phone': 'contact:phone'},
@@ -177,6 +187,7 @@ def update_object(conn: psycopg2.extensions.connection, row: pd.Series, object_c
         if commit:
             conn.commit()
         return func_id
+
 
 def add_objects(conn: psycopg2.extensions.connection, objects: pd.DataFrame,
         object_class: str, object_types: Dict[str, Tuple[str, str]], service_type_id: int,
@@ -243,6 +254,12 @@ def add_objects(conn: psycopg2.extensions.connection, objects: pd.DataFrame,
     with conn.cursor() as cur:
         for i, (_, row) in enumerate(objects.iterrows()):
             try:
+                try:
+                    row[mapping['lat']] = float(row[mapping['lat']])
+                    row[mapping['lng']] = float(row[mapping['lng']])
+                except Exception:
+                    results[i] = 'Skipped (latitude or longitude have invalid format)'
+                    continue
                 row[mapping['lat']] = round(row[mapping['lat']], 6)
                 row[mapping['lng']] = round(row[mapping['lng']], 6)
                 for address_prefix in address_prefixes:
@@ -353,6 +370,7 @@ def add_objects(conn: psycopg2.extensions.connection, objects: pd.DataFrame,
         f' and {added_to_building_geom} found buildings by geometry), {present} objects were already present, {skipped} objects were skipped')
     return objects
 
+
 def replace_with_default(df: pd.DataFrame, default_values: Dict[str, Any]) -> pd.DataFrame:
     '''replace_with_default replace null items in dataframe in given columns with given values.
 
@@ -369,6 +387,7 @@ def replace_with_default(df: pd.DataFrame, default_values: Dict[str, Any]) -> pd
             df[column] = pd.DataFrame([value] * df.shape[0])
     return df
 
+
 def load_objects_geojson(filename: str, default_values: Optional[Dict[str, Any]] = None, needed_columns: Optional[Iterable[str]] = None) -> pd.DataFrame:
     '''load_objects_geojson loads objects as DataFrame from geojson. It contains only [features][properties] columns.
     Calls `replace_with_default` after load if `default_values` is present
@@ -381,7 +400,8 @@ def load_objects_geojson(filename: str, default_values: Optional[Dict[str, Any]]
             res = replace_with_default(res, default_values)
         if needed_columns is not None:
             res = res[needed_columns]
-        return res.where(pd.DataFrame.notnull(res), None)
+        return res.dropna(how='all').reset_index().replace({nan, None})
+
 
 def load_objects_json(filename: str, default_values: Optional[Dict[str, Any]] = None, needed_columns: Optional[Iterable[str]] = None) -> pd.DataFrame:
     '''load_objects_json loads objects as DataFrame from json by calling pd.read_json.
@@ -392,7 +412,8 @@ def load_objects_json(filename: str, default_values: Optional[Dict[str, Any]] = 
         res = replace_with_default(res, default_values)
     if needed_columns is not None:
         res = res[needed_columns]
-    return res.where(pd.DataFrame.notnull(res), None)
+    return res.dropna(how='all').reset_index().replace({nan, None})
+
 
 def load_objects_csv(filename: str, default_values: Optional[Dict[str, Any]] = None, needed_columns: Optional[Iterable[str]] = None) -> pd.DataFrame:
     '''load_objects_csv loads objects as DataFrame from csv by calling pd.read_csv.
@@ -403,7 +424,8 @@ def load_objects_csv(filename: str, default_values: Optional[Dict[str, Any]] = N
         res = replace_with_default(res, default_values)
     if needed_columns is not None:
         res = res[needed_columns]
-    return res.where(pd.DataFrame.notnull(res), None)
+    return res.dropna(how='all').reset_index().replace({nan, None})
+
 
 def load_objects_xlsx(filename: str, default_values: Optional[Dict[str, Any]] = None, needed_columns: Optional[Iterable[str]] = None) -> pd.DataFrame:
     '''load_objects_xlcx loads objects as DataFrame from xlsx by calling pd.read_excel (need to have `openpyxl` Pyhton module installed).
@@ -414,7 +436,8 @@ def load_objects_xlsx(filename: str, default_values: Optional[Dict[str, Any]] = 
         res = replace_with_default(res, default_values)
     if needed_columns is not None:
         res = res[needed_columns]
-    return res.where(pd.DataFrame.notnull(res), None)
+    return res.dropna(how='all').reset_index().replace({nan, None})
+
 
 def load_objects_excel(filename: str, default_values: Optional[Dict[str, Any]] = None, needed_columns: Optional[Iterable[str]] = None) -> pd.DataFrame:
     '''load_objects_excel loads objects as DataFrame from xls or ods by calling pd.read_excel (need to have `xlrd` Pyhton module installed for xls and `odfpy` for ods).
@@ -425,7 +448,8 @@ def load_objects_excel(filename: str, default_values: Optional[Dict[str, Any]] =
         res = replace_with_default(res, default_values)
     if needed_columns is not None:
         res = res[needed_columns]
-    return res.where(pd.DataFrame.notnull(res), None)
+    return res.dropna(how='all').reset_index().replace({nan, None})
+
 
 def load_objects(filename: str, default_values: Optional[Dict[str, Any]] = None, needed_columns: Optional[Iterable[str]] = None) -> pd.DataFrame:
     funcs = {'csv': load_objects_csv, 'xlsx': load_objects_xlsx, 'xls': load_objects_excel,

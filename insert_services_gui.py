@@ -636,14 +636,21 @@ class MainWindow(QtWidgets.QWidget):
                 try:
                     with self._db_properties.conn.cursor() as cur:
                         cur.execute('SELECT column_name, data_type from information_schema.columns where table_name = %s', (what_changed.currentText() + '_objects',))
-                        for column_name, datatype in filter(lambda column_and_type: column_and_type[0] not in ('id', 'properties', 'functional_object_id', 'type_id', 'created_at', 'updated_at'),
+                        for column_name, datatype in filter(lambda column_and_type: column_and_type[0] not in \
+                                ('id', 'properties', 'functional_object_id', 'type_id', 'created_at', 'updated_at'),
                                 map(lambda column_and_type: (column_and_type[0], int if column_and_type[1] == 'integer' else \
                                         float if column_and_type[1] == 'double precision' else str), cur.fetchall())):
                             self.on_additional_add(column_name, datatype)
+                        cur.execute("SELECT count(distinct column_name) from information_schema.columns where table_name = %s and column_name = 'name' or column_name = 'code'",
+                                (what_changed.currentText() + '_object_types',))
+                        tmp = cur.fetchone()[0]
+                        if tmp == 2:
+                            cur.execute(f'SELECT name, code FROM {what_changed.currentText()}_object_types ORDER BY 1')
+                            self._types_window.update_types_list(cur.fetchall())
                 except Exception:
                     traceback.print_exc()
         elif what_changed is self._options_fields.service_type_choose:
-            if what_changed.currentIndex() > 0:
+            if what_changed.currentIndex() > 1:
                 try:
                     with self._db_properties.conn.cursor() as cur:
                         cur.execute('SELECT cf.name FROM service_types st JOIN city_functions cf ON st.city_function_id = cf.id WHERE st.name = %s', (what_changed.currentText(),))
@@ -725,6 +732,7 @@ class MainWindow(QtWidgets.QWidget):
                 self._options_group.replaceWidget(self._options_fields.object_class, self._options_fields.object_class_choose)
                 self._options_fields.object_class.setVisible(False)
                 self._options_fields.object_class_choose.setVisible(True)
+                self.on_options_change(self._options_fields.object_class_choose)
             else:
                 self._options_group.replaceWidget(self._options_fields.object_class_choose, self._options_fields.object_class)
                 self._options_fields.object_class_choose.setVisible(False)
@@ -789,6 +797,10 @@ class MainWindow(QtWidgets.QWidget):
         if what_changed is not None:
             if what_changed is self._options_fields.override_amenity or \
                     what_changed is self._document_fields.amenity and self._options_fields.override_amenity.text() not in ('', '-'):
+                if self._options_fields.override_amenity.text() in ('', '-'):
+                    self._options_fields.override_amenity.setStyleSheet('background-color: rgb({}, {}, {});'.format(*MainWindow.colorTable.grey.getRgb()[:3]))
+                    self.colorize_table(self._document_fields.amenity)
+                    return
                 self._document_fields.amenity.setStyleSheet('background-color: rgb({}, {}, {});'.format(*MainWindow.colorTable.grey.getRgb()[:3]))
                 if self._document_fields.amenity.text() in self._table_axes:
                     col = self._table_axes.index(self._document_fields.amenity.text())
@@ -829,11 +841,13 @@ class MainWindow(QtWidgets.QWidget):
                     for row in range(self._table_model.rowCount()):
                         self._table_model.setData(self._table_model.index(row, col), MainWindow.colorTable.light_green, QtCore.Qt.BackgroundRole)
             if self._options_fields.override_amenity.text() not in ('', '-'):
-                self._document_fields.amenity.setStyleSheet('background-color: rgb({}, {}, {});'.format(*MainWindow.colorTable.grey.getRgb()[:3]))    
+                self._document_fields.amenity.setStyleSheet('background-color: rgb({}, {}, {});'.format(*MainWindow.colorTable.grey.getRgb()[:3]))
                 if self._document_fields.amenity.text() in self._table_axes:
                     col = self._table_axes.index(self._document_fields.amenity.text())
                     for row in range(self._table_model.rowCount()):
                         self._table_model.setData(self._table_model.index(row, col), MainWindow.colorTable.grey, QtCore.Qt.BackgroundRole)
+            else:
+                self._options_fields.override_amenity.setStyleSheet('background-color: rgb({}, {}, {});'.format(*MainWindow.colorTable.grey.getRgb()[:3]))
 
         if self._is_options_ok and self._is_document_ok:
             self._load_objects_btn.setEnabled(True)
@@ -922,6 +936,12 @@ class TypesWindow(QtWidgets.QWidget):
 
         self._scroll_vlayout.addLayout(self._edit_buttons_layout)
         self._scroll_vlayout.addLayout(self._save_load_buttons_layout)
+    
+    def update_types_list(self, types: List[Tuple[str, str]]):
+        while self._layout_rows > 0:
+            self.on_delete()
+        for name_db, code in types:
+            self.on_add(None, name_db, code)
 
     def types(self) -> Dict[str, Tuple[str, str]]:
         types = {}
@@ -930,10 +950,10 @@ class TypesWindow(QtWidgets.QWidget):
                     (self._layout.itemAtPosition(i + 1, 1).widget().text(), self._layout.itemAtPosition(i + 1, 2).widget().text())
         return types
 
-    def on_add(self) -> None:
-        self._layout.addWidget(QtWidgets.QLineEdit(), self._layout_rows, 0)
-        self._layout.addWidget(QtWidgets.QLineEdit(), self._layout_rows, 1)
-        self._layout.addWidget(QtWidgets.QLineEdit(), self._layout_rows, 2)
+    def on_add(self, name_document: Optional[str] = None, name_db: Optional[str] = None, code: Optional[str] = None) -> None:
+        self._layout.addWidget(QtWidgets.QLineEdit(name_document), self._layout_rows, 0)
+        self._layout.addWidget(QtWidgets.QLineEdit(name_db), self._layout_rows, 1)
+        self._layout.addWidget(QtWidgets.QLineEdit(code), self._layout_rows, 2)
         self._layout_rows += 1
         if self._layout_rows == 2:
             self._delete_btn.setEnabled(True)
@@ -982,15 +1002,8 @@ class TypesWindow(QtWidgets.QWidget):
             QtWidgets.QMessageBox.critical(self, 'Невозможно открыть файл', f'Неизвестная ошибка при открытии: {ex}')
             return
         types = dict(map(lambda item: (item[0].lower(), item[1]), types.items()))
-        if len(types) > 0:
-            self._delete_btn.setEnabled(True)
-        else:
-            self._delete_btn.setEnabled(False)
         for i, (item, (name, code)) in enumerate(types.items(), 1):
-            self._layout.addWidget(QtWidgets.QLineEdit(item), i, 0)
-            self._layout.addWidget(QtWidgets.QLineEdit(name), i, 1)
-            self._layout.addWidget(QtWidgets.QLineEdit(code), i, 2)
-            self._layout_rows += 1
+            self.on_add(item, name, code)
 
 
 if __name__ == '__main__':
