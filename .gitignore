@@ -3,6 +3,8 @@
 *.xlsx
 *.xls
 *.csv
+*.docx
+*.~lock*
 
 .mypy_cache
 .vscode

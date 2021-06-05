@@ -34,16 +34,16 @@ def ensure_tables(conn: psycopg2.extensions.connection, object_class: str, addit
                 '   updated_at timestamptz NOT NULL default now()'
                 ')')
         if additional_columns:
-            types_mapping = {str: 'character varying', float: 'double precision', int: 'integer'}
+            types_mapping = {str: 'character varying', float: 'double precision', int: 'integer', bool: 'boolean'}
             try:
                 additional_columns_names = dict(map(lambda x: (x[0], types_mapping[x[1]]), additional_columns.items()))
             except KeyError as e:
-                raise ValueError(f'One of the columns has wrong datatype "{e.args[0] if len(e.args) > 0 else ""}" (should be one of the "varchar", "float", "int")')
+                raise ValueError(f'One of the columns has wrong type "{e.args[0] if len(e.args) > 0 else ""}" (should be one of the str, float, int, bool)')
             cur.execute('SELECT column_name, data_type from information_schema.columns where table_name = %s', (f'{object_class}_objects',))
             columns: Dict[str, str] = dict(cur.fetchall())
             for column, column_type in additional_columns_names.items():
-                assert column_type in ('integer', 'character varying', 'double precision'), \
-                        f'Column {column} type "{column_type}" is unknown, need to be one of the: (integer, string, float)'
+                assert column_type in ('integer', 'character varying', 'double precision', 'boolean'), \
+                        f'Column {column} type "{column_type}" is unknown, need to be one of the: (integer, string, float, boolean)'
                 if column in columns:
                     assert columns[column] == column_type, \
                             f'Column {column} type is different from the existing column in database: "{columns[column]}" != "{column_type}"'
@@ -119,6 +119,9 @@ def safe_typecast(value: Any, need_type: type) -> Any:
     try:
         if need_type is int:
             return int(float(value))
+        if need_type is bool:
+            if isinstance(value, str):
+                return False if value.lower() in ('-', '0', 'false', 'no', 'нет', 'ложь') else bool(value)
         return need_type(value)
     except Exception:
         return None
@@ -400,7 +403,7 @@ def load_objects_geojson(filename: str, default_values: Optional[Dict[str, Any]]
             res = replace_with_default(res, default_values)
         if needed_columns is not None:
             res = res[needed_columns]
-        return res.dropna(how='all').reset_index().replace({nan, None})
+        return res.dropna(how='all').reset_index(drop=True).where(pd.DataFrame.notnull(res), None)
 
 
 def load_objects_json(filename: str, default_values: Optional[Dict[str, Any]] = None, needed_columns: Optional[Iterable[str]] = None) -> pd.DataFrame:
@@ -412,7 +415,7 @@ def load_objects_json(filename: str, default_values: Optional[Dict[str, Any]] = 
         res = replace_with_default(res, default_values)
     if needed_columns is not None:
         res = res[needed_columns]
-    return res.dropna(how='all').reset_index().replace({nan, None})
+    return res.dropna(how='all').reset_index(drop=True).where(pd.DataFrame.notnull(res), None)
 
 
 def load_objects_csv(filename: str, default_values: Optional[Dict[str, Any]] = None, needed_columns: Optional[Iterable[str]] = None) -> pd.DataFrame:
@@ -424,7 +427,7 @@ def load_objects_csv(filename: str, default_values: Optional[Dict[str, Any]] = N
         res = replace_with_default(res, default_values)
     if needed_columns is not None:
         res = res[needed_columns]
-    return res.dropna(how='all').reset_index().replace({nan, None})
+    return res.dropna(how='all').reset_index(drop=True).where(pd.DataFrame.notnull(res), None)
 
 
 def load_objects_xlsx(filename: str, default_values: Optional[Dict[str, Any]] = None, needed_columns: Optional[Iterable[str]] = None) -> pd.DataFrame:
@@ -436,7 +439,7 @@ def load_objects_xlsx(filename: str, default_values: Optional[Dict[str, Any]] = 
         res = replace_with_default(res, default_values)
     if needed_columns is not None:
         res = res[needed_columns]
-    return res.dropna(how='all').reset_index().replace({nan, None})
+    return res.dropna(how='all').reset_index(drop=True).where(pd.DataFrame.notnull(res), None)
 
 
 def load_objects_excel(filename: str, default_values: Optional[Dict[str, Any]] = None, needed_columns: Optional[Iterable[str]] = None) -> pd.DataFrame:
@@ -448,7 +451,7 @@ def load_objects_excel(filename: str, default_values: Optional[Dict[str, Any]] =
         res = replace_with_default(res, default_values)
     if needed_columns is not None:
         res = res[needed_columns]
-    return res.dropna(how='all').reset_index().replace({nan, None})
+    return res.dropna(how='all').reset_index(drop=True).where(pd.DataFrame.notnull(res), None)
 
 
 def load_objects(filename: str, default_values: Optional[Dict[str, Any]] = None, needed_columns: Optional[Iterable[str]] = None) -> pd.DataFrame:

@@ -21,7 +21,8 @@ class ColorizingLine(QtWidgets.QLineEdit):
 
     def focusOutEvent(self, event: QtGui.QFocusEvent) -> None:
         if self.text() != self._state:
-            self._callback(self, self._state)
+            if self.isVisible():
+                self._callback(self, self._state)
             self._state = self.text()
         return super().focusOutEvent(event)
 
@@ -36,7 +37,8 @@ class ColorizingComboBox(QtWidgets.QComboBox):
     def wheelEvent(self, event: QtGui.QWheelEvent) -> None:
         super().wheelEvent(event)
         if self.currentIndex() != self._state:
-            self._callback(self)
+            if self.isVisible():
+                self._callback(self)
             self._state = self.currentIndex()
 
 
@@ -179,6 +181,8 @@ class MainWindow(QtWidgets.QWidget):
         super().__init__(parent)
 
         self._additionals_cnt = 0
+        self._is_options_ok = False
+        self._is_document_ok = False
 
         self._layout = QtWidgets.QHBoxLayout()
         self._left = QtWidgets.QVBoxLayout()
@@ -238,7 +242,7 @@ class MainWindow(QtWidgets.QWidget):
                 ColorizingLine(self.on_options_change),
                 ColorizingLine(self.on_options_change),
                 ColorizingLine(self.on_options_change),
-                ColorizingLine(self.colorize_table),
+                ColorizingLine(self.on_document_change),
                 ColorizingComboBox(self.on_options_change),
                 ColorizingComboBox(self.on_options_change),
                 ColorizingComboBox(self.on_options_change),
@@ -266,7 +270,7 @@ class MainWindow(QtWidgets.QWidget):
         self._document_group_box = QtWidgets.QGroupBox('Сопоставление документа')
         self._document_group = QtWidgets.QFormLayout()
         self._document_group_box.setLayout(self._document_group)
-        self._document_fields = MainWindow.DocumentFields(*(ColorizingLine(self.colorize_table) for _ in range(9)))
+        self._document_fields = MainWindow.DocumentFields(*(ColorizingLine(self.on_document_change) for _ in range(9)))
         self._document_address_prefixes = [QtWidgets.QLineEdit() for _ in range(len(get_main_window_default_address_prefixes()))]
         self._document_group.addRow('Широта:', self._document_fields.latitude)
         self._document_group.addRow('Долгота:', self._document_fields.longitude)
@@ -380,9 +384,6 @@ class MainWindow(QtWidgets.QWidget):
             line.setMinimumWidth(250)
 
         self._service_type_params: Dict[str, Tuple[str, Optional[int], Optional[int]]] = {}
-
-        self._is_options_ok = False
-        self._is_document_ok = False
         
         self.on_options_change()
 
@@ -393,8 +394,7 @@ class MainWindow(QtWidgets.QWidget):
                 fileDialog.setFileMode(QtWidgets.QFileDialog.ExistingFile)
                 fileDialog.setNameFilters(('All files (*.xlsx *.xls *.json *.geojson *.ods *.csv)', 'Modern Excel files (*.xlsx)',
                         'Excel files (*.xls *.ods)', 'GeoJSON files (*.json *.geojson)', 'CSV files (*.csv)'))
-                fileDialog.exec()
-                if len(fileDialog.selectedFiles()) == 0:
+                if fileDialog.exec() != QtWidgets.QDialog.DialogCode.Accepted:
                     return
                 filename = fileDialog.selectedFiles()[0]
             except ValueError:
@@ -429,7 +429,7 @@ class MainWindow(QtWidgets.QWidget):
         self._load_objects_btn.setVisible(True)
         self._save_results_btn.setVisible(False)
 
-        self.colorize_table()
+        self.on_document_change()
 
         self._table.setModel(self._table_model)
         self._table.horizontalHeader().setMinimumSectionSize(0)
@@ -460,7 +460,7 @@ class MainWindow(QtWidgets.QWidget):
         app.setOverrideCursor(QtCore.Qt.BusyCursor)
         is_commit = not bool(QtWidgets.QApplication.keyboardModifiers() & QtCore.Qt.ShiftModifier)
         try:
-            types_mapping = {'целое': int, 'нецелое': float, 'строка': str}
+            types_mapping = {'целое': int, 'нецелое': float, 'строка': str, 'булево': bool}
             adding_functional_objects.ensure_tables(
                     self._db_properties.conn, self._options_fields.object_class.text() if not self._options_fields.object_class_choosable.isChecked() else \
                     self._options_fields.object_class_choose.currentText(), 
@@ -544,8 +544,7 @@ class MainWindow(QtWidgets.QWidget):
                 f'{t.tm_hour:02}-{t.tm_min:02}-{t.tm_sec:02}-{filename[:filename.rindex(".")]}'
         fileDialog.selectNameFilter('CSV files (*.csv)')
         fileDialog.selectFile(logfile)
-        fileDialog.exec()
-        if len(fileDialog.selectedFiles()) == 0:
+        if fileDialog.exec() != QtWidgets.QDialog.DialogCode.Accepted:
             return
         filename = fileDialog.selectedFiles()[0]
         df = self.table_as_DataFrame()
@@ -561,8 +560,8 @@ class MainWindow(QtWidgets.QWidget):
     def on_prefix_remove(self) -> None:
         self._document_address_prefixes.pop()
         widget = self._prefixes_group.itemAt(self._prefixes_group.count() - 4).widget()
-        self._prefixes_group.removeWidget(widget)
         widget.setVisible(False)
+        self._prefixes_group.removeWidget(widget)
         if len(self._document_address_prefixes) == 1:
             self._address_prefix_remove_btn.setEnabled(False)
 
@@ -639,7 +638,7 @@ class MainWindow(QtWidgets.QWidget):
                         for column_name, datatype in filter(lambda column_and_type: column_and_type[0] not in \
                                 ('id', 'properties', 'functional_object_id', 'type_id', 'created_at', 'updated_at'),
                                 map(lambda column_and_type: (column_and_type[0], int if column_and_type[1] == 'integer' else \
-                                        float if column_and_type[1] == 'double precision' else str), cur.fetchall())):
+                                        float if column_and_type[1] == 'double precision' else bool if column_and_type[1] == 'boolean' else str), cur.fetchall())):
                             self.on_additional_add(column_name, datatype)
                         cur.execute("SELECT count(distinct column_name) from information_schema.columns where table_name = %s and column_name = 'name' or column_name = 'code'",
                                 (what_changed.currentText() + '_object_types',))
@@ -721,6 +720,7 @@ class MainWindow(QtWidgets.QWidget):
             else:
                 line.setStyleSheet('')
             
+        # print(f'Options check. Options: {self._is_options_ok}, document: {self._is_document_ok}')
         if self._is_options_ok and self._is_document_ok:
             self._load_objects_btn.setEnabled(True)
         else:
@@ -760,13 +760,13 @@ class MainWindow(QtWidgets.QWidget):
     def on_additional_add(self, db_column: Optional[str] = None, datatype: Optional[type] = None) -> None:
         self._additionals_group.addWidget(ColorizingLine(self.on_options_change, ), self._additionals_cnt + 2, 0)
         self._additionals_group.addWidget(QtWidgets.QComboBox(), self._additionals_cnt + 2, 1)
-        self._additionals_group.addWidget(ColorizingLine(self.colorize_table), self._additionals_cnt + 2, 2)
-        self.colorize_table(self._additionals_group.itemAtPosition(self._additionals_cnt + 2, 2).widget())
-        self._additionals_group.itemAtPosition(self._additionals_cnt + 2, 1).widget().addItems(['строка', 'целое', 'нецелое'])
+        self._additionals_group.addWidget(ColorizingLine(self.on_document_change), self._additionals_cnt + 2, 2)
+        self.on_document_change(self._additionals_group.itemAtPosition(self._additionals_cnt + 2, 2).widget())
+        self._additionals_group.itemAtPosition(self._additionals_cnt + 2, 1).widget().addItems(['строка', 'целое', 'нецелое', 'булево'])
         if db_column is not None:
             self._additionals_group.itemAtPosition(self._additionals_cnt + 2, 0).widget().setText(db_column)
         if datatype is not None:
-            self._additionals_group.itemAtPosition(self._additionals_cnt + 2, 1).widget().setCurrentIndex({str: 0, int: 1, float: 2}[datatype])
+            self._additionals_group.itemAtPosition(self._additionals_cnt + 2, 1).widget().setCurrentIndex({str: 0, int: 1, float: 2, bool: 3}[datatype])
         self._additionals_cnt += 1
         if self._additionals_cnt == 1:
             for i in range(3):
@@ -782,24 +782,35 @@ class MainWindow(QtWidgets.QWidget):
                 if self._table is not None:
                     old_text = widget.text()
                     widget.setText(max(self._table_axes, key=len) + self._table_axes[0])
-                    self.colorize_table(widget, old_text)
-            self._additionals_group.removeWidget(widget)
+                    self.on_document_change(widget, old_text)
             widget.setVisible(False)
+            self._additionals_group.removeWidget(widget)
         if self._additionals_cnt == 0:
             for i in range(3):
                 self._additionals_group.itemAtPosition(1, i).widget().setVisible(False)
             self._additional_delete_btn.setEnabled(False)
+        self.check_document_correctness()
+        self.on_options_change()
 
-    def colorize_table(self, what_changed: Optional[QtWidgets.QLineEdit] = None, previous_value: Optional[str] = None) -> None:
+    def check_document_correctness(self) -> None:
+        self._is_document_ok = True
+        field: QtWidgets.QLineEdit
+        for field in itertools.chain(self._document_fields, (self._additionals_group.itemAtPosition(i + 2, 2).widget() for i in range(self._additionals_cnt))): # type: ignore
+            if field.text() not in self._table_axes:
+                if not (field.text() in ('', '-') and not (field is self._document_fields.address or
+                        field is self._document_fields.latitude or field is self._document_fields.longitude)) or \
+                        (field is self._document_fields.amenity and self._options_fields.override_amenity.text() not in ('', '-')):
+                    self._is_document_ok = False
+
+    def on_document_change(self, what_changed: Optional[QtWidgets.QLineEdit] = None, previous_value: Optional[str] = None) -> None:
         if self._table is None:
             return
-        self._is_document_ok = True
         if what_changed is not None:
             if what_changed is self._options_fields.override_amenity or \
                     what_changed is self._document_fields.amenity and self._options_fields.override_amenity.text() not in ('', '-'):
                 if self._options_fields.override_amenity.text() in ('', '-'):
                     self._options_fields.override_amenity.setStyleSheet('background-color: rgb({}, {}, {});'.format(*MainWindow.colorTable.grey.getRgb()[:3]))
-                    self.colorize_table(self._document_fields.amenity)
+                    self.on_document_change(self._document_fields.amenity)
                     return
                 self._document_fields.amenity.setStyleSheet('background-color: rgb({}, {}, {});'.format(*MainWindow.colorTable.grey.getRgb()[:3]))
                 if self._document_fields.amenity.text() in self._table_axes:
@@ -813,7 +824,6 @@ class MainWindow(QtWidgets.QWidget):
                     what_changed.setStyleSheet('background-color: rgb({}, {}, {});'.format(*MainWindow.colorTable.grey.getRgb()[:3]))
                 else:
                     what_changed.setStyleSheet('background-color: rgb({}, {}, {});'.format(*MainWindow.colorTable.light_red.getRgb()[:3]))
-                    self._is_document_ok = False
             else:
                 what_changed.setStyleSheet('')
                 col = self._table_axes.index(what_changed.text())
@@ -824,7 +834,9 @@ class MainWindow(QtWidgets.QWidget):
                 col = self._table_axes.index(previous_value)
                 for row in range(self._table_model.rowCount()):
                     self._table_model.setData(self._table_model.index(row, col), QtGui.QColor(QtCore.Qt.white), QtCore.Qt.BackgroundRole)
+            self.check_document_correctness()
         else:
+            self._is_document_ok = True
             field: QtWidgets.QLineEdit
             for field in itertools.chain(self._document_fields, (self._additionals_group.itemAtPosition(i + 2, 2).widget() for i in range(self._additionals_cnt))): # type: ignore
                 if field.text() not in self._table_axes:
@@ -848,6 +860,8 @@ class MainWindow(QtWidgets.QWidget):
                         self._table_model.setData(self._table_model.index(row, col), MainWindow.colorTable.grey, QtCore.Qt.BackgroundRole)
             else:
                 self._options_fields.override_amenity.setStyleSheet('background-color: rgb({}, {}, {});'.format(*MainWindow.colorTable.grey.getRgb()[:3]))
+
+        # print(f'Document check. Options: {self._is_options_ok}, document: {self._is_document_ok}')
 
         if self._is_options_ok and self._is_document_ok:
             self._load_objects_btn.setEnabled(True)
@@ -938,7 +952,7 @@ class TypesWindow(QtWidgets.QWidget):
         self._scroll_vlayout.addLayout(self._save_load_buttons_layout)
     
     def update_types_list(self, types: List[Tuple[str, str]]):
-        while self._layout_rows > 0:
+        while self._layout_rows > 1:
             self.on_delete()
         for name_db, code in types:
             self.on_add(None, name_db, code)
@@ -961,8 +975,8 @@ class TypesWindow(QtWidgets.QWidget):
     def on_delete(self) -> None:
         for j in range(2, -1, -1):
             widget = self._layout.itemAtPosition(self._layout_rows - 1, j).widget()
-            self._layout.removeWidget(widget)
             widget.setVisible(False)
+            self._layout.removeWidget(widget)
         self._layout_rows -= 1
         if self._layout_rows == 1:
             self._delete_btn.setEnabled(False)
@@ -972,8 +986,7 @@ class TypesWindow(QtWidgets.QWidget):
         fileDialog.setAcceptMode(QtWidgets.QFileDialog.AcceptSave)
         fileDialog.setNameFilter('JSON file (*.json)')
         fileDialog.selectFile('types')
-        fileDialog.exec()
-        if len(fileDialog.selectedFiles()) == 0:
+        if fileDialog.exec() != QtWidgets.QDialog.DialogCode.Accepted:
             return
         with open(fileDialog.selectedFiles()[0], 'wt', encoding='utf-8') as f:
             json.dump(self.types(), f, ensure_ascii=False)
@@ -982,8 +995,7 @@ class TypesWindow(QtWidgets.QWidget):
         if not filepath:
             fileDialog = QtWidgets.QFileDialog(self)
             fileDialog.setNameFilter('JSON file (*.json)')
-            fileDialog.exec()
-            if len(fileDialog.selectedFiles()) == 0:
+            if fileDialog.exec() != QtWidgets.QDialog.DialogCode.Accepted:
                 return
             filename = fileDialog.selectedFiles()[0]
         else:
