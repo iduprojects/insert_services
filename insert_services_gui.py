@@ -32,14 +32,22 @@ class ColorizingComboBox(QtWidgets.QComboBox):
         super().__init__(parent)
         self._callback = callback
         self._state = 0
-        self.currentIndexChanged.connect(lambda: callback(self))
+        self.currentIndexChanged.connect(self.changeEvent)
 
-    def wheelEvent(self, event: QtGui.QWheelEvent) -> None:
-        super().wheelEvent(event)
-        if self.currentIndex() != self._state:
-            if self.isVisible():
-                self._callback(self)
+    # def wheelEvent(self, event: QtGui.QWheelEvent) -> None:
+    #     super().wheelEvent(event)
+    #     if self.currentIndex() != self._state:
+    #         if self.isVisible():
+    #             self._callback(self)
+    #         self._state = self.currentIndex()
+    
+    def changeEvent(self, *_):
+        if self._state != self.currentIndex():
+            old_state = self._state
             self._state = self.currentIndex()
+            if self.isVisible():
+                self._callback(self, old_state)
+
 
 
 class CheckableTableView(QtWidgets.QTableView):
@@ -54,14 +62,39 @@ class CheckableTableView(QtWidgets.QTableView):
 
     def mouseDoubleClickEvent(self, event: QtGui.QMouseEvent) -> None:
         if self.columnAt(int(event.position().x())) == 0:
-            row = self.rowAt(int(event.position().y()))
-            item_index = self.model().index(row, 0)
-            item = self.model().data(item_index)
-            self.model().setData(item_index, '-' if item == '+' else '+')
-            self.model().setData(item_index, CheckableTableView.colorTable.off if item == '+' else CheckableTableView.colorTable.on,
-                    QtCore.Qt.BackgroundRole)
+            self.toggle_row(self.rowAt(int(event.position().y())))
         else:
             return super().mouseDoubleClickEvent(event)
+
+    def keyPressEvent(self, event: QtGui.QKeyEvent) -> None:
+        if self.editTriggers() == QtWidgets.QTableWidget.NoEditTriggers:
+            return super().keyPressEvent(event)
+        key = event.key()
+        indexes = set(map(lambda index: index.row(), filter(lambda index: index.column() == 0, self.selectedIndexes())))
+        if len(indexes) > 0:
+            if key in (QtCore.Qt.Key_Return, QtCore.Qt.Key_Enter, QtCore.Qt.Key_Minus, QtCore.Qt.Key_Plus):
+                func = self.turn_row_off if key == QtCore.Qt.Key_Minus else self.turn_row_on if key == QtCore.Qt.Key_Plus else self.toggle_row
+                for row in indexes:
+                    func(row)
+        else:
+            return super().keyPressEvent(event)
+
+    def toggle_row(self, row: int) -> None:
+        item_index = self.model().index(row, 0)
+        item = self.model().data(item_index)
+        self.model().setData(item_index, '-' if item == '+' else '+')
+        self.model().setData(item_index, CheckableTableView.colorTable.off if item == '+' else CheckableTableView.colorTable.on,
+                QtCore.Qt.BackgroundRole)
+
+    def turn_row_on(self, row: int) -> None:
+        item_index = self.model().index(row, 0)
+        self.model().setData(item_index, '+')
+        self.model().setData(item_index, CheckableTableView.colorTable.on, QtCore.Qt.BackgroundRole)
+
+    def turn_row_off(self, row: int) -> None:
+        item_index = self.model().index(row, 0)
+        self.model().setData(item_index, '-')
+        self.model().setData(item_index, CheckableTableView.colorTable.off, QtCore.Qt.BackgroundRole)
 
     def is_turned_on(self, row: int) -> bool:
         return self.model().itemData(self.model().index(row, 0)) == '+'
@@ -116,13 +149,13 @@ def get_main_window_default_address_prefixes() -> List[str]:
     return ['Россия, Санкт-Петербург']
 
 def get_default_city_functions() -> List[str]:
-    return ['(Не выбрано, необходимо соединение с базой)']
+    return ['(необходимо соединение с базой)']
 
 def get_default_object_classes() -> List[str]:
-    return ['(Не выбрано, необходимо соединение с базой)']
+    return ['(необходимо соединение с базой)']
 
 def get_default_service_types() -> List[str]:
-    return ['(Не выбрано, необходимо соединение с базой)']
+    return ['(необходимо соединение с базой)']
 
     
 class MainWindow(QtWidgets.QWidget):
@@ -151,15 +184,15 @@ class MainWindow(QtWidgets.QWidget):
     )
 
     DocumentFields = NamedTuple('DocumentFields', [
-            ('latitude', QtWidgets.QLineEdit),
-            ('longitude', QtWidgets.QLineEdit),
-            ('address', QtWidgets.QLineEdit),
-            ('amenity', QtWidgets.QLineEdit),
-            ('name', QtWidgets.QLineEdit),
-            ('opening_hours', QtWidgets.QLineEdit),
-            ('website', QtWidgets.QLineEdit),
-            ('phone', QtWidgets.QLineEdit),
-            ('osm_id', QtWidgets.QLineEdit)
+            ('latitude', QtWidgets.QComboBox),
+            ('longitude', QtWidgets.QComboBox),
+            ('address', QtWidgets.QComboBox),
+            ('amenity', QtWidgets.QComboBox),
+            ('name', QtWidgets.QComboBox),
+            ('opening_hours', QtWidgets.QComboBox),
+            ('website', QtWidgets.QComboBox),
+            ('phone', QtWidgets.QComboBox),
+            ('osm_id', QtWidgets.QComboBox)
         ]
     )
 
@@ -253,6 +286,8 @@ class MainWindow(QtWidgets.QWidget):
         self._options_fields.service_type_choosable.clicked.connect(lambda: self.on_choose_change(self._options_fields.service_type_choosable))
         self._options_fields.object_class_choose.addItems(get_default_object_classes())
         self._options_fields.service_type_choose.addItems(get_default_service_types())
+        self._options_fields.object_class_choose.setEnabled(False)
+        self._options_fields.service_type_choose.setEnabled(False)
         self._options_fields.object_class_choose.view().setMinimumWidth(len(max(get_default_object_classes(), key=len)) * 8)
         self._options_fields.service_type_choose.view().setMinimumWidth(len(max(get_default_service_types(), key=len)) * 8)
 
@@ -270,7 +305,7 @@ class MainWindow(QtWidgets.QWidget):
         self._document_group_box = QtWidgets.QGroupBox('Сопоставление документа')
         self._document_group = QtWidgets.QFormLayout()
         self._document_group_box.setLayout(self._document_group)
-        self._document_fields = MainWindow.DocumentFields(*(ColorizingLine(self.on_document_change) for _ in range(9)))
+        self._document_fields = MainWindow.DocumentFields(*(ColorizingComboBox(self.on_document_change) for _ in range(9)))
         self._document_address_prefixes = [QtWidgets.QLineEdit() for _ in range(len(get_main_window_default_address_prefixes()))]
         self._document_group.addRow('Широта:', self._document_fields.latitude)
         self._document_group.addRow('Долгота:', self._document_fields.longitude)
@@ -366,19 +401,15 @@ class MainWindow(QtWidgets.QWidget):
         self._options_fields.service_code.setText(MainWindow.default_values.service_code)
         self._options_fields.city_function.addItems(get_default_city_functions())
         self._options_fields.city_function.view().setMinimumWidth(len(max(get_default_city_functions(), key=len)) * 8)
+        self._options_fields.city_function.setEnabled(False)
         self._options_fields.min_capacity.setText(MainWindow.default_values.min_capacity)
         self._options_fields.max_capacity.setText(MainWindow.default_values.max_capacity)
         self._options_fields.override_amenity.setText(MainWindow.default_values.override_amenity)
+        self._options_fields.override_amenity.setStyleSheet('background-color: rgb({}, {}, {});'.format(*MainWindow.colorTable.grey.getRgb()[:3]))
 
-        self._document_fields.latitude.setText(MainWindow.default_values.latitude)
-        self._document_fields.longitude.setText(MainWindow.default_values.longitude)
-        self._document_fields.address.setText(MainWindow.default_values.address)
-        self._document_fields.amenity.setText(MainWindow.default_values.amenity)
-        self._document_fields.name.setText(MainWindow.default_values.name)
-        self._document_fields.opening_hours.setText(MainWindow.default_values.opening_hours)
-        self._document_fields.website.setText(MainWindow.default_values.website)
-        self._document_fields.phone.setText(MainWindow.default_values.phone)
-        self._document_fields.osm_id.setText(MainWindow.default_values.osm_id)
+        for field in self._document_fields:
+            field.addItem('(необходимо открыть файл)')
+            field.setEnabled(False)
         for line, prefix_line in zip(self._document_address_prefixes, get_main_window_default_address_prefixes()):
             line.setText(prefix_line)
             line.setMinimumWidth(250)
@@ -410,6 +441,18 @@ class MainWindow(QtWidgets.QWidget):
         self.setWindowTitle(f'Загрузка объектов - "{filename[filename.rindex("/") + 1:]}"')
 
         self._table_axes: List[str] = ['Загрузить'] + list(df.axes[1])
+        field: QtWidgets.QComboBox
+        for field in itertools.chain(self._document_fields, (self._additionals_group.itemAtPosition(i + 2, 2).widget() for i in range(self._additionals_cnt))): # type: ignore
+            previous_text = field.currentText()
+            field.clear()
+            field.addItem('-')
+            field.addItems(self._table_axes[1:])
+            if previous_text in self._table_axes:
+                field.setCurrentIndex(self._table_axes.index(previous_text))
+            field.setEnabled(True)
+        for field, default_value in zip(self._document_fields, MainWindow.default_values[12:]):
+            if field.currentIndex() == 0 and default_value in self._table_axes:
+                field.setCurrentIndex(self._table_axes.index(default_value))
         self._table_model = QtGui.QStandardItemModel(*df.shape)
         self._table_model.setHorizontalHeaderLabels(list(self._table_axes))
         for i, service in df.iterrows():
@@ -418,7 +461,7 @@ class MainWindow(QtWidgets.QWidget):
             ok_item = QtGui.QStandardItem('+')
             ok_item.setTextAlignment(QtCore.Qt.AlignCenter)
             self._table_model.setItem(i, 0, ok_item)
-            self._table_model.setData(self._table_model.index(i, 0), CheckableTableView.colorTable.on, 8) # 8 <- QtCore.Qt.BackgroundRole
+            self._table_model.setData(self._table_model.index(i, 0), CheckableTableView.colorTable.on, QtCore.Qt.BackgroundRole)
 
         if self._table is None:
             self._table = CheckableTableView()
@@ -432,6 +475,7 @@ class MainWindow(QtWidgets.QWidget):
         self.on_document_change()
 
         self._table.setModel(self._table_model)
+        self._table.setEditTriggers(QtWidgets.QTableWidget.AllEditTriggers)
         self._table.horizontalHeader().setMinimumSectionSize(0)
         self._table.resizeColumnsToContents()
 
@@ -447,10 +491,10 @@ class MainWindow(QtWidgets.QWidget):
                     lines[-1].append(self._table_model.index(row, col).data())
         df = pd.DataFrame(lines, columns=self._table_axes, index=index)
         try:
-            if self._document_fields.latitude.text() in self._table_axes:
-                df[self._document_fields.latitude.text()] = df[self._document_fields.latitude.text()].astype(float)
-            if self._document_fields.longitude.text() in self._table_axes:
-                df[self._document_fields.longitude.text()] = df[self._document_fields.longitude.text()].astype(float)
+            if self._document_fields.latitude.currentText() in self._table_axes:
+                df[self._document_fields.latitude.currentText()] = df[self._document_fields.latitude.currentText()].astype(float)
+            if self._document_fields.longitude.currentText() in self._table_axes:
+                df[self._document_fields.longitude.currentText()] = df[self._document_fields.longitude.currentText()].astype(float)
         except Exception as ex:
             QtWidgets.QMessageBox.critical(self, 'Ошибка при конвертации таблицы', f'Произошла ошибка при переводе данных в DataFrame: {ex}')
         return df
@@ -486,21 +530,23 @@ class MainWindow(QtWidgets.QWidget):
                     service_type_id,
                     self._options_fields.override_amenity.text() if self._options_fields.override_amenity.text() not in ('', '-') else None,
                     {
-                        'lat': self._document_fields.latitude.text(),
-                        'lng': self._document_fields.longitude.text(),
-                        'amenity': self._document_fields.amenity.text(),
-                        'name': self._document_fields.name.text(),
-                        'opening_hours': self._document_fields.opening_hours.text(),
-                        'website': self._document_fields.website.text(),
-                        'phone': self._document_fields.phone.text(),
-                        'address': self._document_fields.address.text(),
-                        'osm_id': self._document_fields.osm_id.text()
+                        'lat': self._document_fields.latitude.currentText(),
+                        'lng': self._document_fields.longitude.currentText(),
+                        'amenity': self._document_fields.amenity.currentText(),
+                        'name': self._document_fields.name.currentText(),
+                        'opening_hours': self._document_fields.opening_hours.currentText(),
+                        'website': self._document_fields.website.currentText(),
+                        'phone': self._document_fields.phone.currentText(),
+                        'address': self._document_fields.address.currentText(),
+                        'osm_id': self._document_fields.osm_id.currentText()
                     },
                     list(map(lambda line_edit: line_edit.text(), self._document_address_prefixes)),
                     {self._additionals_group.itemAtPosition(i + 2, 0).widget().text():
-                            (self._additionals_group.itemAtPosition(i + 2, 2).widget().text(), types_mapping[self._additionals_group.itemAtPosition(i + 2, 1).widget().currentText()]) \
+                            (self._additionals_group.itemAtPosition(i + 2, 2).widget().currentText(),
+                            types_mapping[self._additionals_group.itemAtPosition(i + 2, 1).widget().currentText()]) \
                                     for i in range(self._additionals_cnt)},
-                    is_commit
+                    is_commit,
+                    QtWidgets.QApplication.keyboardModifiers() & QtCore.Qt.ControlModifier
             )
             if not is_commit:
                 self._db_properties.conn.rollback()
@@ -528,10 +574,7 @@ class MainWindow(QtWidgets.QWidget):
             self._table_model.setData(self._table_model.index(row, len(self._table_axes) - 2), MainWindow.colorTable.sky_blue, QtCore.Qt.BackgroundRole)
             self._table_model.setData(self._table_model.index(row, len(self._table_axes) - 1), MainWindow.colorTable.sky_blue, QtCore.Qt.BackgroundRole)
         self._save_results_btn.setVisible(True)
-        # set table not-editable
-        # for i in range(self._table_model.rowCount()):
-        #     for j in range(self._table_model.columnCount()):
-        #         self._table_model.index(i, j)
+        self._table.setEditTriggers(QtWidgets.QTableWidget.NoEditTriggers) # type: ignore
 
     def on_save_results(self) -> None:
         fileDialog = QtWidgets.QFileDialog(self)
@@ -566,8 +609,8 @@ class MainWindow(QtWidgets.QWidget):
             self._address_prefix_remove_btn.setEnabled(False)
 
     def on_prefix_check(self) -> None:
-        if self._document_fields.address.text() in self._table_axes:
-            col = self._table_axes.index(self._document_fields.address.text())
+        if self._document_fields.address.currentIndex() != 0:
+            col = self._document_fields.address.currentIndex()
             for row in range(self._table_model.rowCount()):
                 found = False
                 for prefix in self._document_address_prefixes:
@@ -606,6 +649,7 @@ class MainWindow(QtWidgets.QWidget):
                 cur.execute("SELECT substring(tablename, 0, length(tablename) - 7) FROM pg_tables WHERE tablename like '%_objects' AND tablename NOT IN ('physical_objects', 'functional_objects') ORDER BY 1")
                 items = list(map(lambda x: x[0], cur.fetchall()))
                 self._options_fields.object_class_choose.clear()
+                self._options_fields.object_class_choose.setEnabled(True)
                 self._options_fields.object_class_choose.addItem('(не выбрано)')
                 self._options_fields.object_class_choose.addItems(items)
                 self._options_fields.object_class_choose.view().setMinimumWidth(len(max(items, key=len)) * 8)
@@ -613,11 +657,16 @@ class MainWindow(QtWidgets.QWidget):
                 cur.execute('SELECT name, code, capacity_min, capacity_max FROM service_types ORDER BY 1')
                 self._service_type_params = dict(map(lambda x: (x[0], x[1:4]), cur.fetchall()))
                 self._options_fields.service_type_choose.clear()
+                self._options_fields.service_type_choose.setEnabled(True)
                 self._options_fields.service_type_choose.addItem('(не выбрано)')
                 self._options_fields.service_type_choose.addItems(sorted(self._service_type_params.keys()))
                 self._options_fields.service_type_choose.view().setMinimumWidth(len(max(self._service_type_params.keys(), key=len)) * 8)
+            self._options_fields.city_function.setEnabled(True)
         except Exception:
             self._db_properties.close()
+            self._options_fields.object_class_choose.setEnabled(False)
+            self._options_fields.service_type_choose.setEnabled(False)
+            self._options_fields.city_function.setEnabled(False)
             if QtWidgets.QApplication.keyboardModifiers() & QtCore.Qt.ShiftModifier:
                 QtWidgets.QMessageBox.critical(self, 'Ошибка при попытке подключиться к БД', traceback.format_exc())
             self._db_check_res.setText('<b style=color:red;>x</b>')
@@ -649,7 +698,7 @@ class MainWindow(QtWidgets.QWidget):
                 except Exception:
                     traceback.print_exc()
         elif what_changed is self._options_fields.service_type_choose:
-            if what_changed.currentIndex() > 1:
+            if what_changed.currentIndex() > 0:
                 try:
                     with self._db_properties.conn.cursor() as cur:
                         cur.execute('SELECT cf.name FROM service_types st JOIN city_functions cf ON st.city_function_id = cf.id WHERE st.name = %s', (what_changed.currentText(),))
@@ -713,7 +762,7 @@ class MainWindow(QtWidgets.QWidget):
                 self._is_options_ok = False
                 line.setStyleSheet('background-color: rgb({}, {}, {})'.format(*MainWindow.colorTable.light_red.getRgb()[:3]))
 
-        for line in (self._additionals_group.itemAtPosition(i + 2, 0).widget() for i in range(self._additionals_cnt)):
+        for line in (self._additionals_group.itemAtPosition(i + 2, 0).widget() for i in range(1, self._additionals_cnt)):
             if len(line.text()) == 0 or len(set(line.text()) - allowed_chars - {'-', '_'}) != 0:
                 self._is_options_ok = False
                 line.setStyleSheet('background-color: rgb({}, {}, {})'.format(*MainWindow.colorTable.light_red.getRgb()[:3]))
@@ -758,9 +807,13 @@ class MainWindow(QtWidgets.QWidget):
         self.on_options_change()
 
     def on_additional_add(self, db_column: Optional[str] = None, datatype: Optional[type] = None) -> None:
-        self._additionals_group.addWidget(ColorizingLine(self.on_options_change, ), self._additionals_cnt + 2, 0)
+        self._additionals_group.addWidget(ColorizingLine(self.on_options_change), self._additionals_cnt + 2, 0)
         self._additionals_group.addWidget(QtWidgets.QComboBox(), self._additionals_cnt + 2, 1)
-        self._additionals_group.addWidget(ColorizingLine(self.on_document_change), self._additionals_cnt + 2, 2)
+        w3 = ColorizingComboBox(self.on_document_change)
+        w3.addItem('-')
+        if self._table is not None:
+            w3.addItems(self._table_axes[1:])
+        self._additionals_group.addWidget(w3, self._additionals_cnt + 2, 2)
         self.on_document_change(self._additionals_group.itemAtPosition(self._additionals_cnt + 2, 2).widget())
         self._additionals_group.itemAtPosition(self._additionals_cnt + 2, 1).widget().addItems(['строка', 'целое', 'нецелое', 'булево'])
         if db_column is not None:
@@ -780,8 +833,8 @@ class MainWindow(QtWidgets.QWidget):
             widget = self._additionals_group.itemAtPosition(self._additionals_cnt + 2, i).widget()
             if i == 2:
                 if self._table is not None:
-                    old_text = widget.text()
-                    widget.setText(max(self._table_axes, key=len) + self._table_axes[0])
+                    old_text = widget.currentText()
+                    widget.setCurrentIndex(0)
                     self.on_document_change(widget, old_text)
             widget.setVisible(False)
             self._additionals_group.removeWidget(widget)
@@ -796,13 +849,13 @@ class MainWindow(QtWidgets.QWidget):
         self._is_document_ok = True
         field: QtWidgets.QLineEdit
         for field in itertools.chain(self._document_fields, (self._additionals_group.itemAtPosition(i + 2, 2).widget() for i in range(self._additionals_cnt))): # type: ignore
-            if field.text() not in self._table_axes:
-                if not (field.text() in ('', '-') and not (field is self._document_fields.address or
-                        field is self._document_fields.latitude or field is self._document_fields.longitude)) or \
-                        (field is self._document_fields.amenity and self._options_fields.override_amenity.text() not in ('', '-')):
-                    self._is_document_ok = False
+            if field.currentIndex == 0 and \
+                    (field is self._document_fields.address or field is self._document_fields.latitude or field is self._document_fields.longitude) or \
+                    (field is self._document_fields.amenity and self._options_fields.override_amenity.text() not in ('', '-')):
+                self._is_document_ok = False
+                return
 
-    def on_document_change(self, what_changed: Optional[QtWidgets.QLineEdit] = None, previous_value: Optional[str] = None) -> None:
+    def on_document_change(self, what_changed: Optional[Union[QtWidgets.QLineEdit, QtWidgets.QComboBox]] = None, previous_value: Optional[Union[str, int]] = None) -> None:
         if self._table is None:
             return
         if what_changed is not None:
@@ -812,46 +865,72 @@ class MainWindow(QtWidgets.QWidget):
                     self._options_fields.override_amenity.setStyleSheet('background-color: rgb({}, {}, {});'.format(*MainWindow.colorTable.grey.getRgb()[:3]))
                     self.on_document_change(self._document_fields.amenity)
                     return
+                self._options_fields.override_amenity.setStyleSheet('')
                 self._document_fields.amenity.setStyleSheet('background-color: rgb({}, {}, {});'.format(*MainWindow.colorTable.grey.getRgb()[:3]))
-                if self._document_fields.amenity.text() in self._table_axes:
-                    col = self._table_axes.index(self._document_fields.amenity.text())
+                if self._document_fields.amenity.currentIndex() != 0:
+                    col = self._document_fields.amenity.currentIndex()
                     for row in range(self._table_model.rowCount()):
                         self._table_model.setData(self._table_model.index(row, col), MainWindow.colorTable.grey, QtCore.Qt.BackgroundRole)
-            elif what_changed.text() not in self._table_axes:
-                if (what_changed.text() in ('', '-') and not (what_changed is self._document_fields.address or
-                        what_changed is self._document_fields.latitude or what_changed is self._document_fields.longitude)) or \
-                        (what_changed is self._document_fields.amenity and self._options_fields.override_amenity.text() not in ('', '-')):
-                    what_changed.setStyleSheet('background-color: rgb({}, {}, {});'.format(*MainWindow.colorTable.grey.getRgb()[:3]))
+            elif isinstance(what_changed, QtWidgets.QLineEdit):
+                if what_changed.text() not in self._table_axes:
+                    if (what_changed.text() in ('', '-') and not (what_changed is self._document_fields.address or
+                            what_changed is self._document_fields.latitude or what_changed is self._document_fields.longitude)) or \
+                            (what_changed is self._document_fields.amenity and self._options_fields.override_amenity.text() not in ('', '-')):
+                        what_changed.setStyleSheet('background-color: rgb({}, {}, {});'.format(*MainWindow.colorTable.grey.getRgb()[:3]))
+                    else:
+                        what_changed.setStyleSheet('background-color: rgb({}, {}, {});'.format(*MainWindow.colorTable.light_red.getRgb()[:3]))
                 else:
-                    what_changed.setStyleSheet('background-color: rgb({}, {}, {});'.format(*MainWindow.colorTable.light_red.getRgb()[:3]))
+                    what_changed.setStyleSheet('')
+                    col = self._table_axes.index(what_changed.text())
+                    for row in range(self._table_model.rowCount()):
+                        self._table_model.setData(self._table_model.index(row, col), MainWindow.colorTable.light_green, QtCore.Qt.BackgroundRole)
             else:
-                what_changed.setStyleSheet('')
-                col = self._table_axes.index(what_changed.text())
-                for row in range(self._table_model.rowCount()):
-                    self._table_model.setData(self._table_model.index(row, col), MainWindow.colorTable.light_green, QtCore.Qt.BackgroundRole)
-                
-            if previous_value in self._table_axes:
-                col = self._table_axes.index(previous_value)
-                for row in range(self._table_model.rowCount()):
-                    self._table_model.setData(self._table_model.index(row, col), QtGui.QColor(QtCore.Qt.white), QtCore.Qt.BackgroundRole)
+                if what_changed.currentIndex() == 0:
+                    if what_changed is self._document_fields.latitude or what_changed is self._document_fields.longitude or what_changed is self._document_fields.address:
+                        what_changed.setStyleSheet('background-color: rgb({}, {}, {});'.format(*MainWindow.colorTable.light_red.getRgb()[:3]))
+                    else:
+                        what_changed.setStyleSheet('background-color: rgb({}, {}, {});'.format(*MainWindow.colorTable.grey.getRgb()[:3]))
+                else:
+                    what_changed.setStyleSheet('')
+                    col = what_changed.currentIndex()
+                    for row in range(self._table_model.rowCount()):
+                        self._table_model.setData(self._table_model.index(row, col), MainWindow.colorTable.light_green, QtCore.Qt.BackgroundRole)
+
+            if isinstance(previous_value, str):
+                if previous_value in self._table_axes:
+                    col = self._table_axes.index(previous_value)
+                    for row in range(self._table_model.rowCount()):
+                        self._table_model.setData(self._table_model.index(row, col), QtGui.QColor(QtCore.Qt.white), QtCore.Qt.BackgroundRole)
+            elif isinstance(previous_value, int):
+                if previous_value != 0:
+                    is_used = False
+                    field: QtWidgets.QComboBox
+                    for field in itertools.chain(self._document_fields, (self._additionals_group.itemAtPosition(i + 2, 2).widget() for i in range(self._additionals_cnt))): # type: ignore
+                        if field.currentIndex() == previous_value:
+                            is_used = True
+                    if not is_used:
+                        col = previous_value
+                        for row in range(self._table_model.rowCount()):
+                            self._table_model.setData(self._table_model.index(row, col), QtGui.QColor(QtCore.Qt.white), QtCore.Qt.BackgroundRole)
             self.check_document_correctness()
         else:
             self._is_document_ok = True
-            field: QtWidgets.QLineEdit
             for field in itertools.chain(self._document_fields, (self._additionals_group.itemAtPosition(i + 2, 2).widget() for i in range(self._additionals_cnt))): # type: ignore
-                if field.text() not in self._table_axes:
-                    if (field.text() in ('', '-') and not (field is self._document_fields.address or
-                            field is self._document_fields.latitude or field is self._document_fields.longitude)) or \
+                if field.currentIndex() == 0:
+                    if not (field is self._document_fields.address or
+                            field is self._document_fields.latitude or field is self._document_fields.longitude) or \
                             (field is self._document_fields.amenity and self._options_fields.override_amenity.text() not in ('', '-')):
                         field.setStyleSheet('background-color: rgb({}, {}, {});'.format(*MainWindow.colorTable.grey.getRgb()[:3]))
+                        pass
                     else:
                         field.setStyleSheet('background-color: rgb({}, {}, {});'.format(*MainWindow.colorTable.light_red.getRgb()[:3]))
                         self._is_document_ok = False
                 else:
                     field.setStyleSheet('')
-                    col = self._table_axes.index(field.text())
+                    col = field.currentIndex()
                     for row in range(self._table_model.rowCount()):
                         self._table_model.setData(self._table_model.index(row, col), MainWindow.colorTable.light_green, QtCore.Qt.BackgroundRole)
+
             if self._options_fields.override_amenity.text() not in ('', '-'):
                 self._document_fields.amenity.setStyleSheet('background-color: rgb({}, {}, {});'.format(*MainWindow.colorTable.grey.getRgb()[:3]))
                 if self._document_fields.amenity.text() in self._table_axes:
@@ -880,8 +959,8 @@ class MainWindow(QtWidgets.QWidget):
             else:
                 self._options_fields.override_amenity.setStyleSheet('background-color: rgb({}, {}, {});'.format(*MainWindow.colorTable.light_red.getRgb()[:3]))
         else:
-            if self._document_fields.amenity.text() in self._table_axes:
-                col = self._table_axes.index(self._document_fields.amenity.text())
+            if self._document_fields.amenity.currentIndex() != 0:
+                col = self._document_fields.amenity.currentIndex()
                 for row in range(self._table_model.rowCount()):
                     if self._table_model.index(row, col).data().lower() in types:
                         self._table_model.setData(self._table_model.index(row, col), MainWindow.colorTable.dark_green, QtCore.Qt.BackgroundRole)
@@ -955,7 +1034,7 @@ class TypesWindow(QtWidgets.QWidget):
         while self._layout_rows > 1:
             self.on_delete()
         for name_db, code in types:
-            self.on_add(None, name_db, code)
+            self.on_add(code, name_db, code)
 
     def types(self) -> Dict[str, Tuple[str, str]]:
         types = {}
