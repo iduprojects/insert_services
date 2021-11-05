@@ -4,214 +4,178 @@ import pandas as pd, json
 from numpy import nan
 import os, time, random
 import traceback, itertools
-from typing import Dict, Iterable, Tuple, List, Any, Union, Optional, Set
+from typing import Dict, Iterable, NamedTuple, Tuple, List, Any, Union, Optional, Set
 from database_properties import Properties
+from enum import Enum, auto as enum_auto
 
 properties: Properties
 
-def ensure_tables(conn: psycopg2.extensions.connection, object_class: str, additional_columns: Optional[Dict[str, type]] = None, commit: bool = True) -> None:
-    '''ensure_tables is a function that creates tables if they didn't exist and checks exsisting columns types or add new columns to the table
+class SQLType(Enum):
+    INT = enum_auto()
+    VARCHAR = enum_auto()
+    DOUBLE = enum_auto()
+    BOOLEAN = enum_auto()
+    SMALLINT = enum_auto()
+    JSONB = enum_auto()
+    TIMESTAMP = enum_auto()
 
-    Input:
+    @classmethod
+    def from_name(cls, name: str):
+        if name.lower() in sqltype_mapping:
+            return sqltype_mapping[name.lower()]
+        if name.startswith('character varying'):
+            return SQLType.VARCHAR
+        else:
+            raise ValueError(f'Type {name} cannot be mapped to SQLType')
 
-        - `conn` - psycopg2 connection to the database
-        - `object_class` - name (prefix) for the tables ("<object_class>_objects" and "<object_class>_object_types")
-        - `additional_columns` - dictionary of accordance between columns ans their datatypes
-        - `commit` - boolean of commiting after the process finishes
-    '''
-    with conn.cursor() as cur:
-        cur.execute(f'CREATE TABLE IF NOT EXISTS {object_class}_object_types ('
-                '   id serial PRIMARY KEY NOT NULL,'
-                '   name VARCHAR(80) UNIQUE NOT NULL,'
-                '   code VARCHAR(40) UNIQUE NOT NULL'
-                ')')
-        cur.execute(f'CREATE TABLE IF NOT EXISTS {object_class}_objects ('
-                '   id serial PRIMARY KEY NOT NULL,'
-                '   functional_object_id integer REFERENCES functional_objects(id) NOT NULL,'
-                f'  type_id integer REFERENCES {object_class}_object_types(id) NOT NULL,'
-                '   properties jsonb,'
-                '   created_at timestamptz NOT NULL default now(),'
-                '   updated_at timestamptz NOT NULL default now()'
-                ')')
-        if additional_columns:
-            types_mapping = {str: 'character varying', float: 'double precision', int: 'integer', bool: 'boolean'}
-            try:
-                additional_columns_names = dict(map(lambda x: (x[0], types_mapping[x[1]]), additional_columns.items()))
-            except KeyError as e:
-                raise ValueError(f'One of the columns has wrong type "{e.args[0] if len(e.args) > 0 else ""}" (should be one of the str, float, int, bool)')
-            cur.execute('SELECT column_name, data_type from information_schema.columns where table_name = %s', (f'{object_class}_objects',))
-            columns: Dict[str, str] = dict(cur.fetchall())
-            for column, column_type in additional_columns_names.items():
-                assert column_type in ('integer', 'character varying', 'double precision', 'boolean'), \
-                        f'Column {column} type "{column_type}" is unknown, need to be one of the: (integer, string, float, boolean)'
-                if column in columns:
-                    assert columns[column] == column_type, \
-                            f'Column {column} type is different from the existing column in database: "{columns[column]}" != "{column_type}"'
+    @property
+    def sql_name(self) -> str:
+        return {SQLType.INT: 'integer', SQLType.VARCHAR: 'character varying', SQLType.DOUBLE: 'double precision', SQLType.BOOLEAN: 'boolean',
+                SQLType.SMALLINT: 'smallint', SQLType.JSONB: 'jsonb', SQLType.TIMESTAMP: 'timestamp with time zone'}[self]
+    
+    def cast(self, value) -> Any:
+        if value is None or value != value or (isinstance(value, str) and value == ''):
+            return None
+        try:
+            if self in (SQLType.INT, SQLType.SMALLINT):
+                return int(float(value))
+            if self == SQLType.DOUBLE:
+                return float(value)
+            if self == SQLType.BOOLEAN:
+                if isinstance(value, str):
+                    return False if value.lower() in ('-', '0', 'false', 'no', 'off', 'нет', 'ложь') else bool(value)
+            if self == SQLType.JSONB:
+                return json.dumps(value)
+            if self == SQLType.TIMESTAMP:
+                if isinstance(value, time.struct_time):
+                    return f'{value.tm_year}-{value.tm_mon:02}-{value.tm_mday:02} {value.tm_hour:02}:{value.tm_min:02}:{value.tm_sec:02}'
                 else:
-                    cur.execute(f'ALTER TABLE {object_class}_objects ADD COLUMN {column} {column_type if column_type != "string" else "varchar"}')
-        if commit:
-            conn.commit()
+                    raise ValueError('Only time.struct_time can be cast to SQL Timestamp')
+            else:
+                raise NotImplementedError(f'Type {self} cast is not implemented for some reason')
+        except Exception:
+            return None
 
+sqltype_mapping: Dict[str, SQLType] = dict(itertools.chain(
+        map(lambda x: (x, SQLType.VARCHAR), ('character varying', 'varchar', 'str', 'string', 'text', 'varchar', 'строка')),
+        map(lambda x: (x, SQLType.DOUBLE), ('double precision', 'float', 'double', 'вещественное', 'нецелое')),
+        map(lambda x: (x, SQLType.INT), ('integer', 'int', 'number', 'целое')),
+        map(lambda x: (x, SQLType.SMALLINT), ('smallint', 'малое', 'малое целое')),
+        map(lambda x: (x, SQLType.JSONB), ('jsonb', 'json')),
+        map(lambda x: (x, SQLType.BOOLEAN), ('boolean', 'булево')),
+        map(lambda x: (x, SQLType.TIMESTAMP), ('timestamp', 'date', 'time', 'datetime', 'дата', 'время'))
+))
 
-def ensure_service(conn: psycopg2.extensions.connection, service_type: str, service_code: Optional[str],
-        capacity_min: Optional[int], capacity_max: Optional[int], city_function: Union[int, str], commit: bool = True) -> int:
+def ensure_service_type(conn: psycopg2.extensions.connection, service_type: str, service_type_code: Optional[str],
+        capacity_min: Optional[int], capacity_max: Optional[int], status_min: Optional[int], status_max: Optional[int],
+        city_function: str, is_building: bool, commit: bool = True) -> int:
+    '''ensure_service_type returns id of a service_type from database or inserts it if service_type is not present and all of the parameters are given'''
     with conn.cursor() as cur:
-        cur.execute('SELECT id FROM service_types WHERE name = %s', (service_type,))
+        cur.execute('SELECT id FROM city_service_types WHERE name = %s or code = %s', (service_type,) * 2)
         res = cur.fetchone()
         if res is not None:
             return res[0]
-        if service_code is None or city_function is None:
+        if service_type_code is None or city_function is None:
             raise ValueError(f'service type "{service_type}" is not found in the database, but code and/or city_function is not provided')
         if capacity_min is None or capacity_max is None:
-            print(f'service type "{service_type}" is not found in the database and will be inserted, but min_capacity and/or max_capacity is not provided.')
-        cur.execute('INSERT INTO service_types (name, code, capacity_min, capacity_max, city_function_id) VALUES (%s, %s, %s, %s, ' +
-                ('%s' if isinstance(city_function, int) else '(SELECT id from city_functions WHERE name = %s or code = %s)') +
-                ') RETURNING ID', (service_type, service_code, capacity_min, capacity_max, city_function, city_function))
+            raise ValueError(f'service type "{service_type}" is not found in the database, but capacity_min and/or capacity_max is not provided.')
+        if status_min is None or status_max is None:
+            raise ValueError(f'service type "{service_type}" is not found in the database, but status_min and/or status_max is not provided.')
+        if is_building is None:
+            raise ValueError(f'service type "{service_type}" is not found in the database, but is_building is not provided')
+        cur.execute('INSERT INTO city_service_types (name, code, capacity_min, capacity_max, status_min, status_max, city_function_id, is_building) VALUES'
+                ' (%s, %s, %s, %s, %s, %s, (SELECT id from city_functions WHERE name = %s or code = %s), %s) RETURNING ID',
+                (service_type, service_type_code, capacity_min, capacity_max, status_min, status_max, city_function, city_function, is_building,))
         if commit:
             conn.commit()
         return cur.fetchone()[0]
 
+InsertionMapping = NamedTuple('InsertionMapping', (
+    ('name', Optional[str]),
+    ('opening_hours', Optional[str]),
+    ('website', Optional[str]),
+    ('phone', Optional[str]),
+    ('address', Optional[str]),
+    ('capacity', Optional[str]),
+    ('osm_id', Optional[str]),
+    ('latitude', str),
+    ('longitude', str)
+))
+def initInsertionMapping(name: Optional[str] = 'Name', opening_hours: Optional[str] = 'opening_hours', website: Optional[str] = 'contact:website',
+        phone: Optional[str] = 'contact:phone', address: Optional[str] = 'yand_adr', osm_id: Optional[str] = 'id', capacity: Optional[str] = None,
+        latitude: str = 'x', longitude: str = 'y') -> InsertionMapping:
+    fixer = lambda s: None if s in ('', '-') else s
+    return InsertionMapping(*map(fixer, (name, opening_hours, website, phone, address, capacity, osm_id)), latitude, longitude) # type: ignore
 
-def get_type_name(row_or_name: Union[str, pd.Series], amenity_field: Optional[str] = 'amenity') -> str:
-    '''get_type_name is a function that takes name or concrete functional object Series and returns its type name in lowercase
+def insert_object(conn: psycopg2.extensions.connection, row: pd.Series, phys_id: int, service_type: str,
+        service_type_id: int, mapping: InsertionMapping, commit: bool = True) -> int:
+    '''insert_object inserts functional_object with connection to physical_object with phys_id.
+
+    service_type_id must be vaild.
     
-    If string name is given in input, it is returned in lowercase
-
-    If Series is given in input, if there is `type` column in it, its value returned, otherwise `amenity` column value is used
-    '''
-    if isinstance(row_or_name, pd.Series):
-        if row_or_name.get(amenity_field):
-            return row_or_name[amenity_field].lower()
-        else:
-            raise ValueError(f'get_type_name error: no {amenity_field} found in entity. You need to set default value')
-    return row_or_name.lower() # type: ignore
-
-
-_type_ids: Dict[Tuple[str, str], int] = {}
-def get_type_id(cur: psycopg2.extensions.connection, object_class: str, row_or_name: Union[str, pd.Series],
-        object_types: Dict[str, Tuple[str, str]], amenity_field: Optional[str] = 'amenity', print_errors: bool = False) -> int:
-    '''get_type_id is a function which returns the id of object_class type with name=`name`, and if it is missing
-    in the database, then inserts it with code=`code`.
-    '''
-    name = get_type_name(row_or_name, amenity_field)
-    if not name in object_types:
-        if print_errors:
-            print(f'{object_class} object type "{name}" is not in the list, ignoring')
-        raise ValueError(f'{object_class} object type "{name}" is not in the list, ignoring')
-    name, code = object_types[name]
-    table_name = f'{object_class}_object_types'
-    global _type_ids
-    if (object_class, name) in _type_ids:
-        return _type_ids[(object_class, name)]
-    cur.execute(f'SELECT id FROM {table_name} WHERE name = %s', (name,))
-    res = cur.fetchone()
-    if res is None:
-        cur.execute(f'INSERT INTO {table_name} (name, code) VALUES (%s, %s) RETURNING id', (name, code))
-        _type_ids[(object_class, name)] = cur.fetchone()[0]
-        return _type_ids[(object_class, name)]
-    _type_ids[(object_class, name)] = res[0]
-    return _type_ids[(object_class, name)]
-
-
-def safe_typecast(value: Any, need_type: type) -> Any:
-    if value is None or value != value or (isinstance(value, str) and value == ''):
-        return None
-    try:
-        if need_type is int:
-            return int(float(value))
-        if need_type is bool:
-            if isinstance(value, str):
-                return False if value.lower() in ('-', '0', 'false', 'no', 'нет', 'ложь') else bool(value)
-        return need_type(value)
-    except Exception:
-        return None
-
-
-def insert_object(conn: psycopg2.extensions.connection, row: pd.Series, phys_id: int, object_class: str,
-        service_type_id: int, type_id: int, mapping: Dict[str, str] = {'name': 'name',
-                'opening_hours': 'opening_hours', 'website': 'contact:website', 'phone': 'contact:phone'},
-        additional_columns: Optional[Dict[str, Tuple[str, type]]] = None,
-        commit: bool = True) -> int:
-    '''insert_object inserts functional_object with connection to physical_object with phys_id and concrete <service_type>_object connected to it.
-    
-    Returns functional object id inserted
+    Returns functional object id of the inserted object
     '''
     with conn.cursor() as cur:
-        cur.execute('SELECT st.capacity_min, st.capacity_max, cf.id, st.id, it.id FROM infrastructure_types it JOIN city_functions cf ON cf.infrastructure_type_id = it.id JOIN'
-                '               service_types st ON st.city_function_id = cf.id WHERE st.id = %s', (service_type_id,))
+        cur.execute('SELECT st.capacity_min, st.capacity_max, st.id, cf.id, it.id FROM city_infrastructure_types it'
+                '   JOIN city_functions cf ON cf.city_infrastructure_type_id = it.id'
+                '   JOIN city_service_types st ON st.city_function_id = cf.id'
+                ' WHERE st.id = %s', (service_type_id,))
         mn, mx, *ids = cur.fetchone()
-        assert ids[0] is not None and ids[1] is not None and ids[2] is not None
-        cur.execute('INSERT INTO functional_objects (name, opening_hours, website, phone, city_function_id, service_type_id, infrastructure_type_id, capacity)'
-                ' VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id',
-                    (row.get(mapping['name']) or '(не указано)', row.get(mapping['opening_hours']), row.get(mapping['website']),
-                            row.get(mapping['phone']), *ids, (random.randint(mn, mx) if mn is not None and mx is not None else None)))
+        assert ids[0] is not None and ids[1] is not None and ids[2] is not None, 'Service type, city function or infrastructure are not found in the database'
+        cur.execute('INSERT INTO functional_objects (name, opening_hours, website, phone, city_service_type_id, city_function_id,'
+                '   city_infrastructure_type_id, capacity, physical_object_id)'
+                ' VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id',
+                (
+                        row.get(mapping.name) or f'({service_type} без названия)', row.get(mapping.opening_hours), row.get(mapping.website), row.get(mapping.phone), *ids,
+                        row[mapping.capacity] if mapping.capacity in row else (random.randint(mn, mx) if mn is not None and mx is not None else None),
+                        phys_id
+                )
+        )
         func_id = cur.fetchone()[0]
-        cur.execute('INSERT INTO phys_objs_fun_objs (phys_obj_id, fun_obj_id) VALUES (%s, %s)', (phys_id, func_id))
-        if additional_columns is None:
-            additional_columns = {}
-        db_columns = ['functional_object_id', 'type_id'] + list(additional_columns.keys())
-        values = [func_id, type_id] + list(map(lambda column_and_type: safe_typecast(row.get(column_and_type[0]), column_and_type[1]), additional_columns.values()))
-        # print(f'INSERT INTO {object_class}_objects ({", ".join(db_columns)}) VALUES ({", ".join(map(lambda x: str(safe_typecast(x, str)), values))})')
-        cur.execute(f'INSERT INTO {object_class}_objects ({", ".join(db_columns)}) VALUES ({", ".join(("%s",) * len(values))})', values)
         if commit:
             conn.commit()
         return func_id
 
 
-def update_object(conn: psycopg2.extensions.connection, row: pd.Series, object_class: str, func_id: int, mapping: Dict[str, str] = {'name': 'name',
-                'opening_hours': 'opening_hours', 'website': 'contact:website', 'phone': 'contact:phone'},
-        additional_columns: Optional[Dict[str, Tuple[str, type]]] = None,
+def update_object(conn: psycopg2.extensions.connection, row: pd.Series, func_id: int, mapping: InsertionMapping, service_type: str,
         commit: bool = True) -> int:
     '''update_object update functional_object and concrete <service_type>_object connected to it.
+
+    service_type_id must be valid.
     
     Returns functional object id inserted
     '''
     with conn.cursor() as cur:
-        cur.execute('SELECT name, opening_hours, website, phone FROM functional_objects WHERE id = %s', (func_id,))
+        cur.execute('SELECT name, opening_hours, website, phone, capacity FROM functional_objects WHERE id = %s', (func_id,))
         res = cur.fetchone()
+        change = list(filter(lambda c_v_nw: c_v_nw[1] != c_v_nw[2] and c_v_nw[2] is not None, zip(('name', 'opening_hours', 'website', 'phone', 'capacity'), res,
+                (row.get(mapping.name) or f'({service_type} без названия)', row.get(mapping.opening_hours), row.get(mapping.website),
+                        row.get(mapping.phone), row.get(mapping.capacity)))))
         t = time.localtime()
-        current_time = f'{t.tm_year}-{t.tm_mon:02}-{t.tm_mday:02} ' \
-                f'{t.tm_hour:02}:{t.tm_min:02}:{t.tm_sec:02}'
-        change = list(filter(lambda c_v_nw: c_v_nw[1] != c_v_nw[2] and c_v_nw[2] is not None, zip(('name', 'opening_hours', 'website', 'phone'), res,
-                (row.get(mapping['name']) or '(не указано)', row.get(mapping['opening_hours']), row.get(mapping['website']), row.get(mapping['phone'])))))
+        current_time = f'{t.tm_year}-{t.tm_mon:02}-{t.tm_mday:02} {t.tm_hour:02}:{t.tm_min:02}:{t.tm_sec:02}'
         change.append(('updated_at', '', current_time))
-        # print(f'UPDATE functional_objects SET {", ".join(list(map(lambda x: x[0] + "=" + str(x[2]), change)))} WHERE id = {func_id}')
-        cur.execute(f'UPDATE functional_objects SET {", ".join(list(map(lambda x: x[0] + "=%s", change)))} WHERE id = %s', list(map(lambda x: x[2], change)) + [func_id])
-        if additional_columns is not None:
-            columns_values = list(filter(lambda name_value: name_value[1] is not None,
-                    map(lambda name_column_and_type: (name_column_and_type[0], safe_typecast(row.get(name_column_and_type[1][0]), name_column_and_type[1][1])),
-                            additional_columns.items())))
-            cur.execute(f'SELECT {", ".join((x[0] for x in columns_values))} FROM {object_class}_objects')
-            columns_values = list(map(lambda x: x[0], filter(lambda columns_values: columns_values[1][0] != columns_values[0][1], zip(columns_values, cur.fetchall())))) +\
-                    [('updated_at', current_time)]
-            # print(f'UPDATE {object_class}_objects SET {", ".join(list(map(lambda x: x[0] + "=" + str(x[1]), columns_values)))} WHERE functional_object_id = {func_id}')
-            cur.execute(f'UPDATE {object_class}_objects SET {", ".join(list(map(lambda x: x[0] + "=%s", columns_values)))} WHERE functional_object_id = %s',
-                    list(map(lambda x: x[1], columns_values)) + [func_id])
+        cur.execute(f'UPDATE functional_objects SET {", ".join(list(map(lambda x: x[0] + "=%s", change)))} WHERE id = %s',
+                list(map(lambda x: x[2], change)) + [func_id])
         if commit:
             conn.commit()
         return func_id
 
 
-def add_objects(conn: psycopg2.extensions.connection, objects: pd.DataFrame,
-        object_class: str, object_types: Dict[str, Tuple[str, str]], service_type_id: int,
-        amenity: Optional[str] = None, mapping: Dict[str, str] = {'amenity': 'amenity', 'name': 'name', 'opening_hours': 'opening_hours', 
-                'website': 'contact:website', 'phone': 'contact:phone', 'address': 'yand_adr',
-                'osm_id': 'id', 'lat': 'x', 'lng': 'y'}, address_prefixes: List[str] = ['Россия, Санкт-Петербург'],
-        additional_columns: Optional[Dict[str, Tuple[str, type]]] = None,
-        commit: bool = True, verbose: bool = False) -> pd.DataFrame:
+def add_objects(conn: psycopg2.extensions.connection, objects: pd.DataFrame, service_type: str, service_type_id: int,
+        mapping: InsertionMapping, address_prefixes: List[str] = ['Россия, Санкт-Петербург'], new_prefix: str = '',
+        is_service_building: bool = True, commit: bool = True, verbose: bool = False) -> pd.DataFrame:
     '''add_objects inserts objects to database.
 
     Input:
 
         - `conn` - connection for the database
-        - `objects` - DataFrame containing objects. 
-        - `object_class` - name of table containing concrete functional objects ("catering" for catering_objects, "culture" for culture_objects, etc)
-        - `object_types` - link from amenity to .._object_type[name, code]
-        - `service_type_id` - id of service_type (got by `ensure_service` function)
-        - `amenity` - name of concrete functional object type if needed to overrite amenity/type from `objects`
-        - `mapping` - dictionaty of namings in the database as keys and namings in the objects as values
+        - `objects` - DataFrame containing objects
+        - `service_type` - name of service_type for logging and services names fillment if they are missing
+        - `service_type_id` - id of service_type (got by `ensure_service_type` function), must be valid
+        - `mapping` - InsertionMapping of namings in the database and namings in the DataFrame columns
         - `address_prefixes` - list of possible prefixes (will be sorted by length)
-        - `additional_columns` - dictionary of mappings between document and database ({column_database: (column_document, datatype)})
+        - `new_prefix` - unified prefix for all of the inserted objects
+        - `is_service_building` - True if there is need to use address, search or insert buildings
         - `commit` - True to commit changes, False for dry run, only resulting DataFrame is returned
         - `verbose` - True to output traceback with errors, False for only error messages printing
 
@@ -221,34 +185,34 @@ def add_objects(conn: psycopg2.extensions.connection, objects: pd.DataFrame,
 
     Algorithm steps:
 
-        1. Check if building with given address is present in the database
+        1. If latitude or longitude is invaild, or address does not start with any of prefixes (if `is_service_building` == True), skip
 
-        2. If found:
+        2. Check if building with given address is present in the database (if `is_service_building` == True)
 
-            2.1. If functional object with the same name connected to the same physical object is present, skip
+        3. If found:
 
-            2.2. Else get building id and physical_object id
+            3.1. If functional object with the same name and service_type_id is already connected to the physical object, update
 
-        3. Else:
+            3.2. Else get building id and physical_object id
+
+        4. Else:
             
-            3.1. If address does not start with regular prefix, skip
+            4.1. If there is physical object which geometry contains current object's coordinates, get its build_id and phys_id
 
-            3.2. If there is physical object which geometry contains current object's coordinates, get its build_id and phys_id
+                4.1.1. If building is connected to this physical_object - include its id in result
 
-                3.2.1. If building is connected to this physical_object - include its id in result
+                4.1.2. Else include only physical_object_id
 
-                3.2.2. Else include only physical_object_id
+            4.2. Else insert physical_object with geometry type Point
 
-            3.3. Else insert physical_object with geometry type Point
+            4.3. If address without prefix is not empty insert building as temporary object and include build_id and phys_id in result
 
-            3.4. If address without prefix is not empty insert building as temporary object and include build_id and phys_id in result
+            4.4. Else include only phys_id in result
 
-            3.5. Else include only phys_id in result
-
-        4. Insert functional_object connected to physical_object and concrete functional object for it by calling `insert_object`
+        5. Insert functional_object connected to physical_object and concrete functional object for it by calling `insert_object`
     '''
-    objects = objects.drop(objects[objects[mapping['address']].isna()].index)
-    objects[mapping['address']] = objects[mapping['address']].apply(lambda x: x.replace('?', '').strip())
+    objects = objects.drop(objects[objects[mapping.address].isna()].index)
+    objects[mapping.address] = objects[mapping.address].apply(lambda x: x.replace('?', '').strip())
     present = 0 # objects already present in the database
     added_to_building_adr, added_to_building_geom, added_as_points, skipped = 0, 0, 0, 0
     results: List[str] = list(('',) * objects.shape[0])
@@ -258,61 +222,53 @@ def add_objects(conn: psycopg2.extensions.connection, objects: pd.DataFrame,
         for i, (_, row) in enumerate(objects.iterrows()):
             try:
                 try:
-                    row[mapping['lat']] = float(row[mapping['lat']])
-                    row[mapping['lng']] = float(row[mapping['lng']])
+                    row[mapping.latitude] = round(float(row[mapping.latitude]), 6)
+                    row[mapping.longitude] = round(float(row[mapping.longitude]), 6)
                 except Exception:
-                    results[i] = 'Skipped (latitude or longitude have invalid format)'
+                    results[i] = 'Skipped (latitude or longitude are invalid)'
                     continue
-                row[mapping['lat']] = round(row[mapping['lat']], 6)
-                row[mapping['lng']] = round(row[mapping['lng']], 6)
-                for address_prefix in address_prefixes:
-                    if row.get(mapping['address'], '').startswith(address_prefix):
-                        break
-                else:
-                    if len(address_prefixes) == 1:
-                        results[i] = f'Skipped (address does not start with "{address_prefixes[0]}" prefix)'
+                if is_service_building:
+                    for address_prefix in address_prefixes:
+                        if row.get(mapping.address, '').startswith(address_prefix):
+                            break
                     else:
-                        results[i] = f'Skipped (address does not start with any of {len(address_prefixes)} prefixes)'
-                    skipped += 1
-                    continue
-                if sum(map(lambda x: bool(row.get(x)), (mapping['address'], mapping['lat'], mapping['lng']))) != 3:
-                    results[i] = f'Skipped (missing one of the required fields: {mapping["address"]}, {mapping["lat"]}, {mapping["lng"]})'
-                    skipped += 1
-                    continue
-                name = row.get(mapping['name']) or '(не указано)'
-                try:
-                    type_id = get_type_id(cur, object_class, amenity or row, object_types, mapping.get('amenity'), verbose)
-                    if commit:
-                        conn.commit()
-                except ValueError:
-                    results[i] = f'Skipped (type "{amenity or row.get(mapping.get("amenity")) or "(unknown)"}" is missing in types list)'
-                    skipped += 1
-                    continue
-                phys_id: int
-                build_id: Optional[int]
-                cur.execute('SELECT phys.id, build.id FROM physical_objects phys JOIN buildings build on build.physical_object_id = phys.id'
-                        ' WHERE build.address = %s AND ST_Distance(phys.center::geography, ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography) < 100 LIMIT 1',
-                            (row.get(mapping['address'])[len(address_prefix):].strip(', '), row[mapping['lng']], row[mapping['lat']]))
-                res = cur.fetchone()
-                if res is not None: # if building with the same address found and distance between point and the center of geometry is less than 100m
-                    phys_id, build_id = res
-                    cur.execute('SELECT func.id FROM phys_objs_fun_objs pf'
-                                ' JOIN functional_objects func ON pf.fun_obj_id = func.id'
-                                f' JOIN {object_class}_objects concrete_func ON func.id = concrete_func.functional_object_id'
-                                ' WHERE pf.phys_obj_id = %s AND func.name = %s AND concrete_func.type_id = %s LIMIT 1', (phys_id, name, type_id))
-                    res = cur.fetchone()
-                    if res is not None:
-                        present += 1
-                        results[i] = f'Service presented fully as functional_object (build_id = {build_id}, phys_id = {phys_id}, functional_object_id = {res[0]})'
-                        functional_ids[i] = res[0]
-                        update_object(conn, row, object_class, res[0], mapping, additional_columns, commit)
+                        if len(address_prefixes) == 1:
+                            results[i] = f'Skipped (address does not start with "{address_prefixes[0]}" prefix)'
+                        else:
+                            results[i] = f'Skipped (address does not start with any of {len(address_prefixes)} prefixes)'
+                        skipped += 1
                         continue
-                    added_to_building_adr += 1
-                    results[i] = f'Building found by address (build_id = {build_id}, phys_id = {phys_id})'
-                else: # if no building with the same address found or distance is too high (address is wrong or it's not a concrete house)
+                if is_service_building and mapping.address not in row or mapping.latitude not in row or mapping.longitude not in row:
+                    results[i] = f'Skipped (missing one of the required fields: {mapping.latitude}, {mapping.longitude}' + \
+                            f', {mapping.address})' if is_service_building else ')'
+                    skipped += 1
+                    continue
+                name = row.get(mapping.name) or f'({service_type} без названия)'
+                phys_id: Optional[int] = None
+                build_id: Optional[int]
+                if is_service_building:
+                    cur.execute('SELECT phys.id, build.id FROM physical_objects phys JOIN buildings build on build.physical_object_id = phys.id'
+                            ' WHERE build.address LIKE %s AND ST_Distance(phys.center::geography, ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography) < 100 LIMIT 1',
+                                ('%' + row.get(mapping.address)[len(address_prefix):].strip(', '), row[mapping.longitude], row[mapping.latitude]))
+                    res = cur.fetchone()
+                    if res is not None: # if building with the same address found and distance between point and the center of geometry is less than 100m
+                        phys_id, build_id = res
+                        cur.execute('SELECT id FROM functional_objects f'
+                                ' WHERE physical_object_id = %s AND city_service_type_id = %s AND name = %s LIMIT 1', (phys_id, service_type_id, name))
+                        res = cur.fetchone()
+                        if res is not None:
+                            present += 1
+                            results[i] = f'Updated existing functional_object (build_id = {build_id}, phys_id = {phys_id}, functional_object_id = {res[0]})'
+                            functional_ids[i] = res[0]
+                            update_object(conn, row, res[0], mapping, service_type, commit)
+                            continue
+                        added_to_building_adr += 1
+                        results[i] = f'Object inserted in building found by address (build_id = {build_id}, phys_id = {phys_id}).'
+                if phys_id is None: # if no building with the same address found or distance is too high (address is wrong or it's not a concrete house)
                     cur.execute('SELECT id FROM physical_objects'
-                            ' WHERE ST_Within(ST_SetSRID(ST_MakePoint(%s, %s), 4326), geometry)',
-                            (row[mapping['lng']], row[mapping['lat']]))
+                            " WHERE ST_CoveredBy(ST_SetSRID(ST_MakePoint(%s, %s), 4326), geometry) OR"
+                            "   ST_GeometryType(geometry) = 'ST_Point' AND abs(ST_X(geometry) - %s) < 0.001 AND abs(ST_Y(geometry) - %s) < 0.001",
+                            (row[mapping.longitude], row[mapping.latitude]) * 2)
                     res = cur.fetchone()
                     if res: # if found inside other building geometry
                         phys_id = res[0]
@@ -323,19 +279,20 @@ def add_objects(conn: psycopg2.extensions.connection, objects: pd.DataFrame,
                             build_id, address = res
                         else:
                             build_id, address = None, None
-                        cur.execute('SELECT func.id FROM phys_objs_fun_objs pf'
-                                ' JOIN functional_objects func ON pf.fun_obj_id = func.id'
-                                f' JOIN {object_class}_objects concrete_func ON func.id = concrete_func.functional_object_id'
-                                ' WHERE pf.phys_obj_id = %s AND func.name = %s AND concrete_func.type_id = %s LIMIT 1', (phys_id, name, type_id))
+                        cur.execute('SELECT id FROM functional_objects f '
+                                ' WHERE physical_object_id = %s AND city_service_type_id = %s AND name = %s LIMIT 1',
+                                (phys_id, service_type_id, name))
                         res = cur.fetchone()
                         if res is not None:
                             present += 1
                             if address:
-                                results[i] = f'Service presented fully as functional_object with different address: "{address}" (build_id = {build_id}, phys_id = {phys_id}, functional_object_id = {res[0]})'
+                                results[i] = f'Updated existsing functional_object with different address: "{address}"' \
+                                        f' (build_id = {build_id}, phys_id = {phys_id}, functional_object_id = {res[0]})'
                             else:
-                                results[i] = f'Service presented fully as functional_object whthout building (phys_id = {phys_id}, functional_object_id = {res[0]})'
+                                results[i] = f'Updated existsing functional_object whthout building' \
+                                        f' (phys_id = {phys_id}, functional_object_id = {res[0]})'
                             functional_ids[i] = res[0]
-                            update_object(conn, row, object_class, res[0], mapping, additional_columns, commit)
+                            update_object(conn, row, res[0], mapping, service_type, commit)
                             continue
                         added_to_building_geom += 1
                         if address:
@@ -343,20 +300,19 @@ def add_objects(conn: psycopg2.extensions.connection, objects: pd.DataFrame,
                         else:
                             results[i] = f'Service added inside the geometry of physical object without building (phys_id = {phys_id})'
                     else: # if no address nor existing geometry found - insert as temporary point
-                        cur.execute('INSERT INTO physical_objects (osm_id, pollution_category_id, geometry, center, description) VALUES'
-                                ' (%s, (SELECT id FROM pollution_categories WHERE code = \'zero\'), ST_SetSRID(ST_MakePoint(%s, %s), 4326), ST_SetSRID(ST_MakePoint(%s, %s), 4326), %s) RETURNING id',
-                                (row.get(mapping['osm_id']), row[mapping['lng']], row[mapping['lat']], row[mapping['lng']], row[mapping['lat']],
-                                f'{row.get(mapping["name"])} ({object_class})' if row.get(mapping['name']) else f'объект ({object_class})'))
+                        cur.execute('INSERT INTO physical_objects (osm_id, geometry, center) VALUES'
+                                ' (%s, ST_SetSRID(ST_MakePoint(%s, %s), 4326), ST_SetSRID(ST_MakePoint(%s, %s), 4326)) RETURNING id',
+                                (row.get(mapping.osm_id), row[mapping.longitude], row[mapping.latitude], row[mapping.longitude], row[mapping.latitude]))
                         phys_id = cur.fetchone()[0]
-                        if len(row.get(mapping['address'])) != len(address_prefix):
-                            cur.execute("INSERT INTO buildings (physical_object_id, address, is_temp) VALUES (%s, %s, 'true') RETURNING id",
-                                        (phys_id, row.get(mapping['address'])[len(address_prefix):].strip(', ')))
+                        if is_service_building and mapping.address in row and len(row.get(mapping.address)) != len(address_prefix):
+                            cur.execute("INSERT INTO buildings (physical_object_id, address) VALUES (%s, %s) RETURNING id",
+                                        (phys_id, new_prefix + row[mapping.address][len(address_prefix):].strip(', ')))
                             build_id = cur.fetchone()[0]
                             results[i] = f'Building inserted with Point type as temporary object (build_id = {build_id}, phys_id = {phys_id})'
                         else:
-                            results[i] = f'Physical object inserted with Point type (phys_id = {phys_id}'
+                            results[i] = f'Physical object inserted with Point type (phys_id = {phys_id})'
                         added_as_points += 1
-                functional_ids[i] = insert_object(conn, row, phys_id, object_class, service_type_id, type_id, mapping, additional_columns, commit)
+                functional_ids[i] = insert_object(conn, row, phys_id, service_type, service_type_id, mapping, commit)
                 if commit:
                     conn.commit()
             except Exception as ex:
@@ -443,7 +399,8 @@ def load_objects_xlsx(filename: str, default_values: Optional[Dict[str, Any]] = 
 
 
 def load_objects_excel(filename: str, default_values: Optional[Dict[str, Any]] = None, needed_columns: Optional[Iterable[str]] = None) -> pd.DataFrame:
-    '''load_objects_excel loads objects as DataFrame from xls or ods by calling pd.read_excel (need to have `xlrd` Pyhton module installed for xls and `odfpy` for ods).
+    '''load_objects_excel loads objects as DataFrame from xls or ods by calling pd.read_excel
+        (need to have `xlrd` Pyhton module installed for xls and `odfpy` for ods).
     Calls `replace_with_default` after load if `default_values` is present
     '''
     res: pd.DataFrame = pd.read_excel(filename)
@@ -485,28 +442,24 @@ if __name__ == '__main__':
                         help=f'output stack trace when error happens')
     parser.add_argument('-l', '--log', action='store', dest='log_filename',
                         help=f'path to create log file [default: current datetime "YYYY-MM-DD HH-mm-ss-<filename>.csv"]', type=str)
-    parser.add_argument('-c', '--class', action='store', dest='object_class',
-                        help=f'object class (for <class>_objects + <class>_object_types tables) [required]', type=str, required=True)
-    parser.add_argument('-T', '--type', action='store', dest='type',
+    parser.add_argument('-T', '--service_type', action='store', dest='service_type',
                         help=f'service type name (for service_types table) [required]', type=str, required=True)
-    parser.add_argument('-C', '--code', action='store', dest='code',
+    parser.add_argument('-C', '--service_type_code', action='store', dest='service_type_code',
                         help=f'service type code (for service_types table) [required to insert, default null]', type=str)
     parser.add_argument('-f', '--city_function', action='store', dest='city_function',
                         help=f'name/code of city function of service type (from city_functions table) [required to insert, default null]', type=str)
-    parser.add_argument('-m', '--min_capacity', action='store', dest='min_capacity',
+    parser.add_argument('-mC', '--min_capacity', action='store', dest='min_capacity',
                         help=f'service type minimum capacity (for service_types table) [default null]', type=int)
-    parser.add_argument('-M', '--max_capacity', action='store', dest='max_capacity',
+    parser.add_argument('-MC', '--max_capacity', action='store', dest='max_capacity',
                         help=f'service type maximum capacity (for service_types table) [default null]', type=int)
-    parser.add_argument('-t', '--types_file', action='store', dest='types',
-                        help=f'path to json file with objects types ({{amenity: [type, code], ...}}) [default types.json]', type=str, default='types.json')
-    parser.add_argument('-a', '--amenity', action='store', dest='default_amenity',
-                        help=f'set objects amenity manually (if set, document\'s amenity field is fully ignored)', type=str)
+    parser.add_argument('-mS', '--min_status', action='store', dest='min_status',
+                        help=f'service type minimum status (for service_types table) [default null]', type=int)
+    parser.add_argument('-MS', '--max_status', action='store', dest='max_status',
+                        help=f'service type maximum status (for service_types table) [default null]', type=int)
     
-    parser.add_argument('-dA', '--document_amenity', action='store', dest='amenity',
-                        help=f'[default amenity]', type=str, default='amenity')
-    parser.add_argument('-dx', '--document_latitude', action='store', dest='lat',
+    parser.add_argument('-dx', '--document_latitude', action='store', dest='latitude',
                         help=f'[default x]', type=str, default='x')
-    parser.add_argument('-dy', '--document_longitude', action='store', dest='lng',
+    parser.add_argument('-dy', '--document_longitude', action='store', dest='longitude',
                         help=f'[default y]', type=str, default='y')
     parser.add_argument('-dN', '--document_name', action='store', dest='name',
                         help=f'[default name]', type=str, default='name')
@@ -516,14 +469,17 @@ if __name__ == '__main__':
                         help=f'[default contact:website]', type=str, default='contact:website')
     parser.add_argument('-dP', '--document_phone', action='store', dest='phone',
                         help=f'[default contact:phone]', type=str, default='contact:phone')
+    parser.add_argument('-dC', '--document_capacity', action='store', dest='capacity',
+                        help=f'[default -]', type=str, default='-')
     parser.add_argument('-dAD', '--document_address', action='store', dest='address',
                         help=f'[default yand_adr]', type=str, default='yand_adr')
     parser.add_argument('-dAP', '--document_address_prefix', action='append', dest='adr_prefixes',
-                        help=f'[default "Россия, Санкт-Петербург" (comma and space are not needed, adderess will be cut)], you can add multiple prefixes', type=str, default=[])
+                        help=f'[default "Россия, Санкт-Петербург" (comma and space are not needed, adderess will be cut)], you can add multiple prefixes',
+                        type=str, default=[])
+    parser.add_argument('-nAP', '--new_address_prefix', action='store', dest='new_address_prefix',
+                        help=f'[default (empty)]', type=str, default='')
     parser.add_argument('-dI', '--document_osm_id', action='store', dest='osm_id',
                         help=f'[default id]', type=str, default='id')
-    parser.add_argument('-dC', '--document_additional', action='append', dest='document_additionals',
-                        help=f'[default empty], format: <name in db>**<datatype>**<name in document>')
 
     parser.add_argument('filename', action='store', help=f'path to file with data [required]', type=str)
     args = parser.parse_args()
@@ -532,27 +488,6 @@ if __name__ == '__main__':
         args.adr_prefixes.append('Россия, Санкт-Петербург')
     else:
         args.adr_prefixes.sort(key=len, reverse=True)
-
-    additional_columns: Optional[List[Tuple[str, type, str]]]
-    if args.document_additionals:
-        additional_columns_tmp = list(map(lambda x: x.split('**'), args.document_additionals))
-        allowed_chars: Set[str] = set((chr(i) for i in range(ord('a'), ord('z')))) | {'_'}
-        types_mapping: Dict[str, type] = dict(itertools.chain(
-                map(lambda x: (x, str), ('str', 'string', 'text', 'varchar', 'строка')),
-                map(lambda x: (x, float), ('float', 'double', 'double precision', 'вещественное', 'нецелое')),
-                map(lambda x: (x, int), ('int', 'integer', 'number', 'целое'))
-        ))
-        for entry in additional_columns_tmp:
-            assert len(entry) == 3, f'Wrong input of additional column: "{"**".join(entry)}"'
-            column_db, datatype, column_document = entry
-            assert len(column_db) != 0, 'One of the columns have its name empty'
-            assert datatype in ('int', 'integer', 'float', 'double', 'str', 'string', 'varchar'), \
-                    f'Column in database "{column_db}" type ({datatype}) is unknown, it must be one of the: (integer, float, string)'
-            assert len((set(column_db) - allowed_chars)) == 0, f'Column {column_db} has wrong name (you should use only small english letters and "_")'
-        additional_columns = list(map(lambda x: (x[0], types_mapping[x[1]], x[2]), additional_columns_tmp))
-        del additional_columns_tmp
-    else:
-        additional_columns = None
 
     assert os.path.isfile(args.filename), 'Input file is not found. Exiting'
 
@@ -578,37 +513,22 @@ if __name__ == '__main__':
     else:
         logfile = args.log_filename
 
-    mapping: Dict[str, str] = {'amenity': args.amenity, 'name': args.name, 'opening_hours': args.opening_hours,
-            'website': args.website, 'phone': args.phone, 'address': args.address,
-            'osm_id': args.osm_id, 'lat': args.lat, 'lng': args.lng}
-    if args.default_amenity:
-        del mapping['amenity']
-        print(f'Objects amenity is set to {args.default_amenity}')
+    mapping = initInsertionMapping(args.name, args.opening_hours, args.website, args.phone, args.address, args.osm_id, args.capacity, args.latitude, args.longitude)
     print("Document's mapping:", mapping)
-
-    with open(args.types, 'rt', encoding='utf-8') as f:
-        types: Dict[str, Tuple[str, str]] = json.load(f)
-    
-    types = dict(map(lambda x: (x[0].lower(), x[1]), types.items()))
 
     print(f'Using database {properties.db_user}@{properties.db_addr}:{properties.db_port}/{properties.db_name}. ', end='')
     if args.dry_run:
         print('Dry run, no changes to database will be made')
     else:
         print('Objects will be written to the database')
-    if args.verbose:
-        print(f'Type pairs (<name in document\'s "{args.default_amenity or mapping["amenity"]}"> -> <name>, <code>):')
-        for name_doc, (name, code) in types.items():
-            print(f'\t{name_doc} -> {name}, {code}')
     print(f'Output log file - "{logfile}"')
 
     objects: pd.DataFrame = load_objects(args.filename)
     print(f'Loaded {objects.shape[0]} objects from file "{args.filename}"')
 
-    ensure_tables(properties.conn, args.object_class, {column_db: datatype for column_db, datatype, _ in additional_columns} if additional_columns else None, not args.dry_run)
-    service_id = ensure_service(properties.conn, args.type, args.code, args.min_capacity, args.max_capacity, args.city_function, not args.dry_run)
-    objects = add_objects(properties.conn, objects, args.object_class, types, service_id, args.default_amenity, mapping, args.adr_prefixes,
-            {column_db: (column_doc, datatype) for column_db, datatype, column_doc in additional_columns} if additional_columns else None, not args.dry_run, args.verbose)
+    service_id = ensure_service_type(properties.conn, args.service_type, args.service_type_code, args.min_capacity, args.max_capacity,
+            args.min_status, args.max_status, args.city_function, not args.dry_run)
+    objects = add_objects(properties.conn, objects, args.service_type, service_id, mapping, args.adr_prefixes, args.new_address_prefix, not args.dry_run, args.verbose)
 
     objects.to_csv(logfile)
     print(f'Finished, result is written to {logfile}')
