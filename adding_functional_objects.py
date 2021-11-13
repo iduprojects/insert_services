@@ -1,14 +1,29 @@
 import argparse
+import itertools
+import json
+import logging
+import os
+import random
+import time
+import traceback
+from enum import Enum
+from enum import auto as enum_auto
+from typing import Any, Dict, Iterable, List, NamedTuple, Optional
+
+import pandas as pd
 import psycopg2
-import pandas as pd, json
-from numpy import nan
-import os, time, random
-import traceback, itertools
-from typing import Dict, Iterable, NamedTuple, Tuple, List, Any, Union, Optional, Set
+
 from database_properties import Properties
-from enum import Enum, auto as enum_auto
 
 properties: Properties
+
+log = logging.getLogger(__name__)
+log.addHandler(logging.FileHandler('insert_services.log', 'a', 'utf8'))
+log.handlers[0].setFormatter(logging.Formatter('%(asctime)s:  %(message)s'))
+log.handlers[0].setLevel('INFO')
+log.addHandler(logging.StreamHandler())
+log.handlers[1].setFormatter(logging.Formatter('%(asctime)s:  %(message)s'))
+log.setLevel('INFO')
 
 class SQLType(Enum):
     INT = enum_auto()
@@ -211,8 +226,12 @@ def add_objects(conn: psycopg2.extensions.connection, objects: pd.DataFrame, ser
 
         5. Insert functional_object connected to physical_object and concrete functional object for it by calling `insert_object`
     '''
-    objects = objects.drop(objects[objects[mapping.address].isna()].index)
-    objects[mapping.address] = objects[mapping.address].apply(lambda x: x.replace('?', '').strip())
+    log.warn(f'Launched service insertion from {"command line tool" if __name__ == "__main__" else "external tool"}')
+    log.info(f'Inserting objects of a service type "{service_type}" (id {service_type_id}), totally {objects.shape[0]} objects')
+    log.info(f'Prefixes list: {address_prefixes}, new prefix: "{new_prefix}"')
+
+    if mapping.address in objects.columns:
+        objects[mapping.address] = objects[mapping.address].apply(lambda x: x.replace('?', '').strip() if isinstance(x, str) else None)
     present = 0 # objects already present in the database
     added_to_building_adr, added_to_building_geom, added_as_points, skipped = 0, 0, 0, 0
     results: List[str] = list(('',) * objects.shape[0])
@@ -226,6 +245,7 @@ def add_objects(conn: psycopg2.extensions.connection, objects: pd.DataFrame, ser
                     row[mapping.longitude] = round(float(row[mapping.longitude]), 6)
                 except Exception:
                     results[i] = 'Skipped (latitude or longitude are invalid)'
+                    skipped += 1
                     continue
                 if is_service_building:
                     for address_prefix in address_prefixes:
@@ -324,9 +344,11 @@ def add_objects(conn: psycopg2.extensions.connection, objects: pd.DataFrame, ser
                 skipped += 1
     objects['result'] = pd.Series(results, index=objects.index)
     objects['functional_obj_id'] = pd.Series(functional_ids, index=objects.index)
-    print(f'Insertion finished. {len(objects)} objects processed: {added_as_points + added_to_building_adr + added_to_building_geom}'
-        f' were added ({added_as_points} added as points, {added_to_building_adr} found buildings by address'
-        f' and {added_to_building_geom} found buildings by geometry), {present} objects were already present, {skipped} objects were skipped')
+    log.warn(f'Insertion of {service_type} has finished')
+    log.warn(f'{len(objects)} objects processed: {added_as_points + added_to_building_adr + added_to_building_geom} were added,'
+            f' {present} objects were already present, {skipped} objects were skipped')
+    log.warn(f'{added_as_points} objects were added as points, {added_to_building_adr} found buildings by address,'
+        f' {added_to_building_geom} found buildings by geometry')
     return objects
 
 
@@ -421,6 +443,8 @@ def load_objects(filename: str, default_values: Optional[Dict[str, Any]] = None,
     
 
 if __name__ == '__main__':
+
+    log.handlers[1].setLevel('INFO')
 
     properties = Properties('localhost', 5432, 'citydb', 'postgres', 'postgres')
 

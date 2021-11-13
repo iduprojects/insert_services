@@ -1,12 +1,17 @@
-from PySide6 import QtCore, QtWidgets, QtGui
-from typing import Any, Callable, Optional, NamedTuple, List, Tuple, Dict, Union
-import os, time, traceback, itertools
+import itertools
 import json
+import os
+import time
+import traceback
+from typing import Any, Callable, Dict, List, NamedTuple, Optional, Tuple, Union
+
 import pandas as pd
 import psycopg2
+from PySide6 import QtCore, QtGui, QtWidgets
 
-from database_properties import Properties
 import adding_functional_objects
+from database_properties import Properties
+
 
 class ColorizingLine(QtWidgets.QLineEdit):
     def __init__(self, callback: Callable[[Optional[QtWidgets.QLineEdit], Optional[str]], None], text: Optional[str] = None, parent: Optional[QtWidgets.QWidget] = None):

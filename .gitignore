@@ -5,6 +5,8 @@
 *.csv
 *.docx
 *.~lock*
+*.log
+*.txt
 
 .mypy_cache
 .vscode

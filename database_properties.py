@@ -7,7 +7,6 @@ class Properties:
         self.db_name = db_name
         self.db_user = db_user
         self.db_pass = db_pass
-        self._connected = False
         self._conn = None
 
     @property
@@ -18,21 +17,20 @@ class Properties:
     def conn(self):
         if self._conn is None or self._conn.closed:
             self._conn = psycopg2.connect(self.conn_string)
-            try:
-                with self._conn.cursor() as cur:
-                    cur.execute('SELECT 1')
-                    assert cur.fetchone()[0] == 1
-                self._connected = True
-            except Exception:
-                self._connected = False
-                raise
+        try:
+            with self._conn.cursor() as cur:
+                cur.execute('SELECT 1')
+                assert cur.fetchone()[0] == 1
+        except Exception:
+            self._connected = False
+            raise
         return self._conn
     
     def close(self):
         if self._conn is not None and not self._conn.closed:
             self._conn.close()
-        self._connected = False
+        self._conn = None
     
     @property
     def connected(self):
-        return self._connected
+        return self._conn is not None
