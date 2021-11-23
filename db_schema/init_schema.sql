@@ -44,6 +44,12 @@ SET default_table_access_method = heap;
 
 -- Basic
 
+CREATE TYPE city_division_type AS ENUM (
+    'ADMIN_UNIT_PARENT',
+    'MUNICIPALITY_PARENT',
+    'NO_PARENT'
+);
+
 CREATE administrative_unit_types (
     id serial PRIMARY KEY NOT NULL,
     full_name character varying(50) UNIQUE NOT NULL,
@@ -77,7 +83,7 @@ CREATE TABLE cities (
     geomtry geometry(Geometry, 4326) NOT NULL,
     center geometry(Point, 4326) NOT NULL,
     population int,
-    -- city_division_type city_division_type
+    city_division_type city_division_type,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL
 )

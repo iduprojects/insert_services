@@ -2,12 +2,18 @@ import psycopg2
 
 class Properties:
     def __init__(self, db_addr: str, db_port: int, db_name: str, db_user: str, db_pass: str):
+        self.reopen(db_addr, db_port, db_name, db_user, db_pass)
+
+    def reopen(self, db_addr: str, db_port: int, db_name: str, db_user: str, db_pass: str):
         self.db_addr = db_addr
         self.db_port = db_port
         self.db_name = db_name
         self.db_user = db_user
         self.db_pass = db_pass
         self._conn = None
+
+    def copy(self):
+        return Properties(self.db_addr, self.db_port, self.db_name, self.db_user, self.db_pass)
 
     @property
     def conn_string(self) -> str:

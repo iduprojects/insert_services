@@ -17,13 +17,10 @@ from database_properties import Properties
 
 properties: Properties
 
-log = logging.getLogger(__name__)
+log = logging.getLogger('services_manipulation').getChild('services_insert_console')
 log.addHandler(logging.FileHandler('insert_services.log', 'a', 'utf8'))
-log.handlers[0].setFormatter(logging.Formatter('%(asctime)s:  %(message)s'))
-log.handlers[0].setLevel('INFO')
-log.addHandler(logging.StreamHandler())
-log.handlers[1].setFormatter(logging.Formatter('%(asctime)s:  %(message)s'))
-log.setLevel('INFO')
+log.handlers[-1].setFormatter(logging.Formatter('{asctime} {name}: {message}', datefmt='%Y`-%m-%d %H:%M:%S', style='{'))
+log.handlers[-1].setLevel('INFO')
 
 class SQLType(Enum):
     INT = enum_auto()
@@ -148,7 +145,7 @@ def insert_object(conn: psycopg2.extensions.connection, row: pd.Series, phys_id:
         )
         func_id = cur.fetchone()[0]
         if commit:
-            conn.commit()
+            cur.execute('SAVEPOINT previous_object')
         return func_id
 
 
@@ -172,11 +169,11 @@ def update_object(conn: psycopg2.extensions.connection, row: pd.Series, func_id:
         cur.execute(f'UPDATE functional_objects SET {", ".join(list(map(lambda x: x[0] + "=%s", change)))} WHERE id = %s',
                 list(map(lambda x: x[2], change)) + [func_id])
         if commit:
-            conn.commit()
+            cur.execute('SAVEPOINT previous_object')
         return func_id
 
 
-def add_objects(conn: psycopg2.extensions.connection, objects: pd.DataFrame, service_type: str, service_type_id: int,
+def add_objects(conn: psycopg2.extensions.connection, objects: pd.DataFrame, city_name: str, service_type: str, service_type_id: int,
         mapping: InsertionMapping, address_prefixes: List[str] = ['Россия, Санкт-Петербург'], new_prefix: str = '',
         is_service_building: bool = True, commit: bool = True, verbose: bool = False) -> pd.DataFrame:
     '''add_objects inserts objects to database.
@@ -185,6 +182,7 @@ def add_objects(conn: psycopg2.extensions.connection, objects: pd.DataFrame, ser
 
         - `conn` - connection for the database
         - `objects` - DataFrame containing objects
+        - `city_name` - name of the city to add objects to. Must be created in the database
         - `service_type` - name of service_type for logging and services names fillment if they are missing
         - `service_type_id` - id of service_type (got by `ensure_service_type` function), must be valid
         - `mapping` - InsertionMapping of namings in the database and namings in the DataFrame columns
@@ -238,6 +236,16 @@ def add_objects(conn: psycopg2.extensions.connection, objects: pd.DataFrame, ser
     functional_ids: List[int] = [-1 for _ in range(objects.shape[0])]
     address_prefixes = sorted(address_prefixes, key=lambda s: -len(s))
     with conn.cursor() as cur:
+        cur.execute('SELECT id FROM cities WHERE name = %s', (city_name,))
+        city_id = cur.fetchone()
+        if city_id is None:
+            log.error(f'Заданный город "{city_name}" отсутствует в базе данных')
+            objects['result'] = pd.Series([f'Город "{city_name}" отсутсвует в базе данных'] * objects.shape[0], index=objects.index)
+            objects['functional_obj_id'] = pd.Series([-1] * objects.shape[0], index=objects.index)
+            return objects
+        city_id = city_id[0]
+        if commit:
+            cur.execute('SAVEPOINT previous_object')
         for i, (_, row) in enumerate(objects.iterrows()):
             try:
                 try:
@@ -320,9 +328,9 @@ def add_objects(conn: psycopg2.extensions.connection, objects: pd.DataFrame, ser
                         else:
                             results[i] = f'Service added inside the geometry of physical object without building (phys_id = {phys_id})'
                     else: # if no address nor existing geometry found - insert as temporary point
-                        cur.execute('INSERT INTO physical_objects (osm_id, geometry, center) VALUES'
-                                ' (%s, ST_SetSRID(ST_MakePoint(%s, %s), 4326), ST_SetSRID(ST_MakePoint(%s, %s), 4326)) RETURNING id',
-                                (row.get(mapping.osm_id), row[mapping.longitude], row[mapping.latitude], row[mapping.longitude], row[mapping.latitude]))
+                        cur.execute('INSERT INTO physical_objects (osm_id, geometry, center, city_id) VALUES'
+                                ' (%s, ST_SetSRID(ST_MakePoint(%s, %s), 4326), ST_SetSRID(ST_MakePoint(%s, %s), 4326), %s) RETURNING id',
+                                (row.get(mapping.osm_id), row[mapping.longitude], row[mapping.latitude], row[mapping.longitude], row[mapping.latitude], city_id))
                         phys_id = cur.fetchone()[0]
                         if is_service_building and mapping.address in row and len(row.get(mapping.address)) != len(address_prefix):
                             cur.execute("INSERT INTO buildings (physical_object_id, address) VALUES (%s, %s) RETURNING id",
@@ -339,15 +347,17 @@ def add_objects(conn: psycopg2.extensions.connection, objects: pd.DataFrame, ser
                 print(f'Exception occured: {ex}')
                 if verbose:
                     traceback.print_exc()
-                conn.rollback()
+                cur.execute('ROLLBACK TO previous_object')
                 results[i] = f'Skipped, caused exception: {ex}'
                 skipped += 1
+        if commit:
+            conn.commit()
     objects['result'] = pd.Series(results, index=objects.index)
     objects['functional_obj_id'] = pd.Series(functional_ids, index=objects.index)
-    log.warn(f'Insertion of {service_type} has finished')
-    log.warn(f'{len(objects)} objects processed: {added_as_points + added_to_building_adr + added_to_building_geom} were added,'
+    log.warning(f'Insertion of {service_type} has finished')
+    log.warning(f'{len(objects)} objects processed: {added_as_points + added_to_building_adr + added_to_building_geom} were added,'
             f' {present} objects were already present, {skipped} objects were skipped')
-    log.warn(f'{added_as_points} objects were added as points, {added_to_building_adr} found buildings by address,'
+    log.warning(f'{added_as_points} objects were added as points, {added_to_building_adr} found buildings by address,'
         f' {added_to_building_geom} found buildings by geometry')
     return objects
 
@@ -466,6 +476,8 @@ if __name__ == '__main__':
                         help=f'output stack trace when error happens')
     parser.add_argument('-l', '--log', action='store', dest='log_filename',
                         help=f'path to create log file [default: current datetime "YYYY-MM-DD HH-mm-ss-<filename>.csv"]', type=str)
+    parser.add_argument('-c', '--city', action='store', dest='city',
+                        help=f'name of the city, must be in the database [required]', type=str, required=True)
     parser.add_argument('-T', '--service_type', action='store', dest='service_type',
                         help=f'service type name (for service_types table) [required]', type=str, required=True)
     parser.add_argument('-C', '--service_type_code', action='store', dest='service_type_code',
@@ -538,21 +550,21 @@ if __name__ == '__main__':
         logfile = args.log_filename
 
     mapping = initInsertionMapping(args.name, args.opening_hours, args.website, args.phone, args.address, args.osm_id, args.capacity, args.latitude, args.longitude)
-    print("Document's mapping:", mapping)
+    log.info("Document's mapping:", mapping)
 
-    print(f'Using database {properties.db_user}@{properties.db_addr}:{properties.db_port}/{properties.db_name}. ', end='')
+    log.info(f'Using database {properties.db_user}@{properties.db_addr}:{properties.db_port}/{properties.db_name}. ', end='')
     if args.dry_run:
-        print('Dry run, no changes to database will be made')
+        log.info('Dry run, no changes to database will be made')
     else:
-        print('Objects will be written to the database')
-    print(f'Output log file - "{logfile}"')
+        log.info('Objects will be written to the database')
+    log.info(f'Output log file - "{logfile}"')
 
     objects: pd.DataFrame = load_objects(args.filename)
-    print(f'Loaded {objects.shape[0]} objects from file "{args.filename}"')
+    log.info(f'Loaded {objects.shape[0]} objects from file "{args.filename}"')
 
     service_id = ensure_service_type(properties.conn, args.service_type, args.service_type_code, args.min_capacity, args.max_capacity,
             args.min_status, args.max_status, args.city_function, not args.dry_run)
-    objects = add_objects(properties.conn, objects, args.service_type, service_id, mapping, args.adr_prefixes, args.new_address_prefix, not args.dry_run, args.verbose)
+    objects = add_objects(properties.conn, objects, args.city, args.service_type, service_id, mapping, args.adr_prefixes, args.new_address_prefix, not args.dry_run, args.verbose)
 
     objects.to_csv(logfile)
-    print(f'Finished, result is written to {logfile}')
+    log.info(f'Finished, result is written to {logfile}')
