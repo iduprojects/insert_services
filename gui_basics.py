@@ -1,7 +1,25 @@
-from typing import Any, Callable, List, NamedTuple, Optional, Sequence
+import json
+from typing import Any, Callable, List, NamedTuple, Optional, Sequence, Tuple
 
+import psycopg2
 from PySide6 import QtCore, QtGui, QtWidgets
 
+
+def check_geometry_correctness(geometry_geojson: Optional[str],
+        conn: psycopg2.extensions.connection) -> Optional[Tuple[float, float, str]]:
+    if geometry_geojson is None:
+        return None
+    try:
+        with conn.cursor() as cur:
+            cur.execute('SELECT ST_AsGeoJSON(ST_Centroid(ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326)), 6),'
+                    ' ST_GeometryType(ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326))', (geometry_geojson,) * 2)
+            new_center, geom_type = cur.fetchone()
+            new_center = json.loads(new_center)
+            new_longitude, new_latitude = new_center['coordinates']
+        return new_latitude, new_longitude, geom_type
+    except Exception as ex:
+        conn.rollback()
+        return None
 
 class ColorizingLine(QtWidgets.QLineEdit):
     def __init__(self, callback: Callable[[Optional[QtWidgets.QLineEdit], Optional[str]], None], text: Optional[str] = None, parent: Optional[QtWidgets.QWidget] = None):
@@ -56,15 +74,15 @@ class CheckableTableView(QtWidgets.QTableView):
             return super().mouseDoubleClickEvent(event)
 
     def keyPressEvent(self, event: QtGui.QKeyEvent) -> None:
-        if self.editTriggers() == QtWidgets.QTableWidget.NoEditTriggers:
-            return super().keyPressEvent(event)
         key = event.key()
-        indexes = set(map(lambda index: index.row(), filter(lambda index: index.column() == 0, self.selectedIndexes())))
-        if len(indexes) > 0:
-            if key in (QtCore.Qt.Key_Return, QtCore.Qt.Key_Enter, QtCore.Qt.Key_Minus, QtCore.Qt.Key_Plus):
+        if key in (QtCore.Qt.Key_Return, QtCore.Qt.Key_Enter, QtCore.Qt.Key_Minus, QtCore.Qt.Key_Plus):
+            indexes = set(map(lambda index: index.row(), filter(lambda index: index.column() == 0, self.selectedIndexes())))
+            if len(indexes) > 0:
                 func = self.turn_row_off if key == QtCore.Qt.Key_Minus else self.turn_row_on if key == QtCore.Qt.Key_Plus else self.toggle_row
                 for row in indexes:
                     func(row)
+            else:
+                return super().keyPressEvent(event)
         else:
             return super().keyPressEvent(event)
 
@@ -138,3 +156,21 @@ class ColoringTableWidget(QtWidgets.QTableWidget):
                 self.item(row, column).setBackground(QtCore.Qt.GlobalColor.red)
             self._data[row][column] = data
         return super().dataChanged(topLeft, bottomRight, roles=roles)
+
+class GeometryShow(QtWidgets.QDialog):
+    def __init__(self, geometry: str, parent: Optional[QtWidgets.QWidget] = None):
+        super().__init__(parent=parent)
+        self.window().setWindowTitle('Просмотр геометрии')
+        layout = QtWidgets.QVBoxLayout()
+        geometry_field = QtWidgets.QTextEdit()
+        geometry_field.setPlainText(geometry)
+        geometry_field.setMinimumSize(300, 300)
+        geometry_field.setReadOnly(True)
+        layout.addWidget(geometry_field)
+        copy_btn = QtWidgets.QPushButton('Скопировать в буфер обмена')
+        def copy_and_close():
+            QtWidgets.QApplication.clipboard().setText(geometry_field.toPlainText())
+            self.accept()
+        copy_btn.clicked.connect(copy_and_close)
+        layout.addWidget(copy_btn)
+        self.setLayout(layout)

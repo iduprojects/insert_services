@@ -1,20 +1,20 @@
+import itertools
 import json
 import logging
 import time
 from typing import Any, Callable, Iterable, List, NamedTuple, Optional, Sequence, Tuple, Type, Union
 
 import pandas as pd
-import psycopg2
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from database_properties import Properties
-from gui_basics import ColoringTableWidget
+from gui_basics import ColoringTableWidget, ColorizingComboBox, check_geometry_correctness
 
 log = logging.getLogger('services_manipulation').getChild('services_update_gui')
 
 class PlatformServicesTableWidget(ColoringTableWidget):
     LABELS = ['id сервиса', 'Адрес', 'Название', 'Рабочие часы', 'Веб-сайт', 'Телефон',
-                'Мощность', 'id здания', 'Широта', 'Долгота', 'Тип геометрии', 'Админ. единица', 'Муницип. образование', 'Создание', 'Обновление']
+                'Мощность', 'id физ. объекта', 'Широта', 'Долгота', 'Тип геометрии', 'Админ. единица', 'Муницип. образование', 'Создание', 'Обновление']
     LABELS_DB = ['id', '-', 'name', 'opening_hours', 'website', 'phone', 'capacity', 'physical_object_id', '-', '-', '-', '-', '-', '-']
     def __init__(self, services: Sequence[Sequence[Any]], changed_callback: Callable[[int, str, Any, Any, bool], None],
             db_properties: Properties):
@@ -126,8 +126,8 @@ class GeometryUpdate(QtWidgets.QDialog):
 
 
 class PhysicalObjectCreation(QtWidgets.QDialog):
-    def __init__(self, text: str, parent: Optional[QtWidgets.QWidget] = None, geometry: Optional[str] = None,
-            osm_id: Optional[str] = None, is_adding: bool = False):
+    def __init__(self, text: str, geometry: Optional[str] = None,
+            osm_id: Optional[str] = None, is_adding: bool = False, parent: Optional[QtWidgets.QWidget] = None):
         super().__init__(parent=parent)
         self.window().setWindowTitle('Добавление физического объекта' if is_adding else 'Изменение физического объекта')
         layout = QtWidgets.QVBoxLayout()
@@ -159,15 +159,15 @@ class PhysicalObjectCreation(QtWidgets.QDialog):
         return _str_or_none(self._geometry_field.toPlainText())
 
 class BuildingCreation(QtWidgets.QDialog):
-    def __init__(self, text: str, parent: Optional[QtWidgets.QWidget] = None, geometry: Optional[str] = None,
-            osm_id: Optional[str] = None, address: Optional[str] = None, building_date: Optional[str] = None,
+    def __init__(self, text: str, geometry: Optional[str] = None, osm_id: Optional[str] = None,
+            address: Optional[str] = None, building_date: Optional[str] = None,
             repair_years: Optional[str] = None, building_area: Optional[float] = None,
             living_area: Optional[float] = None, storeys: Optional[int] = None, lift_count: Optional[int] = None,
             population: Optional[int] = None, project_type: Optional[str] = None, ukname: Optional[str] = None,
             central_heating: Optional[bool] = None, central_hotwater: Optional[bool] = None,
             central_electricity: Optional[bool] = None, central_gas: Optional[bool] = None,
             refusechute: Optional[bool] = None, is_failfing: Optional[bool] = None,
-            is_adding: bool = False):
+            is_adding: bool = False, parent: Optional[QtWidgets.QWidget] = None):
         super().__init__(parent=parent)
         self.window().setWindowTitle('Добавление здания' if is_adding else 'Изменение здания')
         layout = QtWidgets.QVBoxLayout()
@@ -351,14 +351,14 @@ class UpdatingWindow(QtWidgets.QWidget):
 
         self._options_group_box = QtWidgets.QGroupBox('Опции выбора')
         self._options_group = QtWidgets.QFormLayout()
+        self._city_choose = ColorizingComboBox(self._on_city_change)
+        self._options_group.addRow('Город:', self._city_choose)
+        self._right.addWidget(self._options_group_box)
         self._options_group_box.setLayout(self._options_group)
         self._service_type_choose = QtWidgets.QComboBox()
         self._options_group.addRow('Тип сервиса:', self._service_type_choose)
-        self._city_choose = QtWidgets.QComboBox()
-        self._options_group.addRow('Город:', self._city_choose)
-        self._right.addWidget(self._options_group_box)
 
-        self._editing_group_box = QtWidgets.QGroupBox('Изменение списка ')
+        self._editing_group_box = QtWidgets.QGroupBox('Изменение списка')
         self._editing_group = QtWidgets.QFormLayout()
         self._editing_group_box.setLayout(self._editing_group)
         self._edit_buttons = UpdatingWindow.EditButtons(QtWidgets.QPushButton('Загрузить сервисы'),
@@ -391,6 +391,24 @@ class UpdatingWindow(QtWidgets.QWidget):
         self._options_group_box.setFixedWidth(right_width)
         self._editing_group_box.setFixedWidth(right_width)
 
+    def _on_city_change(self, _changed: Optional[QtWidgets.QComboBox] = None, _old_state: Optional[int] = None) -> None:
+        with self._db_properties.conn.cursor() as cur:
+            cur.execute('SELECT DISTINCT st.name FROM functional_objects f'
+                    '   JOIN physical_objects p ON f.physical_object_id = p.id'
+                    '   JOIN city_service_types st ON f.city_service_type_id = st.id'
+                    ' WHERE p.city_id = (SELECT id FROM cities WHERE name = %s)'
+                    ' ORDER BY 1', (self._city_choose.currentText(),))
+            service_types = list(itertools.chain.from_iterable(cur.fetchall()))
+        service_type_chosen = self._service_type_choose.currentText()
+        self._service_type_choose.clear()
+        if len(service_types) > 0:
+            self._service_type_choose.addItems(service_types)
+            if service_type_chosen in service_types:
+                self._service_type_choose.setCurrentText(service_type_chosen)
+            self._edit_buttons.load.setEnabled(True)
+        else:
+            self._service_type_choose.addItem('(Нет загруженных сервисов)')
+            self._edit_buttons.load.setEnabled(False)
 
     def _on_objects_load(self) -> None:
         self._log_window.clear()
@@ -401,7 +419,7 @@ class UpdatingWindow(QtWidgets.QWidget):
             cur.execute('SELECT f.id as functional_object_id, b.address, f.name AS service_name, f.opening_hours, f.website, f.phone,'
                     '   f.capacity, p.id as physical_object_id, ST_Y(p.center), ST_X(p.center), ST_GeometryType(p.geometry),'
                     '   au.name as administrative_unit, m.name as municipality,'
-                    "   date_trunc('minute', f.created_at)::timestamp, date_trunc('minute', f.updated_at)::timestamp"
+                    "   date_trunc('second', f.created_at)::timestamp, date_trunc('second', f.updated_at)::timestamp"
                     ' FROM physical_objects p'
                     '   JOIN functional_objects f ON f.physical_object_id = p.id'
                     '   LEFT JOIN buildings b ON b.physical_object_id = p.id'
@@ -448,7 +466,7 @@ class UpdatingWindow(QtWidgets.QWidget):
             self._editing_group.replaceWidget(self._edit_buttons.updatePhysicalObject, self._edit_buttons.updateBuilding)
         
         self._log_window.insertHtml(f'<font color=blue>Работа с городом "{self._city_choose.currentText()}"</font><br>')
-        self._log_window.insertHtml(f'<font color=blue>Загружены {len(services_list)} сервисов типа "{self._service_type_choose.currentText()}</font>"<br>')
+        self._log_window.insertHtml(f'<font color=blue>Загружены {len(services_list)} сервисов типа "{self._service_type_choose.currentText()}"</font><br>')
 
     def _on_cell_change(self, row: int, column_name: str, old_value: Any, new_value: Any, is_valid: bool) -> None:
         func_id = self._table.item(row, 0).text()
@@ -456,14 +474,14 @@ class UpdatingWindow(QtWidgets.QWidget):
             self._log_window.insertHtml(f'<font color=yellowgreen>Изменен объект с func_id={func_id}. {column_name}:'
                     f' "{_to_str(old_value)}"->"{_to_str(new_value)}"</font><br>')
         else:
-            self._log_window.insertHtml(f'<font color=#e6783c>Не изменен объект с func_id ='
-                    f' {func_id}. {column_name}: "{_to_str(old_value)}"->"{_to_str(new_value)}" (некорректное значение)</font><br>')
+            self._log_window.insertHtml(f'<font color=#e6783c>Не изменен объект с func_id='
+                    f'{func_id}. {column_name}: "{_to_str(old_value)}"->"{_to_str(new_value)}" (некорректное значение)</font><br>')
             return
         column = PlatformServicesTableWidget.LABELS.index(column_name)
         db_column = PlatformServicesTableWidget.LABELS_DB[column]
         with self._db_properties.conn.cursor() as cur:
             cur.execute(f"UPDATE functional_objects SET {db_column} = %s, updated_at = date_trunc('second', now()) WHERE id = %s",
-                    (new_value, self._table.item(row, 0).text()))
+                    (new_value, func_id))
 
     def _on_object_delete(self) -> None:
         rows = sorted(set(map(lambda index: index.row() + 1, self._table.selectedIndexes())))
@@ -471,10 +489,10 @@ class UpdatingWindow(QtWidgets.QWidget):
             return
         if len(rows) > 1:
             is_deleting = QtWidgets.QMessageBox.question(self, 'Удаление объектов',
-                    f'Вы уверены, что хотите удалить объекты под номерами: {", ".join(map(str, rows))}?')
+                    f'Вы уверены, что хотите удалить объекты в строках под номерами: {", ".join(map(str, rows))}?')
         else:
             object_row = next(iter(rows))
-            is_deleting = QtWidgets.QMessageBox.question(self, 'Удаление объекта', f'Вы уверены, что хотите удалить объект под номером {object_row}?')
+            is_deleting = QtWidgets.QMessageBox.question(self, 'Удаление объекта', f'Вы уверены, что хотите удалить объект в строке под номером {object_row}?')
         if is_deleting == QtWidgets.QMessageBox.StandardButton.Yes:
             with self._db_properties.conn.cursor() as cur:
                 for row in rows[::-1]:
@@ -483,7 +501,14 @@ class UpdatingWindow(QtWidgets.QWidget):
                     cur.execute('DELETE FROM provision.houses_services WHERE house_id = %s OR service_id = %s', (func_id,) * 2)
                     cur.execute('DELETE FROM provision.services WHERE service_id = %s', (func_id,))
                     cur.execute('DELETE FROM provision.houses WHERE house_id = %s', (func_id,))
+                    cur.execute('SELECT physical_object_id FROM functional_objects WHERE id = %s', (func_id,))
+                    phys_id = cur.fetchone()[0]
                     cur.execute('DELETE FROM functional_objects WHERE id = %s', (func_id,))
+                    cur.execute('SELECT count(*) FROM functional_objects WHERE physical_object_id = %s', (phys_id,))
+                    phys_count = cur.fetchone()[0]
+                    if phys_count == 0:
+                        cur.execute('DELETE FROM buildings WHERE physical_object_id = %s', (phys_id,))
+                        cur.execute('DELETE FROM physical_objects WHERE id = %s', (phys_id,))
                     self._table.removeRow(row - 1)
 
     def _on_geometry_show(self) -> None:
@@ -499,7 +524,7 @@ class UpdatingWindow(QtWidgets.QWidget):
     def _on_add_physical_object(self) -> None:
         row = self._table.currentRow()
         func_id, phys_id = self._table.item(row, 0).text(), self._table.item(row, 7).text()
-        dialog = PhysicalObjectCreation(f'Введите информацию о физическом объекте для сервиса в строке {row + 1} в поля ниже')
+        dialog = PhysicalObjectCreation(f'Введите информацию о физическом объекте для сервиса в строке {row + 1} в поля ниже', is_adding=True)
         if dialog.exec() != QtWidgets.QDialog.Accepted:
             return
         try:
@@ -550,11 +575,11 @@ class UpdatingWindow(QtWidgets.QWidget):
             cur.execute('SELECT ST_AsGeoJSON(geometry), osm_id FROM physical_objects WHERE id = %s', (phys_id,))
             geometry, osm_id = cur.fetchone()
         geometry = json.loads(geometry)
-        dialog = PhysicalObjectCreation(f'Если необходимо, измените параметры физического объекта для сервиса на строке {row + 1}', None,
+        dialog = PhysicalObjectCreation(f'Если необходимо, измените параметры физического объекта для сервиса на строке {row + 1}',
                 json.dumps(geometry, indent=2), osm_id)
         if dialog.exec() != QtWidgets.QDialog.Accepted:
             return
-        new_geom_tuple = self._check_geometry_correctness(dialog.get_geometry())
+        new_geom_tuple = check_geometry_correctness(dialog.get_geometry(), self._additional_conn)
         if new_geom_tuple is None:
             self._log_window.insertHtml(f'<font color=#e6783c>Физический объект для сервиса с id={func_id}'
                     f' (phys_id)={phys_id}) не обновлен, ошибка в геометрии</font><br>')
@@ -592,7 +617,7 @@ class UpdatingWindow(QtWidgets.QWidget):
     def _on_add_building(self) -> None:
         row = self._table.currentRow()
         func_id = self._table.item(row, 0).text()
-        dialog = BuildingCreation(f'Введите информацию о здании для добавления для сервиса на строке {row + 1} в поля ниже')
+        dialog = BuildingCreation(f'Введите информацию о здании для добавления для сервиса на строке {row + 1} в поля ниже', is_adding=True)
         if dialog.exec() != QtWidgets.QDialog.Accepted:
             return
         osm_id, address, building_date, building_area, repair_years, building_area_living, storeys, lift_count, population, project_type, ukname = \
@@ -600,7 +625,7 @@ class UpdatingWindow(QtWidgets.QWidget):
                 dialog.building_area_living(), dialog.storeys(), dialog.lift_count(), dialog.population(), dialog.project_type(), dialog.ukname()
         heating, hotwater, electricity, gas, refusechute, is_failing = dialog.central_heating(), dialog.central_hotwater(), dialog.central_electricity(), \
                 dialog.central_gas(), dialog.refusechute(), dialog.is_failing()
-        res = self._check_geometry_correctness(dialog.get_geometry())
+        res = check_geometry_correctness(dialog.get_geometry(), self._additional_conn)
         if res is None or address is None:
             self._log_window.insertHtml(f'<font color=#e6783c>Ошибка при добавлении здания сервису с id={func_id}</font><br>')
             return
@@ -654,7 +679,7 @@ class UpdatingWindow(QtWidgets.QWidget):
                         f' с id={phys_id} не найдено в базе данных')
                 return
         geometry = json.loads(geometry)
-        dialog = BuildingCreation(f'Если необходимо, измените параметры здания для сервиса на строке {row + 1}', None, json.dumps(geometry, indent=2), *res)
+        dialog = BuildingCreation(f'Если необходимо, измените параметры здания для сервиса на строке {row + 1}', json.dumps(geometry, indent=2), *res)
         if dialog.exec() != QtWidgets.QDialog.Accepted:
             return
         new_geom_tuple = self._check_geometry_correctness(dialog.get_geometry())
@@ -686,11 +711,10 @@ class UpdatingWindow(QtWidgets.QWidget):
                     f' {self._table.item(row, 10).text()}({self._table.item(row, 8).text()}, {self._table.item(row, 9).text()})'
                     f'->{geom_type}({new_latitude, new_longitude})</font><br>')
             self._table.item(row, 8).setText(str(new_latitude))
-            self._table.item(row, 8).setBackground(QtCore.Qt.GlobalColor.yellow)
             self._table.item(row, 9).setText(str(new_longitude))
-            self._table.item(row, 9).setBackground(QtCore.Qt.GlobalColor.yellow)
             self._table.item(row, 10).setText(geom_type)
-            self._table.item(row, 10).setBackground(QtCore.Qt.GlobalColor.yellow)
+            for c in (8, 9, 10):
+                self._table.item(row, c).setBackground(QtCore.Qt.GlobalColor.yellow)
         if res[0] != dialog.osm_id():
             with self._db_properties.conn.cursor() as cur:
                 cur.execute("UPDATE physical_objects SET osm_id = %s, updated_at = date_trunc('second', now()) WHERE id = %s", (res[0], phys_id))
@@ -741,25 +765,10 @@ class UpdatingWindow(QtWidgets.QWidget):
 
     def _on_commit_changes(self) -> None:
         self._log_window.insertHtml('<font color=green>Запись изменений в базу данных</font><br>')
-        log.info(f'Коммит следующих изменение сервисов в базу данных:\n{self._log_window.toPlainText()[:-1]}')
+        log.info(f'Коммит следующих изменений сервисов в базу данных:\n{self._log_window.toPlainText()[:-1]}')
         self._db_properties.conn.commit()
         self._edit_buttons.load.click()
         self._log_window.insertHtml('<font color=green>Изменения записаны, обновленная информация загружена</font><br>')
-
-    def _check_geometry_correctness(self, geometry_geojson: Optional[str]) -> Optional[Tuple[float, float, str]]:
-        if geometry_geojson is None:
-            return None
-        try:
-            with self._additional_conn.cursor() as cur:
-                cur.execute('SELECT ST_AsGeoJSON(ST_Centroid(ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326)), 6),'
-                        ' ST_GeometryType(ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326))', (geometry_geojson,) * 2)
-                new_center, geom_type = cur.fetchone()
-                new_center = json.loads(new_center)
-                new_longitude, new_latitude = new_center['coordinates']
-            return new_latitude, new_longitude, geom_type
-        except Exception:
-            self._additional_conn.rollback()
-            return None
 
     def set_service_types(self, service_types: Iterable[str]) -> None:
         service_types = list(service_types)
@@ -778,6 +787,10 @@ class UpdatingWindow(QtWidgets.QWidget):
         else:
             self._city_choose.addItems(cities)
             self._city_choose.view().setMinimumWidth(len(max(cities, key=len)) * 8)
+
+    def change_db(self, db_addr: str, db_port: int, db_name: str, db_user: str, db_pass: str) -> None:
+        self._on_city_change()
+        self._db_properties.reopen(db_addr, db_port, db_name, db_user, db_pass)
     
     def showEvent(self, event: QtGui.QShowEvent) -> None:
         log.info('Открыто окно изменения сервисов')

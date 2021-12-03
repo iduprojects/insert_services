@@ -154,7 +154,6 @@ class InsertionWindow(QtWidgets.QWidget):
         )
         self._options_fields.service_type_choosable.clicked.connect(lambda: self.on_choose_change(self._options_fields.service_type_choosable))
         self._options_fields.service_type_choose.addItems(get_default_service_types())
-        self._options_fields.service_type_choose.setEnabled(False)
         self._options_fields.service_type_choose.view().setMinimumWidth(len(max(get_default_service_types(), key=len)) * 8)
 
         self._options_group.addRow('Город:', self._options_fields.city)
@@ -293,7 +292,6 @@ class InsertionWindow(QtWidgets.QWidget):
         self.on_prefix_check()
 
         self._table.setModel(self._table_model)
-        self._table.setEditTriggers(QtWidgets.QTableWidget.DoubleClicked)
         self._table.horizontalHeader().setMinimumSectionSize(0)
         self._table.resizeColumnsToContents()
 
@@ -377,8 +375,9 @@ class InsertionWindow(QtWidgets.QWidget):
         for row in range(self._table_model.rowCount()):
             self._table_model.setData(self._table_model.index(row, len(self._table_axes) - 2), InsertionWindow.colorTable.sky_blue, QtCore.Qt.BackgroundRole)
             self._table_model.setData(self._table_model.index(row, len(self._table_axes) - 1), InsertionWindow.colorTable.sky_blue, QtCore.Qt.BackgroundRole)
+            self._table_model.item(row, len(self._table_axes) - 1).setFlags(QtCore.Qt.ItemIsEnabled)
+            self._table_model.item(row, len(self._table_axes) - 2).setFlags(QtCore.Qt.ItemIsEnabled)
         self._save_results_btn.setVisible(True)
-        self._table.setEditTriggers(QtWidgets.QTableWidget.NoEditTriggers) # type: ignore
 
     def on_save_results(self) -> None:
         fileDialog = QtWidgets.QFileDialog(self)
@@ -616,29 +615,41 @@ class InsertionWindow(QtWidgets.QWidget):
 
     def set_cities(self, cities: Iterable[str]):
         cities = list(cities)
+        current_city = self._options_fields.city.currentText()
         self._options_fields.city.clear()
         if len(cities) == 0:
             self._options_fields.city.addItem('(Нет городов)')
         else:
             self._options_fields.city.addItems(cities)
+            if current_city in cities:
+                self._options_fields.city.setCurrentText(current_city)
             self._options_fields.city.view().setMinimumWidth(len(max(cities, key=len)) * 8)
 
     def set_city_functions(self, city_functions_list: List[str]) -> None:
+        current_city_function = self._options_fields.city_function.currentText()
         self._options_fields.city_function.clear()
         self._options_fields.city_function.addItem('(не выбрано)')
         self._options_fields.city_function.addItems(city_functions_list)
+        if current_city_function in city_functions_list:
+            self._options_fields.city_function.setCurrentText(current_city_function)
         self._options_fields.city_function.view().setMinimumWidth(len(max(city_functions_list, key=len)) * 8)
 
     def set_service_types_params(self, service_types_params: Dict[str, Tuple[str, int, int, int, int, bool, str]]):
         self._service_type_params = service_types_params
+        current_service_type = self._options_fields.service_type_choose.currentText()
         self._options_fields.service_type_choose.clear()
-        self._options_fields.service_type_choose.setEnabled(True)
         self._options_fields.service_type_choose.addItem('(не выбрано)')
         self._options_fields.service_type_choose.addItems(sorted(self._service_type_params.keys()))
+        if current_service_type in service_types_params:
+            self._options_fields.service_type_choose.setCurrentText(current_service_type)
         self._options_fields.service_type_choose.view().setMinimumWidth(len(max(self._service_type_params.keys(), key=len)) * 8)
+    
+    def change_db(self, db_addr: str, db_port: int, db_name: str, db_user: str, db_pass: str) -> None:
+        self._db_properties.reopen(db_addr, db_port, db_name, db_user, db_pass)
 
     def showEvent(self, event: QtGui.QShowEvent) -> None:
         log.info('Открыто окно вставки сервисов')
+        self.on_choose_change(self._options_fields.service_type_choosable)
         return super().showEvent(event)
 
     def closeEvent(self, event: QtGui.QCloseEvent) -> None:

@@ -19,7 +19,7 @@ properties: Properties
 
 log = logging.getLogger('services_manipulation').getChild('services_insert_console')
 log.addHandler(logging.FileHandler('insert_services.log', 'a', 'utf8'))
-log.handlers[-1].setFormatter(logging.Formatter('{asctime} {name}: {message}', datefmt='%Y`-%m-%d %H:%M:%S', style='{'))
+log.handlers[-1].setFormatter(logging.Formatter('{asctime} {name}: {message}', datefmt='%Y-%m-%d %H:%M:%S', style='{'))
 log.handlers[-1].setLevel('INFO')
 
 class SQLType(Enum):
@@ -224,14 +224,14 @@ def add_objects(conn: psycopg2.extensions.connection, objects: pd.DataFrame, cit
 
         5. Insert functional_object connected to physical_object and concrete functional object for it by calling `insert_object`
     '''
-    log.warn(f'Launched service insertion from {"command line tool" if __name__ == "__main__" else "external tool"}')
-    log.info(f'Inserting objects of a service type "{service_type}" (id {service_type_id}), totally {objects.shape[0]} objects')
-    log.info(f'Prefixes list: {address_prefixes}, new prefix: "{new_prefix}"')
+    log.info(f'Вставка сервисов запущена из {"командной строки" if __name__ == "__main__" else "внешнего приложения"}')
+    log.info(f'Вставка сервисов типа "{service_type}" (id {service_type_id}), всего {objects.shape[0]} объектов')
+    log.info(f'Город вставки - "{city_name}". Список префиксов: {address_prefixes}, новый префикс: "{new_prefix}"')
 
     if mapping.address in objects.columns:
         objects[mapping.address] = objects[mapping.address].apply(lambda x: x.replace('?', '').strip() if isinstance(x, str) else None)
     present = 0 # objects already present in the database
-    added_to_building_adr, added_to_building_geom, added_as_points, skipped = 0, 0, 0, 0
+    added_to_address, added_to_geom, added_as_points, skipped = 0, 0, 0, 0
     results: List[str] = list(('',) * objects.shape[0])
     functional_ids: List[int] = [-1 for _ in range(objects.shape[0])]
     address_prefixes = sorted(address_prefixes, key=lambda s: -len(s))
@@ -252,7 +252,7 @@ def add_objects(conn: psycopg2.extensions.connection, objects: pd.DataFrame, cit
                     row[mapping.latitude] = round(float(row[mapping.latitude]), 6)
                     row[mapping.longitude] = round(float(row[mapping.longitude]), 6)
                 except Exception:
-                    results[i] = 'Skipped (latitude or longitude are invalid)'
+                    results[i] = 'Пропущен (широта или долгота некорректны)'
                     skipped += 1
                     continue
                 if is_service_building:
@@ -261,104 +261,131 @@ def add_objects(conn: psycopg2.extensions.connection, objects: pd.DataFrame, cit
                             break
                     else:
                         if len(address_prefixes) == 1:
-                            results[i] = f'Skipped (address does not start with "{address_prefixes[0]}" prefix)'
+                            results[i] = f'Пропущен (Адрес не начинается с "{address_prefixes[0]}")'
                         else:
-                            results[i] = f'Skipped (address does not start with any of {len(address_prefixes)} prefixes)'
+                            results[i] = f'Пропущен (Адрес не начинается ни с одного из {len(address_prefixes)} префиксов)'
                         skipped += 1
                         continue
                 if is_service_building and mapping.address not in row or mapping.latitude not in row or mapping.longitude not in row:
-                    results[i] = f'Skipped (missing one of the required fields: {mapping.latitude}, {mapping.longitude}' + \
-                            f', {mapping.address})' if is_service_building else ')'
+                    results[i] = f'Пропущен (отсутствует хотя бы одно необходимое поле: широта ({mapping.latitude}), долгота({mapping.longitude})' + \
+                            f', адрес({mapping.address}))' if is_service_building else ')'
                     skipped += 1
                     continue
                 name = row.get(mapping.name) or f'({service_type} без названия)'
-                phys_id: Optional[int] = None
+                phys_id: int
                 build_id: Optional[int]
                 if is_service_building:
-                    cur.execute('SELECT phys.id, build.id FROM physical_objects phys JOIN buildings build on build.physical_object_id = phys.id'
-                            ' WHERE build.address LIKE %s AND ST_Distance(phys.center::geography, ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography) < 100 LIMIT 1',
-                                ('%' + row.get(mapping.address)[len(address_prefix):].strip(', '), row[mapping.longitude], row[mapping.latitude]))
+                    cur.execute('SELECT phys.id, build.id FROM physical_objects phys JOIN buildings build ON build.physical_object_id = phys.id'
+                            ' WHERE phys.city_id = %s AND build.address LIKE %s AND'
+                            '   ST_Distance(phys.center::geography, ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography) < 100 LIMIT 1',
+                            (city_id, '%' + row.get(mapping.address)[len(address_prefix):].strip(', '), row[mapping.longitude], row[mapping.latitude]))
                     res = cur.fetchone()
                     if res is not None: # if building with the same address found and distance between point and the center of geometry is less than 100m
                         phys_id, build_id = res
                         cur.execute('SELECT id FROM functional_objects f'
                                 ' WHERE physical_object_id = %s AND city_service_type_id = %s AND name = %s LIMIT 1', (phys_id, service_type_id, name))
                         res = cur.fetchone()
-                        if res is not None:
+                        if res is not None: # if service is already present in this building
                             present += 1
-                            results[i] = f'Updated existing functional_object (build_id = {build_id}, phys_id = {phys_id}, functional_object_id = {res[0]})'
+                            results[i] = f'Обновлен существующий сервис (build_id = {build_id}, phys_id = {phys_id}, functional_object_id = {res[0]})'
                             functional_ids[i] = res[0]
                             update_object(conn, row, res[0], mapping, service_type, commit)
                             continue
-                        added_to_building_adr += 1
-                        results[i] = f'Object inserted in building found by address (build_id = {build_id}, phys_id = {phys_id}).'
-                if phys_id is None: # if no building with the same address found or distance is too high (address is wrong or it's not a concrete house)
-                    cur.execute('SELECT id FROM physical_objects'
-                            " WHERE ST_CoveredBy(ST_SetSRID(ST_MakePoint(%s, %s), 4326), geometry) OR"
-                            "   ST_GeometryType(geometry) = 'ST_Point' AND abs(ST_X(geometry) - %s) < 0.001 AND abs(ST_Y(geometry) - %s) < 0.001",
-                            (row[mapping.longitude], row[mapping.latitude]) * 2)
-                    res = cur.fetchone()
-                    if res: # if found inside other building geometry
-                        phys_id = res[0]
-                        cur.execute('SELECT id, address FROM buildings WHERE physical_object_id = %s LIMIT 1', (phys_id,))
-                        res = cur.fetchone()
-                        address: Optional[str]
-                        if res:
-                            build_id, address = res
                         else:
-                            build_id, address = None, None
+                            added_to_address += 1
+                            results[i] = f'Сервис вставлен в здание, найденное по совпадению адреса (build_id = {build_id}, phys_id = {phys_id}).'
+                    else: # if no building with the same address found or distance is too high (address is wrong or it's not a concrete house)
+                        cur.execute('SELECT phys.id, build.id, build.address FROM physical_objects phys JOIN buildings build ON build.physical_object_id = phys.id'
+                            ' WHERE city_id = %s AND (ST_CoveredBy(ST_SetSRID(ST_MakePoint(%s, %s), 4326), geometry) OR'
+                            "   ST_GeometryType(geometry) = 'ST_Point' AND abs(ST_X(geometry) - %s) < 0.001 AND abs(ST_Y(geometry) - %s) < 0.001)"
+                            ' LIMIT 1',
+                            (city_id,) + (row[mapping.longitude], row[mapping.latitude]) * 2)
+                        res = cur.fetchone()
+                        if res is not None: # if building found by geometry
+                            phys_id, build_id, address = res
+                            cur.execute('SELECT id FROM functional_objects f'
+                                    ' WHERE physical_object_id = %s AND city_service_type_id = %s AND name = %s LIMIT 1', (phys_id, service_type_id, name))
+                            res = cur.fetchone()
+                            if res is not None: # if service is already present in this building
+                                present += 1
+                                results[i] = f'Обновлен существующий сервис, находящийся в здании с другим адресом: "{address}"' \
+                                        f' (build_id = {build_id}, phys_id = {phys_id}, functional_object_id = {res[0]})'
+                                functional_ids[i] = res[0]
+                                update_object(conn, row, res[0], mapping, service_type, commit)
+                                continue
+                            else: # if no service present, but buiding found
+                                added_to_geom += 1
+                                results[i] = f'Сервис вставлен в здание, подходящее по геометрии, но имеющее другой адрес: "{address}"' \
+                                                f' (build_id = {build_id}, phys_id = {phys_id})'
+                        else: # if no building found by address or geometry
+                            insert_physical_object = True
+                else:
+                    cur.execute('SELECT id FROM physical_objects phys'
+                            ' WHERE city_id = %s AND (SELECT EXISTS (SELECT 1 FROM buildings where physical_object_id = phys.id)) = false AND'
+                            '   (ST_CoveredBy(ST_SetSRID(ST_MakePoint(%s, %s), 4326), geometry) OR'
+                            "       ST_GeometryType(geometry) = 'ST_Point' AND abs(ST_X(geometry) - %s) < 0.001 AND abs(ST_Y(geometry) - %s) < 0.001)"
+                            ' LIMIT 1',
+                            (city_id,) + (row[mapping.longitude], row[mapping.latitude]) * 2)
+                    res = cur.fetchone()
+                    if res is not None: # if physical_object found by geometry
+                        phys_id = res[0]
                         cur.execute('SELECT id FROM functional_objects f '
-                                ' WHERE physical_object_id = %s AND city_service_type_id = %s AND name = %s LIMIT 1',
+                                ' WHERE physical_object_id = %s AND city_service_type_id = %s AND name = %s'
+                                ' LIMIT 1',
                                 (phys_id, service_type_id, name))
                         res = cur.fetchone()
-                        if res is not None:
+                        if res is not None: # if service is already present in this pysical_object
                             present += 1
-                            if address:
-                                results[i] = f'Updated existsing functional_object with different address: "{address}"' \
-                                        f' (build_id = {build_id}, phys_id = {phys_id}, functional_object_id = {res[0]})'
-                            else:
-                                results[i] = f'Updated existsing functional_object whthout building' \
-                                        f' (phys_id = {phys_id}, functional_object_id = {res[0]})'
+                            results[i] = f'Обновлен существующий сервис без здания' \
+                                    f' (phys_id = {phys_id}, functional_object_id = {res[0]})'
                             functional_ids[i] = res[0]
                             update_object(conn, row, res[0], mapping, service_type, commit)
                             continue
-                        added_to_building_geom += 1
-                        if address:
-                            results[i] = f'Service added inside the geometry of "{address}" (build_id = {build_id}, phys_id = {phys_id})'
-                        else:
-                            results[i] = f'Service added inside the geometry of physical object without building (phys_id = {phys_id})'
-                    else: # if no address nor existing geometry found - insert as temporary point
-                        cur.execute('INSERT INTO physical_objects (osm_id, geometry, center, city_id) VALUES'
-                                ' (%s, ST_SetSRID(ST_MakePoint(%s, %s), 4326), ST_SetSRID(ST_MakePoint(%s, %s), 4326), %s) RETURNING id',
-                                (row.get(mapping.osm_id), row[mapping.longitude], row[mapping.latitude], row[mapping.longitude], row[mapping.latitude], city_id))
-                        phys_id = cur.fetchone()[0]
-                        if is_service_building and mapping.address in row and len(row.get(mapping.address)) != len(address_prefix):
-                            cur.execute("INSERT INTO buildings (physical_object_id, address) VALUES (%s, %s) RETURNING id",
-                                        (phys_id, new_prefix + row[mapping.address][len(address_prefix):].strip(', ')))
-                            build_id = cur.fetchone()[0]
-                            results[i] = f'Building inserted with Point type as temporary object (build_id = {build_id}, phys_id = {phys_id})'
-                        else:
-                            results[i] = f'Physical object inserted with Point type (phys_id = {phys_id})'
-                        added_as_points += 1
+                        else: # if no service present, but physical_object found
+                            added_to_geom += 1
+                            results[i] = f'Сервис вставлен в физический объект, подходящий по геометрии (phys_id = {phys_id})'
+                    else:
+                        insert_physical_object = True
+                if insert_physical_object:
+                    cur.execute('INSERT INTO physical_objects (osm_id, geometry, center, city_id) VALUES'
+                            ' (%s, ST_SetSRID(ST_MakePoint(%s, %s), 4326), ST_SetSRID(ST_MakePoint(%s, %s), 4326), %s) RETURNING id',
+                            (row.get(mapping.osm_id), row[mapping.longitude], row[mapping.latitude], row[mapping.longitude], row[mapping.latitude], city_id))
+                    phys_id = cur.fetchone()[0]
+                    if is_service_building and mapping.address in row and len(row.get(mapping.address)) != len(address_prefix):
+                        cur.execute("INSERT INTO buildings (physical_object_id, address) VALUES (%s, %s) RETURNING id",
+                                    (phys_id, new_prefix + row[mapping.address][len(address_prefix):].strip(', ')))
+                        build_id = cur.fetchone()[0]
+                        results[i] = f'Сервис вставлен в новое здание, добавленное с типом геометрии "Точка" (build_id = {build_id}, phys_id = {phys_id})'
+                    else:
+                        results[i] = f'Сервис вставлен в новый физический объект, добавленный с типом геометрии "Точка" (phys_id = {phys_id})'
+                    added_as_points += 1
                 functional_ids[i] = insert_object(conn, row, phys_id, service_type, service_type_id, mapping, commit)
-                if commit:
-                    conn.commit()
             except Exception as ex:
-                print(f'Exception occured: {ex}')
+                log.error(f'Произошла ошибка: {ex}')
                 if verbose:
-                    traceback.print_exc()
-                cur.execute('ROLLBACK TO previous_object')
+                    log.error('Traceback:\ntraceback.format_exc()')
+                if commit:
+                    cur.execute('ROLLBACK TO previous_object')
+                else:
+                    conn.rollback()
                 results[i] = f'Skipped, caused exception: {ex}'
                 skipped += 1
         if commit:
             conn.commit()
     objects['result'] = pd.Series(results, index=objects.index)
     objects['functional_obj_id'] = pd.Series(functional_ids, index=objects.index)
-    log.warning(f'Insertion of {service_type} has finished')
-    log.warning(f'{len(objects)} objects processed: {added_as_points + added_to_building_adr + added_to_building_geom} were added,'
-            f' {present} objects were already present, {skipped} objects were skipped')
-    log.warning(f'{added_as_points} objects were added as points, {added_to_building_adr} found buildings by address,'
-        f' {added_to_building_geom} found buildings by geometry')
+    log.info(f'Вставка сервисов типа "{service_type}" завершена')
+    log.info(f'{len(objects)} сервисов обработано: {added_as_points + added_to_address + added_to_geom} добавлены,'
+            f' {present} обновлены, {skipped} пропущены')
+    log.info(f'{added_as_points} сервисов были добавлены с типом геометрии "точка", {added_to_address} добавлены в здания по совпадению адреса,'
+        f' {added_to_geom} добавлены в физические объекты/здания по совпадению геометрии')
+    filename = f'insertion_{conn.info.host}_{conn.info.port}.xlsx'
+    list_name = f'{service_type.replace("/", "_")}_{time.strftime("%Y-%m-%d %H_%M-%S")}'
+    try:
+        objects.to_excel(filename, list_name)
+        log.info(f'Лог вставки сохранен в файл "{filename}", лист "{list_name}"')
+    except Exception:
+        log.error(f'Ошибка при сохранении лога вставки в файл "{filename}", лист "{list_name}"')
     return objects
 
 

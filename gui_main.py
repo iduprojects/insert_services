@@ -16,6 +16,7 @@ log.setLevel('INFO')
 from database_properties import Properties
 from gui_insert_services import InsertionWindow
 from gui_update_services import UpdatingWindow
+from gui_manipulate_cities import CitiesWindow
 
 InitWindowDefaultValues = NamedTuple('InitWindowDefaultValues', [
         ('db_address', str),
@@ -50,6 +51,7 @@ class InitWindow(QtWidgets.QWidget):
 
         self._insertion_window = InsertionWindow(self._db_properties, self._on_restart)
         self._updating_window = UpdatingWindow(self._db_properties.copy(), self._on_restart)
+        self._cities_window = CitiesWindow(self._db_properties.copy(), self._on_restart)
 
         self._layout = QtWidgets.QHBoxLayout()
         self.setLayout(self._layout)
@@ -74,9 +76,10 @@ class InitWindow(QtWidgets.QWidget):
         self._variants = QtWidgets.QButtonGroup()
         self._variants.addButton(QtWidgets.QRadioButton('&Загрузка сервисов'), 0)
         self._variants.addButton(QtWidgets.QRadioButton('&Изменение сервисов'), 1)
+        self._variants.addButton(QtWidgets.QRadioButton('&Операции с городами'), 2)
         self._variants.button(0).setChecked(True)
-        self._right.addWidget(self._variants.button(0))
-        self._right.addWidget(self._variants.button(1))
+        for btn_n in range(3):
+            self._right.addWidget(self._variants.button(btn_n))
 
         self._launch_btn = QtWidgets.QPushButton('З&апуск')
         self._launch_btn.clicked.connect(self._on_launch)
@@ -91,7 +94,7 @@ class InitWindow(QtWidgets.QWidget):
         self.setFixedWidth(self.sizeHint().width())
         self.setFixedHeight(self.sizeHint().height())
 
-    def on_connection_check(self) -> None:
+    def on_connection_check(self, refresh: bool = False) -> None:
         host, port_str = (self._database_fields.address.text().split(':') + [str(InitWindow.default_values.db_port)])[0:2]
         try:
             port = int(port_str)
@@ -124,6 +127,12 @@ class InitWindow(QtWidgets.QWidget):
                 cities = list(itertools.chain.from_iterable(cur.fetchall()))
                 self._insertion_window.set_cities(cities)
                 self._updating_window.set_cities(cities)
+                self._insertion_window.change_db(self._db_properties.db_addr, self._db_properties.db_port, self._db_properties.db_name,
+                        self._db_properties.db_user, self._db_properties.db_pass)
+                self._updating_window.change_db(self._db_properties.db_addr, self._db_properties.db_port, self._db_properties.db_name,
+                        self._db_properties.db_user, self._db_properties.db_pass)
+                self._cities_window.change_db(self._db_properties.db_addr, self._db_properties.db_port, self._db_properties.db_name,
+                        self._db_properties.db_user, self._db_properties.db_pass)
                 
             self._insertion_window._options_fields.city_function.setEnabled(True)
             self._launch_btn.setEnabled(True)
@@ -135,22 +144,28 @@ class InitWindow(QtWidgets.QWidget):
             self._db_check_res.setText('<b style=color:red;>x</b>')
         else:        
             self._db_check_res.setText('<b style=color:green;>v</b>')
-            log.info('Установлено подключение к базе данных:'
-                    f' {self._db_properties.db_user}@{self._db_properties.db_addr}:{self._db_properties.db_port}/{self._db_properties.db_name}')
+            if not refresh:
+                log.info('Установлено подключение к базе данных:'
+                        f' {self._db_properties.db_user}@{self._db_properties.db_addr}:{self._db_properties.db_port}/{self._db_properties.db_name}')
 
     def _on_launch(self):
         self.hide()
         if self._variants.checkedId() == 0:
             app.setApplicationDisplayName('Загрузка сервисов')
             self._insertion_window.show()
-        else:
+        elif self._variants.checkedId() == 1:
             app.setApplicationDisplayName('Изменение сервисов')
             self._updating_window.show()
+        else:
+            app.setApplicationDisplayName('Операции с городами')
+            self._cities_window.show()
 
     def _on_restart(self):
         self._insertion_window.hide()
         self._updating_window.hide()
+        self._cities_window.hide()
         self.show()
+        self.on_connection_check(True)
 
     def showEvent(self, event: QtGui.QShowEvent) -> None:
         if not self._was_first_open:

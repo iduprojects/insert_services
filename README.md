@@ -20,8 +20,9 @@ Launch script with `python adding_functional_objects.py --help` to get help.
 
 At the launch you must provide given arguments:
 
+* `--city` or `-c` for name of the city where services would be inserted
 * `--service_type` or `-t` for service type (name from/for `city_service_types` table)
-* `filename` for document path with type of (.csv, .json, .geojson, .xlsx, .xls, .odt)
+* `filename` for document path with type of (.csv, .json, .geojson, .xlsx, .xls, .ods)
 
 Additional arguments for new service type insertion (for `city_service_types` table):
 
@@ -61,9 +62,24 @@ Other parameters:
 * `--dry_run` or `-D` for dry run (changes will be aborted, but indexes still moved)
 * `--verbose` or `-v` for printing a stack traces when error happens
 
-### Graphical user interface
+### Preparations before using graphical user interface
 
-(russian)
+Перед вставкой объектов нужно установить базу данных, настроить до нее доступ и создать схему с основными сущностями.
+
+1. Установить сервер PostgreSQL (версия 10+)
+2. Установить к нему расширение PostGIS
+3. Создать пользователя с паролем, которому разрешен вход
+4. Создать пустую базу данных (например, `city_db_test`)
+5. Выполнить в данную базу данных `init_schema.sql` (`psql -d city_db_test -1 -f init_schema.sql`)
+6. Выполнить в данную базу данных `init_data.sql` (`psql -d city_db_test -1 -f init_data.sql`)
+7. Добавить город в базу, муниципальные образования и административные единицы через `gui_main.py` в разделе "Манипуляции с городами"
+8. Добавить сервисы из excel-таблиц/csv-файлов в базу через `gui_main.py` в разделе "Вставка сервисов"
+9. При необходимости, можно изменить данные сервисов через `gui_main.py` в разделе "Изменение сервисов"
+
+Также рекомендуется добавить зданиям геометрию и добавить кварталы, на данный момент первое возможно только для каждого здания вручную
+  через `gui_main.py` в разделе "Изменение сервисов", а работа с кварталами отсутствует в принципе.
+
+### Graphical user interface (russian)
 
 1. Запустите `python insert_services_gui.py`
 2. Подключение к БД. Задайте адрес, название БД, пользователя и пароль для PostgreSQL в блоке "База данных" и нажмите на "Проверить подключение".  
