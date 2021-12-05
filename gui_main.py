@@ -125,14 +125,14 @@ class InitWindow(QtWidgets.QWidget):
                 self._updating_window.set_service_types(service_types_params.keys())
                 cur.execute('SELECT name FROM cities ORDER BY population DESC')
                 cities = list(itertools.chain.from_iterable(cur.fetchall()))
-                self._insertion_window.set_cities(cities)
-                self._updating_window.set_cities(cities)
                 self._insertion_window.change_db(self._db_properties.db_addr, self._db_properties.db_port, self._db_properties.db_name,
                         self._db_properties.db_user, self._db_properties.db_pass)
                 self._updating_window.change_db(self._db_properties.db_addr, self._db_properties.db_port, self._db_properties.db_name,
                         self._db_properties.db_user, self._db_properties.db_pass)
                 self._cities_window.change_db(self._db_properties.db_addr, self._db_properties.db_port, self._db_properties.db_name,
                         self._db_properties.db_user, self._db_properties.db_pass)
+                self._insertion_window.set_cities(cities)
+                self._updating_window.set_cities(cities)
                 
             self._insertion_window._options_fields.city_function.setEnabled(True)
             self._launch_btn.setEnabled(True)

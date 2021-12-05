@@ -789,8 +789,8 @@ class UpdatingWindow(QtWidgets.QWidget):
             self._city_choose.view().setMinimumWidth(len(max(cities, key=len)) * 8)
 
     def change_db(self, db_addr: str, db_port: int, db_name: str, db_user: str, db_pass: str) -> None:
-        self._on_city_change()
         self._db_properties.reopen(db_addr, db_port, db_name, db_user, db_pass)
+        self._on_city_change()
     
     def showEvent(self, event: QtGui.QShowEvent) -> None:
         log.info('Открыто окно изменения сервисов')
