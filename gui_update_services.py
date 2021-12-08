@@ -399,16 +399,7 @@ class UpdatingWindow(QtWidgets.QWidget):
                     ' WHERE p.city_id = (SELECT id FROM cities WHERE name = %s)'
                     ' ORDER BY 1', (self._city_choose.currentText(),))
             service_types = list(itertools.chain.from_iterable(cur.fetchall()))
-        service_type_chosen = self._service_type_choose.currentText()
-        self._service_type_choose.clear()
-        if len(service_types) > 0:
-            self._service_type_choose.addItems(service_types)
-            if service_type_chosen in service_types:
-                self._service_type_choose.setCurrentText(service_type_chosen)
-            self._edit_buttons.load.setEnabled(True)
-        else:
-            self._service_type_choose.addItem('(Нет загруженных сервисов)')
-            self._edit_buttons.load.setEnabled(False)
+        self._set_service_types(service_types)
 
     def _on_objects_load(self) -> None:
         self._log_window.clear()
@@ -770,22 +761,28 @@ class UpdatingWindow(QtWidgets.QWidget):
         self._edit_buttons.load.click()
         self._log_window.insertHtml('<font color=green>Изменения записаны, обновленная информация загружена</font><br>')
 
-    def set_service_types(self, service_types: Iterable[str]) -> None:
+    def _set_service_types(self, service_types: Iterable[str]) -> None:
         service_types = list(service_types)
+        current_service_type = self._service_type_choose.currentText()
         self._service_type_choose.clear()
         if len(service_types) == 0:
             self._service_type_choose.addItem('(Нет типов сервисов)')
         else:
             self._service_type_choose.addItems(service_types)
+            if current_service_type in service_types:
+                self._service_type_choose.setCurrentText(current_service_type)
             self._service_type_choose.view().setMinimumWidth(len(max(service_types, key=len)) * 8)
 
     def set_cities(self, cities: Iterable[str]) -> None:
         cities = list(cities)
+        current_city = self._city_choose.currentText()
         self._city_choose.clear()
         if len(cities) == 0:
             self._city_choose.addItem('(Нет городов)')
         else:
             self._city_choose.addItems(cities)
+            if current_city in cities:
+                self._city_choose.setCurrentText(current_city)
             self._city_choose.view().setMinimumWidth(len(max(cities, key=len)) * 8)
 
     def change_db(self, db_addr: str, db_port: int, db_name: str, db_user: str, db_pass: str) -> None:

@@ -49,7 +49,7 @@ class InitWindow(QtWidgets.QWidget):
         self._db_properties = Properties(InitWindow.default_values.db_address, InitWindow.default_values.db_port,
                 InitWindow.default_values.db_name, InitWindow.default_values.db_user, InitWindow.default_values.db_pass)
 
-        self._insertion_window = InsertionWindow(self._db_properties, self._on_restart)
+        self._insertion_window = InsertionWindow(self._db_properties.copy(), self._on_restart)
         self._updating_window = UpdatingWindow(self._db_properties.copy(), self._on_restart)
         self._cities_window = CitiesWindow(self._db_properties.copy(), self._on_restart)
 
@@ -105,13 +105,24 @@ class InitWindow(QtWidgets.QWidget):
                 self._db_properties.db_name == self._database_fields.name.text() and
                 self._db_properties.db_user == self._database_fields.user.text() and
                 self._db_properties.db_pass == self._database_fields.password.text()):
-            self._db_properties.close()
             self._db_properties.reopen(host, port, self._database_fields.name.text(),
                     self._database_fields.user.text(), self._database_fields.password.text())
         try:
-            with self._db_properties.conn.cursor() as cur:
+            with self._db_properties.conn, self._db_properties.conn.cursor() as cur:
                 cur.execute('SELECT 1')
                 assert cur.fetchone()[0] == 1, 'cannot connect to the database'
+                self._insertion_window.change_db(self._db_properties.db_addr, self._db_properties.db_port, self._db_properties.db_name,
+                        self._db_properties.db_user, self._db_properties.db_pass)
+                self._updating_window.change_db(self._db_properties.db_addr, self._db_properties.db_port, self._db_properties.db_name,
+                        self._db_properties.db_user, self._db_properties.db_pass)
+                self._cities_window.change_db(self._db_properties.db_addr, self._db_properties.db_port, self._db_properties.db_name,
+                        self._db_properties.db_user, self._db_properties.db_pass)
+
+                cur.execute('SELECT name FROM cities ORDER BY population DESC')
+                cities = list(itertools.chain.from_iterable(cur.fetchall()))
+                self._insertion_window.set_cities(cities)
+                self._updating_window.set_cities(cities)
+
                 cur.execute('SELECT name FROM city_functions ORDER BY 1')
                 items = list(itertools.chain.from_iterable(cur.fetchall()))
                 self._insertion_window.set_city_functions(items)
@@ -122,17 +133,6 @@ class InitWindow(QtWidgets.QWidget):
                         ' ORDER BY 1')
                 service_types_params = dict(map(lambda x: (x[0], tuple(x[1:])), cur.fetchall()))
                 self._insertion_window.set_service_types_params(service_types_params) # type: ignore
-                self._updating_window.set_service_types(service_types_params.keys())
-                cur.execute('SELECT name FROM cities ORDER BY population DESC')
-                cities = list(itertools.chain.from_iterable(cur.fetchall()))
-                self._insertion_window.change_db(self._db_properties.db_addr, self._db_properties.db_port, self._db_properties.db_name,
-                        self._db_properties.db_user, self._db_properties.db_pass)
-                self._updating_window.change_db(self._db_properties.db_addr, self._db_properties.db_port, self._db_properties.db_name,
-                        self._db_properties.db_user, self._db_properties.db_pass)
-                self._cities_window.change_db(self._db_properties.db_addr, self._db_properties.db_port, self._db_properties.db_name,
-                        self._db_properties.db_user, self._db_properties.db_pass)
-                self._insertion_window.set_cities(cities)
-                self._updating_window.set_cities(cities)
                 
             self._insertion_window._options_fields.city_function.setEnabled(True)
             self._launch_btn.setEnabled(True)

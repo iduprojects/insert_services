@@ -138,7 +138,8 @@ def insert_object(conn: psycopg2.extensions.connection, row: pd.Series, phys_id:
                 '   city_infrastructure_type_id, capacity, physical_object_id)'
                 ' VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id',
                 (
-                        row.get(mapping.name) or f'({service_type} без названия)', row.get(mapping.opening_hours), row.get(mapping.website), row.get(mapping.phone), *ids,
+                        row.get(mapping.name) or f'({service_type} без названия)', row.get(mapping.opening_hours), row.get(mapping.website),
+                        row.get(mapping.phone), *ids,
                         row[mapping.capacity] if mapping.capacity in row else (random.randint(mn, mx) if mn is not None and mx is not None else None),
                         phys_id
                 )
@@ -160,9 +161,12 @@ def update_object(conn: psycopg2.extensions.connection, row: pd.Series, func_id:
     with conn.cursor() as cur:
         cur.execute('SELECT name, opening_hours, website, phone, capacity FROM functional_objects WHERE id = %s', (func_id,))
         res = cur.fetchone()
-        change = list(filter(lambda c_v_nw: c_v_nw[1] != c_v_nw[2] and c_v_nw[2] is not None, zip(('name', 'opening_hours', 'website', 'phone', 'capacity'), res,
+        change = list(filter(lambda c_v_nw: c_v_nw[1] != c_v_nw[2] and c_v_nw[2] is not None, zip(
+                ('name', 'opening_hours', 'website', 'phone', 'capacity'),
+                res,
                 (row.get(mapping.name) or f'({service_type} без названия)', row.get(mapping.opening_hours), row.get(mapping.website),
-                        row.get(mapping.phone), row.get(mapping.capacity)))))
+                        row.get(mapping.phone), row.get(mapping.capacity))
+        )))
         t = time.localtime()
         current_time = f'{t.tm_year}-{t.tm_mon:02}-{t.tm_mday:02} {t.tm_hour:02}:{t.tm_min:02}:{t.tm_sec:02}'
         change.append(('updated_at', '', current_time))
@@ -204,25 +208,20 @@ def add_objects(conn: psycopg2.extensions.connection, objects: pd.DataFrame, cit
 
         3. If found:
 
-            3.1. If functional object with the same name and service_type_id is already connected to the physical object, update
+            3.1. If functional object with the same name and service_type_id is already connected to the physical object, update by calling `update_object`
 
             3.2. Else get building id and physical_object id
 
         4. Else:
             
-            4.1. If there is physical object which geometry contains current object's coordinates, get its build_id and phys_id
+            4.1. If there is physical object (building if only `is_service_building` == True) which geometry contains current object's coordinates,
+                 get its physical_object id and building id if needed
 
-                4.1.1. If building is connected to this physical_object - include its id in result
+            4.2. Else insert physical_object/building with geometry type Point
 
-                4.1.2. Else include only physical_object_id
+            4.3. Else include inserted ids in the result
 
-            4.2. Else insert physical_object with geometry type Point
-
-            4.3. If address without prefix is not empty insert building as temporary object and include build_id and phys_id in result
-
-            4.4. Else include only phys_id in result
-
-        5. Insert functional_object connected to physical_object and concrete functional object for it by calling `insert_object`
+        5. Insert functional_object connected to physical_object by calling `insert_object`
     '''
     log.info(f'Вставка сервисов запущена из {"командной строки" if __name__ == "__main__" else "внешнего приложения"}')
     log.info(f'Вставка сервисов типа "{service_type}" (id {service_type_id}), всего {objects.shape[0]} объектов')
@@ -267,13 +266,14 @@ def add_objects(conn: psycopg2.extensions.connection, objects: pd.DataFrame, cit
                         skipped += 1
                         continue
                 if is_service_building and mapping.address not in row or mapping.latitude not in row or mapping.longitude not in row:
-                    results[i] = f'Пропущен (отсутствует хотя бы одно необходимое поле: широта ({mapping.latitude}), долгота({mapping.longitude})' + \
+                    results[i] = f'Пропущен (отсутствует как минимум одно необходимое поле: широта ({mapping.latitude}), долгота({mapping.longitude})' + \
                             f', адрес({mapping.address}))' if is_service_building else ')'
                     skipped += 1
                     continue
                 name = row.get(mapping.name) or f'({service_type} без названия)'
                 phys_id: int
                 build_id: Optional[int]
+                insert_physical_object = False
                 if is_service_building:
                     cur.execute('SELECT phys.id, build.id FROM physical_objects phys JOIN buildings build ON build.physical_object_id = phys.id'
                             ' WHERE phys.city_id = %s AND build.address LIKE %s AND'
@@ -368,7 +368,7 @@ def add_objects(conn: psycopg2.extensions.connection, objects: pd.DataFrame, cit
                     cur.execute('ROLLBACK TO previous_object')
                 else:
                     conn.rollback()
-                results[i] = f'Skipped, caused exception: {ex}'
+                results[i] = f'Пропущен, вызывает ошибку: {ex}'
                 skipped += 1
         if commit:
             conn.commit()
@@ -379,10 +379,11 @@ def add_objects(conn: psycopg2.extensions.connection, objects: pd.DataFrame, cit
             f' {present} обновлены, {skipped} пропущены')
     log.info(f'{added_as_points} сервисов были добавлены с типом геометрии "точка", {added_to_address} добавлены в здания по совпадению адреса,'
         f' {added_to_geom} добавлены в физические объекты/здания по совпадению геометрии')
-    filename = f'insertion_{conn.info.host}_{conn.info.port}.xlsx'
+    filename = f'insertion_{conn.info.host}_{conn.info.port}_{conn.info.dbname}.xlsx'
     list_name = f'{service_type.replace("/", "_")}_{time.strftime("%Y-%m-%d %H_%M-%S")}'
     try:
-        objects.to_excel(filename, list_name)
+        with pd.ExcelWriter(filename, mode = ('a' if os.path.isfile(filename) else 'w')) as writer:
+            objects.to_excel(writer, list_name)
         log.info(f'Лог вставки сохранен в файл "{filename}", лист "{list_name}"')
     except Exception:
         log.error(f'Ошибка при сохранении лога вставки в файл "{filename}", лист "{list_name}"')
@@ -591,7 +592,8 @@ if __name__ == '__main__':
 
     service_id = ensure_service_type(properties.conn, args.service_type, args.service_type_code, args.min_capacity, args.max_capacity,
             args.min_status, args.max_status, args.city_function, not args.dry_run)
-    objects = add_objects(properties.conn, objects, args.city, args.service_type, service_id, mapping, args.adr_prefixes, args.new_address_prefix, not args.dry_run, args.verbose)
+    objects = add_objects(properties.conn, objects, args.city, args.service_type, service_id, mapping, args.adr_prefixes,
+            args.new_address_prefix, not args.dry_run, args.verbose)
 
     objects.to_csv(logfile)
     log.info(f'Finished, result is written to {logfile}')
