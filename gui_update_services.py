@@ -376,6 +376,7 @@ class UpdatingWindow(QtWidgets.QWidget):
         self._edit_buttons.updateBuilding.clicked.connect(self._on_update_building)
         self._edit_buttons.export.clicked.connect(self._on_export)
         self._edit_buttons.commit.clicked.connect(self._on_commit_changes)
+        self._edit_buttons.commit.setStyleSheet('background-color: green')
         self._editing_group.addWidget(self._edit_buttons.load)
         self._right.addWidget(self._editing_group_box)
 
@@ -673,7 +674,7 @@ class UpdatingWindow(QtWidgets.QWidget):
         dialog = BuildingCreation(f'Если необходимо, измените параметры здания для сервиса на строке {row + 1}', json.dumps(geometry, indent=2), *res)
         if dialog.exec() != QtWidgets.QDialog.Accepted:
             return
-        new_geom_tuple = self._check_geometry_correctness(dialog.get_geometry())
+        new_geom_tuple = check_geometry_correctness(dialog.get_geometry(), self._additional_conn)
         if new_geom_tuple is None:
             self._log_window.insertHtml(f'<font color=#e6783c>Здание для сервиса с id={func_id}'
                     f' (build_id={b_id}) не обновлено, ошибка в геометрии</font><br>')
@@ -783,6 +784,8 @@ class UpdatingWindow(QtWidgets.QWidget):
             self._city_choose.addItems(cities)
             if current_city in cities:
                 self._city_choose.setCurrentText(current_city)
+            else:
+                self._on_city_change()
             self._city_choose.view().setMinimumWidth(len(max(cities, key=len)) * 8)
 
     def change_db(self, db_addr: str, db_port: int, db_name: str, db_user: str, db_pass: str) -> None:
