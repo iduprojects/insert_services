@@ -808,7 +808,8 @@ class UpdatingWindow(QtWidgets.QWidget):
 
     def change_db(self, db_addr: str, db_port: int, db_name: str, db_user: str, db_pass: str) -> None:
         self._db_properties.reopen(db_addr, db_port, db_name, db_user, db_pass)
-        self._additional_conn.close()
+        if self._additional_conn is not None and not self._additional_conn.closed:
+            self._additional_conn.close()
         self._additional_conn = self._db_properties.copy().conn
         self._on_city_change()
     

@@ -28,7 +28,7 @@ InitWindowDefaultValues = NamedTuple('InitWindowDefaultValues', [
 )
 
 def get_init_window_default_values() -> InitWindowDefaultValues:
-    return InitWindowDefaultValues('127.0.0.1', 5432, 'city_db_final', 'kanu', 'postgres')
+    return InitWindowDefaultValues('127.0.0.1', 5432, 'city_db_final', 'postgres', 'postgres')
 
 class InitWindow(QtWidgets.QWidget):
 
