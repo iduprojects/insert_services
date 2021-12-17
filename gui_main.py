@@ -11,7 +11,8 @@ log.handlers[-1].setFormatter(logging.Formatter('{asctime} [{name}]: {message}',
 log.handlers[-1].setLevel('INFO')
 log.addHandler(logging.StreamHandler())
 log.handlers[-1].setFormatter(logging.Formatter('{asctime} [{name}]: {message}', datefmt='%Y-%m-%d %H:%M:%S', style='{'))
-log.setLevel('INFO')
+log.handlers[-1].setLevel('DEBUG')
+log.setLevel('DEBUG')
 
 from database_properties import Properties
 from gui_insert_services import InsertionWindow

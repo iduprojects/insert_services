@@ -25,6 +25,7 @@ InsertionWindowDefaultValues = NamedTuple('InsertionWindowDefaultValues', [
         ('max_status', str),
         ('latitude', str),
         ('longitude', str),
+        ('geometry', str),
         ('address', str),
         ('name', str),
         ('opening_hours', str),
@@ -35,7 +36,7 @@ InsertionWindowDefaultValues = NamedTuple('InsertionWindowDefaultValues', [
 )
 
 def get_main_window_default_values() -> InsertionWindowDefaultValues:
-    return InsertionWindowDefaultValues('', '', '', '', '', '', '', 'x', 'y',
+    return InsertionWindowDefaultValues('', '', '', '', '', '', '', 'x', 'y', 'geometry',
             'yand_adr', 'name', 'opening_hours', 'contact:website', 'contact:phone', 'id')
 
 def get_main_window_default_address_prefixes() -> List[str]:
@@ -71,6 +72,7 @@ class InsertionWindow(QtWidgets.QWidget):
     DocumentFields = NamedTuple('DocumentFields', [
             ('latitude', QtWidgets.QComboBox),
             ('longitude', QtWidgets.QComboBox),
+            ('geometry', QtWidgets.QComboBox),
             ('address', QtWidgets.QComboBox),
             ('name', QtWidgets.QComboBox),
             ('opening_hours', QtWidgets.QComboBox),
@@ -171,10 +173,11 @@ class InsertionWindow(QtWidgets.QWidget):
         self._document_group_box = QtWidgets.QGroupBox('Сопоставление документа')
         self._document_group = QtWidgets.QFormLayout()
         self._document_group_box.setLayout(self._document_group)
-        self._document_fields = InsertionWindow.DocumentFields(*(ColorizingComboBox(self.on_document_change) for _ in range(9)))
+        self._document_fields = InsertionWindow.DocumentFields(*(ColorizingComboBox(self.on_document_change) for _ in range(10)))
         self._document_address_prefixes = [ColorizingLine(self.on_prefix_check) for _ in range(len(get_main_window_default_address_prefixes()))]
         self._document_group.addRow('Широта:', self._document_fields.latitude)
         self._document_group.addRow('Долгота:', self._document_fields.longitude)
+        self._document_group.addRow('Геометрия:', self._document_fields.geometry)
         self._document_group.addRow('Адрес:', self._document_fields.address)
         self._document_group.addRow('Название:', self._document_fields.name)
         self._document_group.addRow('Рабочие часы:', self._document_fields.opening_hours)
@@ -275,7 +278,7 @@ class InsertionWindow(QtWidgets.QWidget):
         self._table_model.setHorizontalHeaderLabels(list(self._table_axes))
         for i, service in df.iterrows():
             for j, data in enumerate(service, 1):
-                self._table_model.setItem(i, j, QtGui.QStandardItem(str(data) if data is not None else ''))
+                self._table_model.setItem(i, j, QtGui.QStandardItem(data if isinstance(data, str) else str(data) if data is not None else ''))
             ok_item = QtGui.QStandardItem('+')
             ok_item.setTextAlignment(QtCore.Qt.AlignCenter)
             self._table_model.setItem(i, 0, ok_item)
@@ -345,7 +348,8 @@ class InsertionWindow(QtWidgets.QWidget):
                         self._document_fields.osm_id.currentText(),
                         None,
                         self._document_fields.latitude.currentText(),
-                        self._document_fields.longitude.currentText()
+                        self._document_fields.longitude.currentText(),
+                        self._document_fields.geometry.currentText()
                     ),
                     list(map(lambda line_edit: line_edit.text(), self._document_address_prefixes)),
                     self._prefixes_group.itemAt(self._prefixes_group.count() - 1).widget().text(),
@@ -561,14 +565,7 @@ class InsertionWindow(QtWidgets.QWidget):
         if what_changed is not None:
             if what_changed is self._document_fields.address and what_changed.currentIndex() != 0:
                 self.on_prefix_check()
-            elif what_changed.currentIndex() == 0:
-                if what_changed is self._document_fields.latitude or what_changed is self._document_fields.longitude or \
-                        what_changed is self._document_fields.address and self._options_fields.is_building.isChecked():
-                    what_changed.setStyleSheet('background-color: rgb({}, {}, {});'.format(*InsertionWindow.colorTable.light_red.getRgb()[:3]))
-                    self._is_document_ok = False
-                else:
-                    what_changed.setStyleSheet('background-color: rgb({}, {}, {});'.format(*InsertionWindow.colorTable.grey.getRgb()[:3]))
-            else:
+            elif what_changed.currentIndex() != 0:
                 what_changed.setStyleSheet('')
                 col = what_changed.currentIndex()
                 for row in range(self._table_model.rowCount()):
@@ -591,7 +588,10 @@ class InsertionWindow(QtWidgets.QWidget):
         for field in self._document_fields:
             if field.currentIndex() == 0:
                 if not (field is self._document_fields.address and self._options_fields.is_building.isChecked() or \
-                        field is self._document_fields.latitude or field is self._document_fields.longitude):
+                        ((field is self._document_fields.latitude or field is self._document_fields.longitude) and
+                                self._document_fields.geometry.currentIndex() == 0) or \
+                        (field is self._document_fields.geometry and \
+                                (self._document_fields.latitude.currentIndex() == 0 or self._document_fields.longitude.currentIndex() == 0))):
                     field.setStyleSheet('background-color: rgb({}, {}, {});'.format(*InsertionWindow.colorTable.grey.getRgb()[:3]))
                 else:
                     field.setStyleSheet('background-color: rgb({}, {}, {});'.format(*InsertionWindow.colorTable.light_red.getRgb()[:3]))

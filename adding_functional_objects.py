@@ -111,13 +111,14 @@ InsertionMapping = NamedTuple('InsertionMapping', (
     ('capacity', Optional[str]),
     ('osm_id', Optional[str]),
     ('latitude', str),
-    ('longitude', str)
+    ('longitude', str),
+    ('geometry', Optional[str])
 ))
 def initInsertionMapping(name: Optional[str] = 'Name', opening_hours: Optional[str] = 'opening_hours', website: Optional[str] = 'contact:website',
         phone: Optional[str] = 'contact:phone', address: Optional[str] = 'yand_adr', osm_id: Optional[str] = 'id', capacity: Optional[str] = None,
-        latitude: str = 'x', longitude: str = 'y') -> InsertionMapping:
+        latitude: str = 'x', longitude: str = 'y', geometry: Optional[str] = 'geometry') -> InsertionMapping:
     fixer = lambda s: None if s in ('', '-') else s
-    return InsertionMapping(*map(fixer, (name, opening_hours, website, phone, address, capacity, osm_id)), latitude, longitude) # type: ignore
+    return InsertionMapping(*map(fixer, (name, opening_hours, website, phone, address, capacity, osm_id)), latitude, longitude, geometry) # type: ignore
 
 def insert_object(conn: psycopg2.extensions.connection, row: pd.Series, phys_id: int, service_type: str,
         service_type_id: int, mapping: InsertionMapping, commit: bool = True) -> int:
@@ -179,7 +180,7 @@ def update_object(conn: psycopg2.extensions.connection, row: pd.Series, func_id:
 
 def add_objects(conn: psycopg2.extensions.connection, objects: pd.DataFrame, city_name: str, service_type: str, service_type_id: int,
         mapping: InsertionMapping, address_prefixes: List[str] = ['Россия, Санкт-Петербург'], new_prefix: str = '',
-        is_service_building: bool = True, commit: bool = True, verbose: bool = False) -> pd.DataFrame:
+        is_service_building: bool = True, commit: bool = True, verbose: bool = False, log_n: int = 200) -> pd.DataFrame:
     '''add_objects inserts objects to database.
 
     Input:
@@ -195,6 +196,7 @@ def add_objects(conn: psycopg2.extensions.connection, objects: pd.DataFrame, cit
         - `is_service_building` - True if there is need to use address, search or insert buildings
         - `commit` - True to commit changes, False for dry run, only resulting DataFrame is returned
         - `verbose` - True to output traceback with errors, False for only error messages printing
+        - `log_n` - number of inserted/updated services to log after each
 
     Return:
 
@@ -246,14 +248,33 @@ def add_objects(conn: psycopg2.extensions.connection, objects: pd.DataFrame, cit
         if commit:
             cur.execute('SAVEPOINT previous_object')
         for i, (_, row) in enumerate(objects.iterrows()):
+            if i % log_n == 0:
+                log.debug(f'Обработано {i:4} сервисов из {objects.shape[0]}: {added_as_points + added_to_address + added_to_geom} добавлены,'
+                        f' {present} обновлены, {skipped} пропущены')
+                if commit:
+                    conn.commit()
+                    cur.execute('SAVEPOINT previous_object')
             try:
-                try:
-                    row[mapping.latitude] = round(float(row[mapping.latitude]), 6)
-                    row[mapping.longitude] = round(float(row[mapping.longitude]), 6)
-                except Exception:
-                    results[i] = 'Пропущен (широта или долгота некорректны)'
-                    skipped += 1
-                    continue
+                if mapping.geometry in row:
+                    try:
+                        cur.execute('SELECT ST_Y(ST_Centroid(ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326))), ST_X(ST_Centroid(ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326)))',
+                                (row[mapping.geometry],) * 2)
+                        latitude, longitude = cur.fetchone()
+                    except Exception:
+                        results[i] = f'Геометрия в поле "{mapping.geometry}" некорректна'
+                        if commit:
+                            cur.execute('ROLLBACK TO previous_object')
+                        else:
+                            conn.rollback()
+                        continue
+                else:
+                    try:
+                        latitude = round(float(row[mapping.latitude]), 6)
+                        longitude = round(float(row[mapping.longitude]), 6)
+                    except Exception:
+                        results[i] = 'Пропущен (широта или долгота некорректны)'
+                        skipped += 1
+                        continue
                 if is_service_building:
                     for address_prefix in address_prefixes:
                         if row.get(mapping.address, '').startswith(address_prefix):
@@ -265,9 +286,11 @@ def add_objects(conn: psycopg2.extensions.connection, objects: pd.DataFrame, cit
                             results[i] = f'Пропущен (Адрес не начинается ни с одного из {len(address_prefixes)} префиксов)'
                         skipped += 1
                         continue
-                if is_service_building and mapping.address not in row or mapping.latitude not in row or mapping.longitude not in row:
-                    results[i] = f'Пропущен (отсутствует как минимум одно необходимое поле: широта ({mapping.latitude}), долгота({mapping.longitude})' + \
-                            f', адрес({mapping.address}))' if is_service_building else ')'
+                if (is_service_building and mapping.address not in row) or (mapping.geometry not in row and \
+                            (mapping.latitude not in row or mapping.longitude not in row)):
+                    results[i] = 'Пропущен (отсутствует как минимум одно необходимое поле:' \
+                            f' (широта ({mapping.latitude}), долгота({mapping.longitude}) или геометрия({mapping.geometry})' + \
+                            (f', адрес({mapping.address}))' if is_service_building else ')')
                     skipped += 1
                     continue
                 name = row.get(mapping.name) or f'({service_type} без названия)'
@@ -278,7 +301,7 @@ def add_objects(conn: psycopg2.extensions.connection, objects: pd.DataFrame, cit
                     cur.execute('SELECT phys.id, build.id FROM physical_objects phys JOIN buildings build ON build.physical_object_id = phys.id'
                             ' WHERE phys.city_id = %s AND build.address LIKE %s AND'
                             '   ST_Distance(phys.center::geography, ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography) < 100 LIMIT 1',
-                            (city_id, '%' + row.get(mapping.address)[len(address_prefix):].strip(', '), row[mapping.longitude], row[mapping.latitude]))
+                            (city_id, '%' + row.get(mapping.address)[len(address_prefix):].strip(', '), longitude, latitude))
                     res = cur.fetchone()
                     if res is not None: # if building with the same address found and distance between point and the center of geometry is less than 100m
                         phys_id, build_id = res
@@ -299,7 +322,7 @@ def add_objects(conn: psycopg2.extensions.connection, objects: pd.DataFrame, cit
                             ' WHERE city_id = %s AND (ST_CoveredBy(ST_SetSRID(ST_MakePoint(%s, %s), 4326), geometry) OR'
                             "   ST_GeometryType(geometry) = 'ST_Point' AND abs(ST_X(geometry) - %s) < 0.0001 AND abs(ST_Y(geometry) - %s) < 0.0001)"
                             ' LIMIT 1',
-                            (city_id,) + (row[mapping.longitude], row[mapping.latitude]) * 2)
+                            (city_id,) + (longitude, latitude) * 2)
                         res = cur.fetchone()
                         if res is not None: # if building found by geometry
                             phys_id, build_id, address = res
@@ -325,7 +348,7 @@ def add_objects(conn: psycopg2.extensions.connection, objects: pd.DataFrame, cit
                             '   (ST_CoveredBy(ST_SetSRID(ST_MakePoint(%s, %s), 4326), geometry) OR'
                             "       ST_GeometryType(geometry) = 'ST_Point' AND abs(ST_X(geometry) - %s) < 0.0001 AND abs(ST_Y(geometry) - %s) < 0.0001)"
                             ' LIMIT 1',
-                            (city_id,) + (row[mapping.longitude], row[mapping.latitude]) * 2)
+                            (city_id,) + (longitude, latitude) * 2)
                     res = cur.fetchone()
                     if res is not None: # if physical_object found by geometry
                         phys_id = res[0]
@@ -347,15 +370,20 @@ def add_objects(conn: psycopg2.extensions.connection, objects: pd.DataFrame, cit
                     else:
                         insert_physical_object = True
                 if insert_physical_object:
-                    cur.execute('INSERT INTO physical_objects (osm_id, geometry, center, city_id) VALUES'
-                            ' (%s, ST_SetSRID(ST_MakePoint(%s, %s), 4326), ST_SetSRID(ST_MakePoint(%s, %s), 4326), %s) RETURNING id',
-                            (row.get(mapping.osm_id), row[mapping.longitude], row[mapping.latitude], row[mapping.longitude], row[mapping.latitude], city_id))
+                    if mapping.geometry in row:
+                        cur.execute('INSERT INTO physical_objects (osm_id, geometry, center, city_id) VALUES'
+                                ' (%s, ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326), ST_SetSRID(ST_MakePoint(%s, %s), 4326), %s) RETURNING id',
+                                (row.get(mapping.osm_id), row[mapping.geometry], longitude, latitude, city_id))
+                    else:
+                        cur.execute('INSERT INTO physical_objects (osm_id, geometry, center, city_id) VALUES'
+                                ' (%s, ST_SetSRID(ST_MakePoint(%s, %s), 4326), ST_SetSRID(ST_MakePoint(%s, %s), 4326), %s) RETURNING id',
+                                (row.get(mapping.osm_id), longitude, latitude, longitude, latitude, city_id))
                     phys_id = cur.fetchone()[0]
                     if is_service_building and mapping.address in row and len(row.get(mapping.address)) != len(address_prefix):
                         cur.execute("INSERT INTO buildings (physical_object_id, address) VALUES (%s, %s) RETURNING id",
                                     (phys_id, new_prefix + row[mapping.address][len(address_prefix):].strip(', ')))
                         build_id = cur.fetchone()[0]
-                        results[i] = f'Сервис вставлен в новое здание, добавленное с типом геометрии "Точка" (build_id = {build_id}, phys_id = {phys_id})'
+                        results[i] = f'Сервис вставлен в новое здание (build_id = {build_id}, phys_id = {phys_id})'
                     else:
                         results[i] = f'Сервис вставлен в новый физический объект, добавленный с типом геометрии "Точка" (phys_id = {phys_id})'
                     added_as_points += 1
@@ -375,7 +403,7 @@ def add_objects(conn: psycopg2.extensions.connection, objects: pd.DataFrame, cit
     objects['result'] = pd.Series(results, index=objects.index)
     objects['functional_obj_id'] = pd.Series(functional_ids, index=objects.index)
     log.info(f'Вставка сервисов типа "{service_type}" завершена')
-    log.info(f'{len(objects)} сервисов обработано: {added_as_points + added_to_address + added_to_geom} добавлены,'
+    log.info(f'{objects.shape[0]} сервисов обработано: {added_as_points + added_to_address + added_to_geom} добавлены,'
             f' {present} обновлены, {skipped} пропущены')
     log.info(f'{added_as_points} сервисов были добавлены с типом геометрии "точка", {added_to_address} добавлены в здания по совпадению адреса,'
         f' {added_to_geom} добавлены в физические объекты/здания по совпадению геометрии')
@@ -415,6 +443,7 @@ def load_objects_geojson(filename: str, default_values: Optional[Dict[str, Any]]
         data = json.load(f)
         properties = pd.DataFrame(data['features'])['properties']
         res: pd.DataFrame = pd.DataFrame(map(lambda x: x.values(), properties), columns=properties[0].keys())
+        res = res.join(pd.DataFrame(data['features'])['geometry'].apply(lambda x: json.dumps(x)))
         if default_values is not None:
             res = replace_with_default(res, default_values)
         if needed_columns is not None:

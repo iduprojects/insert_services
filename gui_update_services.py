@@ -369,7 +369,7 @@ class UpdatingWindow(QtWidgets.QWidget):
         self._editing_group_box = QtWidgets.QGroupBox('Изменение списка')
         self._editing_group = QtWidgets.QFormLayout()
         self._editing_group_box.setLayout(self._editing_group)
-        self._edit_buttons = UpdatingWindow.EditButtons(QtWidgets.QPushButton('Загрузить сервисы'),
+        self._edit_buttons = UpdatingWindow.EditButtons(QtWidgets.QPushButton('Отобразить сервисы'),
                 QtWidgets.QPushButton('Удалить сервис'), QtWidgets.QPushButton('Посмотреть геометрию'),
                 QtWidgets.QPushButton('Добавить физический объект'), QtWidgets.QPushButton('Изменить физический объект'),
                 QtWidgets.QPushButton('Добавить здание'), QtWidgets.QPushButton('Изменить здание'),
