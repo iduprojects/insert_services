@@ -6,7 +6,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 
 
 def check_geometry_correctness(geometry_geojson: Optional[str],
-        conn: psycopg2.connection) -> Optional[Tuple[float, float, str]]:
+        conn: psycopg2.extensions.connection) -> Optional[Tuple[float, float, str]]:
     if geometry_geojson is None:
         return None
     try:

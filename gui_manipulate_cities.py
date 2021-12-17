@@ -183,7 +183,7 @@ class TerritoryWindow(QtWidgets.QWidget):
             ('showGeometry', QtWidgets.QPushButton),
         ]
     )
-    def __init__(self, conn: psycopg2.connection, additional_conn: psycopg2.connection,
+    def __init__(self, conn: psycopg2.extensions.connection, additional_conn: psycopg2.extensions.connection,
             city_name: str, territory_type: Literal['municipality', 'administrative_unit'], on_territory_add_callback: Callable[[int, str], None],
             on_territory_edit_callback: Callable[[int, str, List[Tuple[str, str, str]]], None], on_territory_delete_callback: Callable[[List[Tuple[int, str]]], None],
             on_error_callback: Callable[[str], None], parent: Optional[QtWidgets.QWidget] = None):
