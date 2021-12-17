@@ -183,7 +183,7 @@ class TerritoryWindow(QtWidgets.QWidget):
             ('showGeometry', QtWidgets.QPushButton),
         ]
     )
-    def __init__(self, conn: psycopg2.extensions.connection, additional_conn: psycopg2.extensions.connection,
+    def __init__(self, conn: psycopg2.connection, additional_conn: psycopg2.connection,
             city_name: str, territory_type: Literal['municipality', 'administrative_unit'], on_territory_add_callback: Callable[[int, str], None],
             on_territory_edit_callback: Callable[[int, str, List[Tuple[str, str, str]]], None], on_territory_delete_callback: Callable[[List[Tuple[int, str]]], None],
             on_error_callback: Callable[[str], None], parent: Optional[QtWidgets.QWidget] = None):
@@ -725,6 +725,8 @@ class CitiesWindow(QtWidgets.QWidget):
 
     def change_db(self, db_addr: str, db_port: int, db_name: str, db_user: str, db_pass: str) -> None:
         self._db_properties.reopen(db_addr, db_port, db_name, db_user, db_pass)
+        self._additional_conn.close()
+        self._additional_conn = self._db_properties.copy().conn
     
     def showEvent(self, event: QtGui.QShowEvent) -> None:
         log.info('Открыто окно работы с городами')

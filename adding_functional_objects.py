@@ -78,7 +78,7 @@ sqltype_mapping: Dict[str, SQLType] = dict(itertools.chain(
         map(lambda x: (x, SQLType.TIMESTAMP), ('timestamp', 'date', 'time', 'datetime', 'дата', 'время'))
 ))
 
-def ensure_service_type(conn: psycopg2.extensions.connection, service_type: str, service_type_code: Optional[str],
+def ensure_service_type(conn: psycopg2.connection, service_type: str, service_type_code: Optional[str],
         capacity_min: Optional[int], capacity_max: Optional[int], status_min: Optional[int], status_max: Optional[int],
         city_function: str, is_building: bool, commit: bool = True) -> int:
     '''ensure_service_type returns id of a service_type from database or inserts it if service_type is not present and all of the parameters are given'''
@@ -119,7 +119,7 @@ def initInsertionMapping(name: Optional[str] = 'Name', opening_hours: Optional[s
     fixer = lambda s: None if s in ('', '-') else s
     return InsertionMapping(*map(fixer, (name, opening_hours, website, phone, address, capacity, osm_id)), latitude, longitude) # type: ignore
 
-def insert_object(conn: psycopg2.extensions.connection, row: pd.Series, phys_id: int, service_type: str,
+def insert_object(conn: psycopg2.connection, row: pd.Series, phys_id: int, service_type: str,
         service_type_id: int, mapping: InsertionMapping, commit: bool = True) -> int:
     '''insert_object inserts functional_object with connection to physical_object with phys_id.
 
@@ -150,7 +150,7 @@ def insert_object(conn: psycopg2.extensions.connection, row: pd.Series, phys_id:
         return func_id
 
 
-def update_object(conn: psycopg2.extensions.connection, row: pd.Series, func_id: int, mapping: InsertionMapping, service_type: str,
+def update_object(conn: psycopg2.connection, row: pd.Series, func_id: int, mapping: InsertionMapping, service_type: str,
         commit: bool = True) -> int:
     '''update_object update functional_object and concrete <service_type>_object connected to it.
 
@@ -177,7 +177,7 @@ def update_object(conn: psycopg2.extensions.connection, row: pd.Series, func_id:
         return func_id
 
 
-def add_objects(conn: psycopg2.extensions.connection, objects: pd.DataFrame, city_name: str, service_type: str, service_type_id: int,
+def add_objects(conn: psycopg2.connection, objects: pd.DataFrame, city_name: str, service_type: str, service_type_id: int,
         mapping: InsertionMapping, address_prefixes: List[str] = ['Россия, Санкт-Петербург'], new_prefix: str = '',
         is_service_building: bool = True, commit: bool = True, verbose: bool = False) -> pd.DataFrame:
     '''add_objects inserts objects to database.
@@ -297,7 +297,7 @@ def add_objects(conn: psycopg2.extensions.connection, objects: pd.DataFrame, cit
                     else: # if no building with the same address found or distance is too high (address is wrong or it's not a concrete house)
                         cur.execute('SELECT phys.id, build.id, build.address FROM physical_objects phys JOIN buildings build ON build.physical_object_id = phys.id'
                             ' WHERE city_id = %s AND (ST_CoveredBy(ST_SetSRID(ST_MakePoint(%s, %s), 4326), geometry) OR'
-                            "   ST_GeometryType(geometry) = 'ST_Point' AND abs(ST_X(geometry) - %s) < 0.001 AND abs(ST_Y(geometry) - %s) < 0.001)"
+                            "   ST_GeometryType(geometry) = 'ST_Point' AND abs(ST_X(geometry) - %s) < 0.0001 AND abs(ST_Y(geometry) - %s) < 0.0001)"
                             ' LIMIT 1',
                             (city_id,) + (row[mapping.longitude], row[mapping.latitude]) * 2)
                         res = cur.fetchone()
@@ -323,7 +323,7 @@ def add_objects(conn: psycopg2.extensions.connection, objects: pd.DataFrame, cit
                     cur.execute('SELECT id FROM physical_objects phys'
                             ' WHERE city_id = %s AND (SELECT EXISTS (SELECT 1 FROM buildings where physical_object_id = phys.id)) = false AND'
                             '   (ST_CoveredBy(ST_SetSRID(ST_MakePoint(%s, %s), 4326), geometry) OR'
-                            "       ST_GeometryType(geometry) = 'ST_Point' AND abs(ST_X(geometry) - %s) < 0.001 AND abs(ST_Y(geometry) - %s) < 0.001)"
+                            "       ST_GeometryType(geometry) = 'ST_Point' AND abs(ST_X(geometry) - %s) < 0.0001 AND abs(ST_Y(geometry) - %s) < 0.0001)"
                             ' LIMIT 1',
                             (city_id,) + (row[mapping.longitude], row[mapping.latitude]) * 2)
                     res = cur.fetchone()

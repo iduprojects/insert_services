@@ -17,10 +17,11 @@ class PlatformServicesTableWidget(ColoringTableWidget):
                 'Мощность', 'id физ. объекта', 'Широта', 'Долгота', 'Тип геометрии', 'Админ. единица', 'Муницип. образование', 'Создание', 'Обновление']
     LABELS_DB = ['id', '-', 'name', 'opening_hours', 'website', 'phone', 'capacity', 'physical_object_id', '-', '-', '-', '-', '-', '-']
     def __init__(self, services: Sequence[Sequence[Any]], changed_callback: Callable[[int, str, Any, Any, bool], None],
-            db_properties: Properties):
+            db_properties: Properties, is_service_building: bool):
         super().__init__(services, PlatformServicesTableWidget.LABELS, self.correction_checker, (0, 1, 8, 9, 10, 11, 12, 13, 14))
         self._db_properties = db_properties
         self._changed_callback = changed_callback
+        self._is_service_building = is_service_building
         self.setColumnWidth(2, 200)
         self.setColumnWidth(3, 120)
         self.setColumnWidth(4, 190)
@@ -39,8 +40,9 @@ class PlatformServicesTableWidget(ColoringTableWidget):
             res = False
         elif column == 7:
             with self._db_properties.conn.cursor() as cur:
-                cur.execute('SELECT EXISTS (SELECT 1 FROM physical_objects WHERE id = %s)', (new_data,))
-                if not cur.fetchone()[0]:
+                cur.execute('SELECT EXISTS (SELECT 1 FROM physical_objects WHERE id = %s), EXISTS (SELECT 1 FROM buildings WHERE physical_object_id = %s)',
+                        (new_data, new_data))
+                if cur.fetchone() != (True, self._is_service_building):
                     res = False
         if PlatformServicesTableWidget.LABELS_DB[column] != '-':
             self._changed_callback(row, PlatformServicesTableWidget.LABELS[column], old_data, new_data, res)
@@ -170,6 +172,9 @@ class BuildingCreation(QtWidgets.QDialog):
             is_adding: bool = False, parent: Optional[QtWidgets.QWidget] = None):
         super().__init__(parent=parent)
         self.window().setWindowTitle('Добавление здания' if is_adding else 'Изменение здания')
+
+        double_validator = QtGui.QDoubleValidator(0.0, 1000000.0, 4)
+        double_validator.setLocale(QtCore.QLocale.English)
         layout = QtWidgets.QVBoxLayout()
         layout.addWidget(QtWidgets.QLabel(text))
         self._geometry_field = QtWidgets.QTextEdit()
@@ -192,19 +197,22 @@ class BuildingCreation(QtWidgets.QDialog):
         self._options_layout.addRow('Года ремонта', self._repair_years)
         self._building_area = QtWidgets.QLineEdit(_to_str(building_area))
         self._building_area.setPlaceholderText('123.45')
+        self._building_area.setValidator(double_validator)
         self._options_layout.addRow('Площадь дома', self._building_area)
         self._building_area_living = QtWidgets.QLineEdit(_to_str(living_area))
         self._building_area_living.setPlaceholderText('1234.5')
-        # self._building_area_living.setValidator(QtGui.QValidator()) # (r'\d+\.?\d*')
+        self._building_area_living.setValidator(double_validator)
         self._options_layout.addRow('Общая жилая площадь', self._building_area_living)
         self._storeys = QtWidgets.QLineEdit(_to_str(storeys))
         self._storeys.setPlaceholderText('8')
+        self._storeys.setValidator(QtGui.QIntValidator(1, 100))
         self._options_layout.addRow('Этажность', self._storeys)
         self._lift_count = QtWidgets.QLineEdit(_to_str(lift_count))
         self._lift_count.setPlaceholderText('4')
         self._options_layout.addRow('Количество лифтов', self._lift_count)
         self._population = QtWidgets.QLineEdit(_to_str(population))
         self._population.setPlaceholderText('250')
+        self._population.setValidator(QtGui.QIntValidator(0, 20000))
         self._options_layout.addRow('Население', self._population)
         self._project_type = QtWidgets.QLineEdit(project_type or '')
         self._project_type.setPlaceholderText('1ЛГ-602В-8')
@@ -438,7 +446,7 @@ class UpdatingWindow(QtWidgets.QWidget):
             self._editing_group.addWidget(self._edit_buttons.commit)
         left_placeholder = self._left.itemAt(0).widget()
         left_placeholder.setVisible(False)
-        self._table = PlatformServicesTableWidget(services_list, self._on_cell_change, self._db_properties)
+        self._table = PlatformServicesTableWidget(services_list, self._on_cell_change, self._db_properties, is_building)
         self._left.replaceWidget(left_placeholder, self._table)
         if not is_building:
             self._table.setColumnWidth(1, 20)
@@ -486,10 +494,15 @@ class UpdatingWindow(QtWidgets.QWidget):
             object_row = next(iter(rows))
             is_deleting = QtWidgets.QMessageBox.question(self, 'Удаление объекта', f'Вы уверены, что хотите удалить объект в строке под номером {object_row}?')
         if is_deleting == QtWidgets.QMessageBox.StandardButton.Yes:
+            if len(rows) == 1:
+                self._log_window.insertHtml('<font color=red>Удаление объекта с func_id=</font>')
+            else:
+                self._log_window.insertHtml('<font color=red>Удаление объектов с func_id=</font>')
             with self._db_properties.conn.cursor() as cur:
-                for row in rows[::-1]:
+                for i, row in enumerate(rows[::-1]):
                     func_id = self._table.item(row - 1, 0).text()
-                    self._log_window.insertHtml(f'<font color=red>Удаление объекта с func_id={func_id}</font><br>')
+                    self._log_window.insertHtml(f'<font color=red>{func_id}{", " if i != len(rows) - 1 else ""}</font>')
+                    self._log_window.repaint()
                     cur.execute('DELETE FROM provision.houses_services WHERE house_id = %s OR service_id = %s', (func_id,) * 2)
                     cur.execute('DELETE FROM provision.services WHERE service_id = %s', (func_id,))
                     cur.execute('DELETE FROM provision.houses WHERE house_id = %s', (func_id,))
@@ -502,6 +515,7 @@ class UpdatingWindow(QtWidgets.QWidget):
                         cur.execute('DELETE FROM buildings WHERE physical_object_id = %s', (phys_id,))
                         cur.execute('DELETE FROM physical_objects WHERE id = %s', (phys_id,))
                     self._table.removeRow(row - 1)
+                self._log_window.insertHtml('</font><br>')
 
     def _on_geometry_show(self) -> None:
         with self._db_properties.conn.cursor() as cur:
@@ -547,7 +561,8 @@ class UpdatingWindow(QtWidgets.QWidget):
                         ' WHERE id = %s',
                         (new_phys_id,) * 3
                 )
-                cur.execute('UPDATE functional_objects SET physical_object_id = %s WHERE id = %s', (new_phys_id, func_id))
+                cur.execute("UPDATE functional_objects SET physical_object_id = %s, updated_at = date_trunc('second', now()) WHERE id = %s",
+                        (new_phys_id, func_id))
             self._log_window.insertHtml(f'<font color=yellowgreen>Добавлен физический объект для сервиса с id={func_id}: {phys_id}->{new_phys_id}'
                     f' ({self._table.item(row, 10).text()}({self._table.item(row, 8).text()}, {self._table.item(row, 9).text()})'
                     f'->{geom_type}({new_latitude, new_longitude}))</font><br>')
@@ -768,11 +783,14 @@ class UpdatingWindow(QtWidgets.QWidget):
         self._service_type_choose.clear()
         if len(service_types) == 0:
             self._service_type_choose.addItem('(Нет типов сервисов)')
+            self._service_type_choose.view().setMinimumWidth(len(self._service_type_choose.currentText()) * 8)
+            self._edit_buttons.load.setEnabled(False)
         else:
             self._service_type_choose.addItems(service_types)
             if current_service_type in service_types:
                 self._service_type_choose.setCurrentText(current_service_type)
             self._service_type_choose.view().setMinimumWidth(len(max(service_types, key=len)) * 8)
+            self._edit_buttons.load.setEnabled(True)
 
     def set_cities(self, cities: Iterable[str]) -> None:
         cities = list(cities)
@@ -790,6 +808,8 @@ class UpdatingWindow(QtWidgets.QWidget):
 
     def change_db(self, db_addr: str, db_port: int, db_name: str, db_user: str, db_pass: str) -> None:
         self._db_properties.reopen(db_addr, db_port, db_name, db_user, db_pass)
+        self._additional_conn.close()
+        self._additional_conn = self._db_properties.copy().conn
         self._on_city_change()
     
     def showEvent(self, event: QtGui.QShowEvent) -> None:

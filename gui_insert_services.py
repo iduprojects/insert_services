@@ -275,7 +275,7 @@ class InsertionWindow(QtWidgets.QWidget):
         self._table_model.setHorizontalHeaderLabels(list(self._table_axes))
         for i, service in df.iterrows():
             for j, data in enumerate(service, 1):
-                self._table_model.setItem(i, j, QtGui.QStandardItem(str(data or '')))
+                self._table_model.setItem(i, j, QtGui.QStandardItem(str(data) if data is not None else ''))
             ok_item = QtGui.QStandardItem('+')
             ok_item.setTextAlignment(QtCore.Qt.AlignCenter)
             self._table_model.setItem(i, 0, ok_item)

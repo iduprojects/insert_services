@@ -206,6 +206,7 @@ ALTER TABLE "values" OWNER TO postgres;
 CREATE MATERIALIZED VIEW houses AS (
     SELECT f.id AS functional_object_id,
         p.id AS physical_object_id,
+        b.id AS building_id,
         p.geometry,
         p.center,
         b.address,
@@ -244,9 +245,52 @@ CREATE MATERIALIZED VIEW houses AS (
 );
 ALTER TABLE houses OWNER TO postgres;
 
+CREATE MATERIALIZED VIEW all_houses AS (
+    SELECT f.id AS functional_object_id,
+        p.id AS physical_object_id,
+        b.id AS building_id,
+        p.geometry,
+        p.center,
+        b.address,
+        b.project_type,
+        b.building_date,
+        b.repair_years,
+        b.building_area,
+        b.living_area,
+        b.storeys_count,
+        b.central_heating,
+        b.central_hotwater,
+        b.central_electro,
+        b.central_gas,
+        b.refusechute,
+        b.ukname,
+        b.lift_count,
+        b.failure,
+        b.resident_number,
+        c.name AS city,
+        c.id AS city_id,
+        au.name AS administrative_unit,
+        au.id AS administrative_unit_id,
+        mu.name AS municipality,
+        mu.id AS municipality_id,
+        p.block_id AS block_id,
+        GREATEST(f.updated_at, p.updated_at) AS updated_at,
+        GREATEST(f.created_at, p.created_at) AS created_at
+    FROM functional_objects f
+        JOIN city_service_types st ON f.city_service_type_id = st.id
+        JOIN physical_objects p ON f.physical_object_id = p.id
+        JOIN buildings b ON p.id = b.physical_object_id
+        JOIN cities c ON p.city_id = c.id
+        LEFT JOIN administrative_units au ON p.administrative_unit_id = au.id
+        LEFT JOIN municipalities mu ON p.municipality_id = mu.id
+    WHERE st.name = 'Жилье'
+);
+ALTER TABLE all_houses OWNER TO postgres;
+
 CREATE MATERIALIZED VIEW all_services AS (
-    SELECT p.id AS physical_object_id,
-        f.id AS functional_object_id,
+    SELECT f.id AS functional_object_id,
+        p.id AS physical_object_id,
+        b.id AS building_id,
         p.geometry,
         p.center,
         st.name AS city_service_type,
@@ -316,7 +360,7 @@ END;
 $$;
 ALTER FUNCTION trigger_set_timestamp() OWNER TO postgres;
 
-CREATE FUNCTION update_physical_objects_location() RETURNS void   
+CREATE FUNCTION update_physical_objects_location() RETURNS void
 LANGUAGE SQL AS
 $$
     UPDATE physical_objects p SET
