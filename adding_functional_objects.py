@@ -135,13 +135,20 @@ def insert_object(conn: psycopg2.extensions.connection, row: pd.Series, phys_id:
                 ' WHERE st.id = %s', (service_type_id,))
         mn, mx, *ids = cur.fetchone()
         assert ids[0] is not None and ids[1] is not None and ids[2] is not None, 'Service type, city function or infrastructure are not found in the database'
+        if mapping.capacity in row and isinstance(row[mapping.capacity], int):
+            capacity = row[mapping.capacity]
+            is_capacity_real = True
+        else:
+            capacity = random.randint(mn, mx)
+            is_capacity_real = False
         cur.execute('INSERT INTO functional_objects (name, opening_hours, website, phone, city_service_type_id, city_function_id,'
-                '   city_infrastructure_type_id, capacity, physical_object_id)'
-                ' VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id',
+                '   city_infrastructure_type_id, capacity, is_capacity_real, physical_object_id)'
+                ' VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id',
                 (
                         row.get(mapping.name) or f'({service_type} без названия)', row.get(mapping.opening_hours), row.get(mapping.website),
                         row.get(mapping.phone), *ids,
-                        row[mapping.capacity] if mapping.capacity in row else (random.randint(mn, mx) if mn is not None and mx is not None else None),
+                        capacity,
+                        is_capacity_real,
                         phys_id
                 )
         )

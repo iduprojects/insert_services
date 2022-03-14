@@ -37,6 +37,7 @@ CREATE TABLE social_groups (
     id serial PRIMARY KEY NOT NULL,
     name character varying UNIQUE,
     code character varying UNIQUE,
+    social_group_value float,
     parent_id integer REFERENCES social_groups(id)
 );
 ALTER TABLE social_groups OWNER TO postgres;
@@ -147,10 +148,11 @@ CREATE TABLE functional_objects (
     opening_hours character varying,
     website character varying,
     phone character varying,
-    capacity integer,
-    city_infrastructure_type_id integer REFERENCES city_infrastructure_types(id),
-    city_function_id integer REFERENCES city_functions(id),
-    city_service_type_id integer REFERENCES city_service_types(id),
+    capacity integer NOT NULL,
+    is_capacity_real boolean NOT NULL
+    city_infrastructure_type_id integer REFERENCES city_infrastructure_types(id) NOT NULL,
+    city_function_id integer REFERENCES city_functions(id) NOT NULL,
+    city_service_type_id integer REFERENCES city_service_types(id) NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL
 );
@@ -165,6 +167,7 @@ CREATE TABLE buildings (
     project_type character varying(100),
     building_date character varying(50),
     building_area real,
+    is_living boolean,
     living_area real,
     storeys_count smallint,
     resident_number smallint,
@@ -439,6 +442,7 @@ CREATE MATERIALIZED VIEW all_services AS (
         f.website,
         f.phone,
         b.address,
+        b.is_living,
         c.name AS city,
         c.id AS city_id,
         au.name AS administrative_unit,
@@ -447,6 +451,7 @@ CREATE MATERIALIZED VIEW all_services AS (
         mu.id AS municipality_id,
         p.block_id AS block_id,
         f.capacity,
+        f.is_capacity_real,
         GREATEST(f.updated_at, p.updated_at) AS updated_at,
         GREATEST(f.created_at, p.created_at) AS created_at
     FROM functional_objects f

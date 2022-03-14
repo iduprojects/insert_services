@@ -137,7 +137,7 @@ class ColoringTableWidget(QtWidgets.QTableWidget):
         for i, row in enumerate(data):
             self._data.append(list(row))
             for j, item in enumerate(row):
-                self.setItem(i, j, QtWidgets.QTableWidgetItem(str(item or '')))
+                self.setItem(i, j, QtWidgets.QTableWidgetItem(str(item or '' if not isinstance(item, bool) else 'True' if item else 'False')))
             for j in blocked_columns:
                 item = self.item(i, j)
                 item.setBackground(QtGui.QColor.fromRgb(140, 140, 140))
