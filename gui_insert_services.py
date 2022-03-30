@@ -89,9 +89,10 @@ class InsertionWindow(QtWidgets.QWidget):
             ('dark_green', QtGui.QColor),
             ('dark_red', QtGui.QColor),
             ('grey', QtGui.QColor),
-            ('sky_blue', QtGui.QColor)
+            ('sky_blue', QtGui.QColor),
+            ('yellow', QtGui.QColor)
     ])(QtGui.QColor(200, 239, 212), QtGui.QColor(255, 192, 203), QtGui.QColor(97, 204, 128), \
-            QtGui.QColor(243, 104, 109), QtGui.QColor(230, 230, 230), QtGui.QColor(148, 216, 246)) # type: ignore
+            QtGui.QColor(243, 104, 109), QtGui.QColor(230, 230, 230), QtGui.QColor(148, 216, 246), QtGui.QColor(255, 255, 100)) # type: ignore
 
     default_values = get_main_window_default_values()
 
@@ -282,7 +283,8 @@ class InsertionWindow(QtWidgets.QWidget):
             ok_item = QtGui.QStandardItem('+')
             ok_item.setTextAlignment(QtCore.Qt.AlignCenter)
             self._table_model.setItem(i, 0, ok_item)
-            self._table_model.setData(self._table_model.index(i, 0), CheckableTableView.colorTable.on, QtCore.Qt.BackgroundRole)
+            self._table_model.item(i, 0).setBackground(CheckableTableView.colorTable.on)
+            self._table_model.item(i, 0).setForeground(QtCore.Qt.black)
 
         if self._table is None:
             self._table = CheckableTableView()
@@ -377,8 +379,8 @@ class InsertionWindow(QtWidgets.QWidget):
         self._table.resizeColumnToContents(len(self._table_axes) - 2) # type: ignore
         self._table.resizeColumnToContents(len(self._table_axes) - 1) # type: ignore
         for row in range(self._table_model.rowCount()):
-            self._table_model.setData(self._table_model.index(row, len(self._table_axes) - 2), InsertionWindow.colorTable.sky_blue, QtCore.Qt.BackgroundRole)
-            self._table_model.setData(self._table_model.index(row, len(self._table_axes) - 1), InsertionWindow.colorTable.sky_blue, QtCore.Qt.BackgroundRole)
+            self._table_model.item(row, len(self._table_axes) - 2).setBackground(InsertionWindow.colorTable.sky_blue)
+            self._table_model.item(row, len(self._table_axes) - 1).setBackground(InsertionWindow.colorTable.sky_blue)
             self._table_model.item(row, len(self._table_axes) - 1).setFlags(QtCore.Qt.ItemIsEnabled)
             self._table_model.item(row, len(self._table_axes) - 2).setFlags(QtCore.Qt.ItemIsEnabled)
         self._save_results_btn.setVisible(True)
@@ -427,13 +429,15 @@ class InsertionWindow(QtWidgets.QWidget):
                 found = False
                 for prefix in self._document_address_prefixes:
                     if str(self._table_model.index(row, col).data()).startswith(prefix.text()):
-                        self._table_model.setData(self._table_model.index(row, col), InsertionWindow.colorTable.dark_green, QtCore.Qt.BackgroundRole)
+                        self._table_model.item(row, col).setBackground(InsertionWindow.colorTable.dark_green)
+                        self._table_model.item(row, col).setForeground(QtGui.QColor.fromRgb(0, 0, 0))
                         found = True
                         break
                 if found:
                     res += 1
                 else:
-                    self._table_model.setData(self._table_model.index(row, col), InsertionWindow.colorTable.dark_red, QtCore.Qt.BackgroundRole)
+                    self._table_model.item(row, col).setBackground(InsertionWindow.colorTable.dark_red)
+                    self._table_model.item(row, col).setForeground(QtGui.QColor.fromRgb(0, 0, 0))
         if self._table is not None:
             self._prefixes_group_box.setTitle(f'Префиксы адреса ({res} / {self._table_model.rowCount()}))') # )) = ) , magic
 
@@ -452,7 +456,7 @@ class InsertionWindow(QtWidgets.QWidget):
                 self._options_fields.max_status.setText(str(service[4]))
                 self._options_fields.is_building.setChecked(service[5])
                 self._options_fields.city_function.setCurrentText(service[6])
-                what_changed.setStyleSheet('background-color: rgb({}, {}, {})'.format(*InsertionWindow.colorTable.light_green.getRgb()[:3]))
+                what_changed.setStyleSheet('background-color: rgb({}, {}, {});color: black'.format(*InsertionWindow.colorTable.light_green.getRgb()[:3]))
             else:
                 self._options_fields.service_code.setText('')
                 self._options_fields.min_capacity.setText('')
@@ -461,7 +465,7 @@ class InsertionWindow(QtWidgets.QWidget):
                 self._options_fields.max_status.setText('')
                 self._options_fields.is_building.setChecked(False)
                 self._options_fields.city_function.setCurrentIndex(0)
-                what_changed.setStyleSheet('background-color: rgb({}, {}, {})'.format(*InsertionWindow.colorTable.light_red.getRgb()[:3]))
+                what_changed.setStyleSheet('background-color: rgb({}, {}, {});color: black'.format(*InsertionWindow.colorTable.light_red.getRgb()[:3]))
             if old_is_building != self._options_fields.is_building.isChecked():
                 self.on_document_change(self._document_fields.address)
             
@@ -469,60 +473,60 @@ class InsertionWindow(QtWidgets.QWidget):
         if what_changed is self._options_fields.service_type_choosable and self._options_fields.service_type_choosable.isChecked():
             if self._options_fields.service_type_choose.currentIndex() == 0:
                 self._is_options_ok = False
-                self._options_fields.service_type_choose.setStyleSheet('background-color: rgb({}, {}, {})'.format(*InsertionWindow.colorTable.light_red.getRgb()[:3]))
+                self._options_fields.service_type_choose.setStyleSheet('background-color: rgb({}, {}, {});color: black'.format(*InsertionWindow.colorTable.light_red.getRgb()[:3]))
             else:
-                self._options_fields.service_type_choose.setStyleSheet('background-color: rgb({}, {}, {})'.format(*InsertionWindow.colorTable.light_green.getRgb()[:3]))
+                self._options_fields.service_type_choose.setStyleSheet('background-color: rgb({}, {}, {});color: black'.format(*InsertionWindow.colorTable.light_green.getRgb()[:3]))
             self.on_options_change(self._options_fields.service_type_choose)
             return
 
         if self._options_fields.service_type.text() != '' and '"' not in self._options_fields.service_type.text() \
                 and "'" not in self._options_fields.service_type.text():
-            self._options_fields.service_type.setStyleSheet('background-color: rgb({}, {}, {})'.format(*InsertionWindow.colorTable.light_green.getRgb()[:3]))
+            self._options_fields.service_type.setStyleSheet('background-color: rgb({}, {}, {});color: black'.format(*InsertionWindow.colorTable.light_green.getRgb()[:3]))
         else:
-            self._options_fields.service_type.setStyleSheet('background-color: rgb({}, {}, {})'.format(*InsertionWindow.colorTable.light_red.getRgb()[:3]))
+            self._options_fields.service_type.setStyleSheet('background-color: rgb({}, {}, {});color: black'.format(*InsertionWindow.colorTable.light_red.getRgb()[:3]))
             if self._options_fields.service_type.isVisible():
                 self._is_options_ok = False
         if self._options_fields.service_code.text() != '' and len(set(self._options_fields.service_code.text()) - allowed_chars - {'-'}) == 0:
-            self._options_fields.service_code.setStyleSheet('background-color: rgb({}, {}, {})'.format(*InsertionWindow.colorTable.light_green.getRgb()[:3]))
+            self._options_fields.service_code.setStyleSheet('background-color: rgb({}, {}, {});color: black'.format(*InsertionWindow.colorTable.light_green.getRgb()[:3]))
         else:
             self._is_options_ok = False
-            self._options_fields.service_code.setStyleSheet('background-color: rgb({}, {}, {})'.format(*InsertionWindow.colorTable.light_red.getRgb()[:3]))
+            self._options_fields.service_code.setStyleSheet('background-color: rgb({}, {}, {});color: black'.format(*InsertionWindow.colorTable.light_red.getRgb()[:3]))
 
         if self._options_fields.city_function.currentIndex() == 0:
             self._is_options_ok = False
-            self._options_fields.city_function.setStyleSheet('background-color: rgb({}, {}, {})'.format(*InsertionWindow.colorTable.light_red.getRgb()[:3]))
+            self._options_fields.city_function.setStyleSheet('background-color: rgb({}, {}, {});color: black'.format(*InsertionWindow.colorTable.light_red.getRgb()[:3]))
         else:
-            self._options_fields.city_function.setStyleSheet('background-color: rgb({}, {}, {})'.format(*InsertionWindow.colorTable.light_green.getRgb()[:3]))
+            self._options_fields.city_function.setStyleSheet('background-color: rgb({}, {}, {});color: black'.format(*InsertionWindow.colorTable.light_green.getRgb()[:3]))
         
         num_lines_ok = 0
         for line in (self._options_fields.min_capacity, self._options_fields.max_capacity):
             if line.text() != '' and line.text().isdigit():
-                line.setStyleSheet('background-color: rgb({}, {}, {})'.format(*InsertionWindow.colorTable.light_green.getRgb()[:3]))
+                line.setStyleSheet('background-color: rgb({}, {}, {});color: black'.format(*InsertionWindow.colorTable.light_green.getRgb()[:3]))
                 num_lines_ok += 1
             else:
                 self._is_options_ok = False
-                line.setStyleSheet('background-color: rgb({}, {}, {})'.format(*InsertionWindow.colorTable.light_red.getRgb()[:3]))
+                line.setStyleSheet('background-color: rgb({}, {}, {});color: black'.format(*InsertionWindow.colorTable.light_red.getRgb()[:3]))
         if num_lines_ok < 2:
             self._is_options_ok = False
         elif num_lines_ok == 2 and int(self._options_fields.max_capacity.text()) < int(self._options_fields.min_capacity.text()):
-            self._options_fields.min_capacity.setStyleSheet('background-color: rgb({}, {}, {})'.format(*InsertionWindow.colorTable.light_red.getRgb()[:3]))
-            self._options_fields.max_capacity.setStyleSheet('background-color: rgb({}, {}, {})'.format(*InsertionWindow.colorTable.light_red.getRgb()[:3]))
+            self._options_fields.min_capacity.setStyleSheet('background-color: rgb({}, {}, {});color: black'.format(*InsertionWindow.colorTable.light_red.getRgb()[:3]))
+            self._options_fields.max_capacity.setStyleSheet('background-color: rgb({}, {}, {});color: black'.format(*InsertionWindow.colorTable.light_red.getRgb()[:3]))
             self._is_options_ok = False
 
         num_lines_ok = 0
         for line in (self._options_fields.min_status, self._options_fields.max_status):
             if line.text() != '' and line.text().isdigit():
-                line.setStyleSheet('background-color: rgb({}, {}, {})'.format(*InsertionWindow.colorTable.light_green.getRgb()[:3]))
+                line.setStyleSheet('background-color: rgb({}, {}, {});color: black'.format(*InsertionWindow.colorTable.light_green.getRgb()[:3]))
                 num_lines_ok += 1
             else:
                 self._is_options_ok = False
-                line.setStyleSheet('background-color: rgb({}, {}, {})'.format(*InsertionWindow.colorTable.light_red.getRgb()[:3]))
+                line.setStyleSheet('background-color: rgb({}, {}, {});color: black'.format(*InsertionWindow.colorTable.light_red.getRgb()[:3]))
 
         if num_lines_ok < 2:
             self._is_options_ok = False
         elif num_lines_ok == 2 and int(self._options_fields.max_status.text()) < int(self._options_fields.min_status.text()):
-            self._options_fields.min_status.setStyleSheet('background-color: rgb({}, {}, {})'.format(*InsertionWindow.colorTable.light_red.getRgb()[:3]))
-            self._options_fields.max_status.setStyleSheet('background-color: rgb({}, {}, {})'.format(*InsertionWindow.colorTable.light_red.getRgb()[:3]))
+            self._options_fields.min_status.setStyleSheet('background-color: rgb({}, {}, {});color: black'.format(*InsertionWindow.colorTable.light_red.getRgb()[:3]))
+            self._options_fields.max_status.setStyleSheet('background-color: rgb({}, {}, {});color: black'.format(*InsertionWindow.colorTable.light_red.getRgb()[:3]))
             self._is_options_ok = False
 
         if self._is_options_ok and self._is_document_ok:
@@ -569,7 +573,8 @@ class InsertionWindow(QtWidgets.QWidget):
                 what_changed.setStyleSheet('')
                 col = what_changed.currentIndex()
                 for row in range(self._table_model.rowCount()):
-                    self._table_model.setData(self._table_model.index(row, col), InsertionWindow.colorTable.light_green, QtCore.Qt.BackgroundRole)
+                    self._table_model.item(row, col).setBackground(InsertionWindow.colorTable.light_green)
+                    self._table_model.item(row, col).setForeground(QtCore.Qt.black)
 
             if previous_value is not None and previous_value != 0:
                 if previous_value == self._document_fields.address.currentIndex():
@@ -583,18 +588,19 @@ class InsertionWindow(QtWidgets.QWidget):
                     if not is_used:
                         col = previous_value
                         for row in range(self._table_model.rowCount()):
-                            self._table_model.setData(self._table_model.index(row, col), QtGui.QColor(QtCore.Qt.white), QtCore.Qt.BackgroundRole)
+                            self._table_model.item(row, col).setBackground(QtGui.QColor(QtCore.Qt.white))
                         
         for field in self._document_fields:
             if field.currentIndex() == 0:
-                if not (field is self._document_fields.address and self._options_fields.is_building.isChecked() or \
-                        ((field is self._document_fields.latitude or field is self._document_fields.longitude) and
+                if field is self._document_fields.address and self._options_fields.is_building.isChecked():
+                    field.setStyleSheet('background-color: rgb({}, {}, {});color: black'.format(*InsertionWindow.colorTable.yellow.getRgb()[:3]))
+                elif not (((field is self._document_fields.latitude or field is self._document_fields.longitude) and
                                 self._document_fields.geometry.currentIndex() == 0) or \
                         (field is self._document_fields.geometry and \
                                 (self._document_fields.latitude.currentIndex() == 0 or self._document_fields.longitude.currentIndex() == 0))):
-                    field.setStyleSheet('background-color: rgb({}, {}, {});'.format(*InsertionWindow.colorTable.grey.getRgb()[:3]))
+                    field.setStyleSheet('background-color: rgb({}, {}, {});color: black'.format(*InsertionWindow.colorTable.grey.getRgb()[:3]))
                 else:
-                    field.setStyleSheet('background-color: rgb({}, {}, {});'.format(*InsertionWindow.colorTable.light_red.getRgb()[:3]))
+                    field.setStyleSheet('background-color: rgb({}, {}, {});color: black'.format(*InsertionWindow.colorTable.light_red.getRgb()[:3]))
                     self._is_document_ok = False
             elif field is not self._document_fields.address:
                 field.setStyleSheet('')
@@ -604,10 +610,11 @@ class InsertionWindow(QtWidgets.QWidget):
                     if field_inner is not field and field_inner.currentIndex() == col:
                         color = InsertionWindow.colorTable.grey
                 for row in range(self._table_model.rowCount()):
-                    self._table_model.setData(self._table_model.index(row, col), color, QtCore.Qt.BackgroundRole)
-            else:
-                field.setStyleSheet('background-color: rgb({}, {}, {});'.format(*InsertionWindow.colorTable.grey.getRgb()[:3]))
+                    self._table_model.item(row, col).setBackground(color)
+                    self._table_model.item(row, col).setForeground(QtCore.Qt.black)
 
+            else:
+                field.setStyleSheet('background-color: rgb({}, {}, {});color: black'.format(*InsertionWindow.colorTable.grey.getRgb()[:3]))
         if self._is_options_ok and self._is_document_ok:
             self._load_objects_btn.setEnabled(True)
         else:

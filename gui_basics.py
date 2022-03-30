@@ -115,12 +115,16 @@ class DropPushButton(QtWidgets.QPushButton):
         self.setAcceptDrops(True)
 
     def dragEnterEvent(self, event: QtGui.QDragEnterEvent) -> None:
-        if event.mimeData().text().startswith('file:///') and event.mimeData().text().endswith(self.formats):
+        if (event.mimeData().hasUrls() and event.mimeData().urls()[0].path().endswith(self.formats)) \
+                or (event.mimeData().text().startswith('file:///') and event.mimeData().text().endswith(self.formats)):
             event.setDropAction(QtCore.Qt.LinkAction)
             event.accept()
 
     def dropEvent(self, event: QtGui.QDropEvent) -> None:
-        self._callback(event.mimeData().text()[len('file:///'):])
+        if event.mimeData().hasUrls():
+            self._callback(event.mimeData().urls()[0].path())
+        else:
+            self._callback(event.mimeData().text()[len('file:///'):])
 
 class ColoringTableWidget(QtWidgets.QTableWidget):
     def __init__(self, data: Sequence[Sequence[Any]], labels: List[str],
@@ -141,6 +145,7 @@ class ColoringTableWidget(QtWidgets.QTableWidget):
             for j in blocked_columns:
                 item = self.item(i, j)
                 item.setBackground(QtGui.QColor.fromRgb(140, 140, 140))
+                item.setForeground(QtGui.QColor.fromRgb(0, 0, 0))
                 item.setFlags(QtCore.Qt.ItemIsEnabled)
         self._initialized = True
 

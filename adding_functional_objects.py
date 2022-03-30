@@ -5,7 +5,6 @@ import logging
 import os
 import random
 import time
-import traceback
 from enum import Enum
 from enum import auto as enum_auto
 from typing import Any, Dict, Iterable, List, NamedTuple, Optional
@@ -17,10 +16,20 @@ from database_properties import Properties
 
 properties: Properties
 
-log = logging.getLogger('services_manipulation').getChild('services_insert_console')
-log.addHandler(logging.FileHandler('insert_services.log', 'a', 'utf8'))
-log.handlers[-1].setFormatter(logging.Formatter('{asctime} {name}: {message}', datefmt='%Y-%m-%d %H:%M:%S', style='{'))
-log.handlers[-1].setLevel('INFO')
+if len(logging.getLogger('services_manipulation').handlers) > 0:
+    log = logging.getLogger('services_manipulation').getChild('services_insert_console')
+    log.addHandler(logging.FileHandler('insert_services.log', 'a', 'utf8'))
+    log.handlers[-1].setFormatter(logging.Formatter('{asctime} {name}: {message}', datefmt='%Y-%m-%d %H:%M:%S', style='{'))
+    log.handlers[-1].setLevel('INFO')
+else:
+    log = logging.getLogger('services_insert_console')
+    log.setLevel('INFO')
+    log.addHandler(logging.StreamHandler())
+    log.handlers[-1].setFormatter(logging.Formatter('{asctime} [{levelname:^8}]: {message}', datefmt='%Y-%m-%d %H:%M:%S', style='{'))
+    log.handlers[-1].setLevel('INFO')
+    log.addHandler(logging.FileHandler('insert_services.log', 'a', 'utf8'))
+    log.handlers[-1].setFormatter(logging.Formatter('{asctime} {name}: {message}', datefmt='%Y-%m-%d %H:%M:%S', style='{'))
+    log.handlers[-1].setLevel('INFO')
 
 class SQLType(Enum):
     INT = enum_auto()
@@ -110,15 +119,15 @@ InsertionMapping = NamedTuple('InsertionMapping', (
     ('address', Optional[str]),
     ('capacity', Optional[str]),
     ('osm_id', Optional[str]),
-    ('latitude', str),
-    ('longitude', str),
+    ('latitude', Optional[str]),
+    ('longitude', Optional[str]),
     ('geometry', Optional[str])
 ))
 def initInsertionMapping(name: Optional[str] = 'Name', opening_hours: Optional[str] = 'opening_hours', website: Optional[str] = 'contact:website',
         phone: Optional[str] = 'contact:phone', address: Optional[str] = 'yand_adr', osm_id: Optional[str] = 'id', capacity: Optional[str] = None,
         latitude: str = 'x', longitude: str = 'y', geometry: Optional[str] = 'geometry') -> InsertionMapping:
     fixer = lambda s: None if s in ('', '-') else s
-    return InsertionMapping(*map(fixer, (name, opening_hours, website, phone, address, capacity, osm_id)), latitude, longitude, geometry) # type: ignore
+    return InsertionMapping(*map(fixer, (name, opening_hours, website, phone, address, capacity, osm_id, latitude, longitude, geometry))) # type: ignore
 
 def insert_object(conn: psycopg2.extensions.connection, row: pd.Series, phys_id: int, service_type: str,
         service_type_id: int, mapping: InsertionMapping, commit: bool = True) -> int:
@@ -283,24 +292,27 @@ def add_objects(conn: psycopg2.extensions.connection, objects: pd.DataFrame, cit
                         skipped += 1
                         continue
                 if is_service_building:
-                    for address_prefix in address_prefixes:
-                        if row.get(mapping.address, '').startswith(address_prefix):
-                            break
+                    if mapping.address not in row:
+                        address = None
                     else:
-                        if len(address_prefixes) == 1:
-                            results[i] = f'Пропущен (Адрес не начинается с "{address_prefixes[0]}")'
+                        for address_prefix in address_prefixes:
+                            if row.get(mapping.address, '').startswith(address_prefix):
+                                address = row.get(mapping.address)[len(address_prefix):].strip(', ')
+                                break
                         else:
-                            results[i] = f'Пропущен (Адрес не начинается ни с одного из {len(address_prefixes)} префиксов)'
-                        skipped += 1
-                        continue
-                if (is_service_building and mapping.address not in row) or (mapping.geometry not in row and \
-                            (mapping.latitude not in row or mapping.longitude not in row)):
+                            if len(address_prefixes) == 1:
+                                results[i] = f'Пропущен (Адрес не начинается с "{address_prefixes[0]}")'
+                            else:
+                                results[i] = f'Пропущен (Адрес не начинается ни с одного из {len(address_prefixes)} префиксов)'
+                            skipped += 1
+                            continue
+                if mapping.geometry not in row and \
+                            (mapping.latitude not in row or mapping.longitude not in row):
                     results[i] = 'Пропущен (отсутствует как минимум одно необходимое поле:' \
-                            f' (широта ({mapping.latitude}), долгота({mapping.longitude}) или геометрия({mapping.geometry})' + \
-                            (f', адрес({mapping.address}))' if is_service_building else ')')
+                            f' (широта ({mapping.latitude}) + долгота ({mapping.longitude}) или геометрия({mapping.geometry}))'
                     skipped += 1
                     continue
-                name = row.get(mapping.name) or f'({service_type} без названия)'
+                name = row.get(mapping.name, f'({service_type} без названия)')
                 phys_id: int
                 build_id: Optional[int]
                 insert_physical_object = False
@@ -308,7 +320,7 @@ def add_objects(conn: psycopg2.extensions.connection, objects: pd.DataFrame, cit
                     cur.execute('SELECT phys.id, build.id FROM physical_objects phys JOIN buildings build ON build.physical_object_id = phys.id'
                             ' WHERE phys.city_id = %s AND build.address LIKE %s AND'
                             '   ST_Distance(phys.center::geography, ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography) < 100 LIMIT 1',
-                            (city_id, '%' + row.get(mapping.address)[len(address_prefix):].strip(', '), longitude, latitude))
+                            (city_id,  f'%{address}', longitude, latitude))
                     res = cur.fetchone()
                     if res is not None: # if building with the same address found and distance between point and the center of geometry is less than 100m
                         phys_id, build_id = res
@@ -392,7 +404,10 @@ def add_objects(conn: psycopg2.extensions.connection, objects: pd.DataFrame, cit
                         build_id = cur.fetchone()[0]
                         results[i] = f'Сервис вставлен в новое здание (build_id = {build_id}, phys_id = {phys_id})'
                     else:
-                        results[i] = f'Сервис вставлен в новый физический объект, добавленный с типом геометрии "Точка" (phys_id = {phys_id})'
+                        if mapping.geometry in row:
+                            results[i] = f'Сервис вставлен в новый физический объект, добавленный с геометрией (phys_id = {phys_id})'
+                        else:
+                            results[i] = f'Сервис вставлен в новый физический объект, добавленный с типом геометрии "Точка" (phys_id = {phys_id})'
                     added_as_points += 1
                 functional_ids[i] = insert_object(conn, row, phys_id, service_type, service_type_id, mapping, commit)
             except Exception as ex:
@@ -412,7 +427,7 @@ def add_objects(conn: psycopg2.extensions.connection, objects: pd.DataFrame, cit
     log.info(f'Вставка сервисов типа "{service_type}" завершена')
     log.info(f'{objects.shape[0]} сервисов обработано: {added_as_points + added_to_address + added_to_geom} добавлены,'
             f' {present} обновлены, {skipped} пропущены')
-    log.info(f'{added_as_points} сервисов были добавлены с типом геометрии "точка", {added_to_address} добавлены в здания по совпадению адреса,'
+    log.info(f'{added_as_points} сервисов были добавлены в новые физические объекты/здания, {added_to_address} добавлены в здания по совпадению адреса,'
         f' {added_to_geom} добавлены в физические объекты/здания по совпадению геометрии')
     filename = f'insertion_{conn.info.host}_{conn.info.port}_{conn.info.dbname}.xlsx'
     list_name = f'{service_type.replace("/", "_")}_{time.strftime("%Y-%m-%d %H_%M-%S")}'
@@ -448,9 +463,7 @@ def load_objects_geojson(filename: str, default_values: Optional[Dict[str, Any]]
     '''
     with open(filename, 'r', encoding='utf-8') as f:
         data = json.load(f)
-        properties = pd.DataFrame(data['features'])['properties']
-        res: pd.DataFrame = pd.DataFrame(map(lambda x: x.values(), properties), columns=properties[0].keys())
-        res = res.join(pd.DataFrame(data['features'])['geometry'].apply(lambda x: json.dumps(x)))
+        res = pd.DataFrame((entry['properties'] | {'geometry': json.dumps(entry['geometry'])}) for entry in data['features'])
         if default_values is not None:
             res = replace_with_default(res, default_values)
         if needed_columns is not None:
@@ -518,9 +531,7 @@ def load_objects(filename: str, default_values: Optional[Dict[str, Any]] = None,
 
 if __name__ == '__main__':
 
-    log.handlers[1].setLevel('INFO')
-
-    properties = Properties('localhost', 5432, 'citydb', 'postgres', 'postgres')
+    properties = Properties('localhost', 5432, 'city_db_final', 'postgres', 'postgres')
 
     parser = argparse.ArgumentParser(description='Inserts functional objects to the database')
     parser.add_argument('-H', '--db_addr', action='store', dest='db_addr',
@@ -561,6 +572,8 @@ if __name__ == '__main__':
                         help=f'[default x]', type=str, default='x')
     parser.add_argument('-dy', '--document_longitude', action='store', dest='longitude',
                         help=f'[default y]', type=str, default='y')
+    parser.add_argument('-dg', '--document_geometry', action='store', dest='geometry',
+                        help=f'[default geometry]', type=str, default='geometry')
     parser.add_argument('-dN', '--document_name', action='store', dest='name',
                         help=f'[default name]', type=str, default='name')
     parser.add_argument('-dO', '--document_opening_hours', action='store', dest='opening_hours',
@@ -603,7 +616,8 @@ if __name__ == '__main__':
         properties.db_pass = args.db_pass
     if args.log_filename is None:
         t = time.localtime()
-        fname = args.filename if os.path.sep not in os.path.relpath(args.filename) else args.filename[os.path.relpath(args.filename).rfind(os.path.sep) + 1:]
+        fname = args.filename if os.path.sep not in os.path.relpath(args.filename) else \
+                os.path.relpath(args.filename)[os.path.relpath(args.filename).rfind(os.path.sep) + 1:]
         logfile = f'{t.tm_year}-{t.tm_mon:02}-{t.tm_mday:02} ' \
                 f'{t.tm_hour:02}-{t.tm_min:02}-{t.tm_sec:02}-' \
                 f'{fname[:fname.rfind(".")] if "." in fname else fname}.csv'
@@ -613,10 +627,10 @@ if __name__ == '__main__':
     else:
         logfile = args.log_filename
 
-    mapping = initInsertionMapping(args.name, args.opening_hours, args.website, args.phone, args.address, args.osm_id, args.capacity, args.latitude, args.longitude)
-    log.info("Document's mapping:", mapping)
+    mapping = initInsertionMapping(args.name, args.opening_hours, args.website, args.phone, args.address, args.osm_id, args.capacity, args.latitude, args.longitude, args.geometry)
+    log.info(f"Document's mapping: {mapping}")
 
-    log.info(f'Using database {properties.db_user}@{properties.db_addr}:{properties.db_port}/{properties.db_name}. ', end='')
+    log.info(f'Using database {properties.db_user}@{properties.db_addr}:{properties.db_port}/{properties.db_name}.')
     if args.dry_run:
         log.info('Dry run, no changes to database will be made')
     else:
@@ -625,6 +639,10 @@ if __name__ == '__main__':
 
     objects: pd.DataFrame = load_objects(args.filename)
     log.info(f'Loaded {objects.shape[0]} objects from file "{args.filename}"')
+    for column in mapping._fields:
+        value = getattr(mapping, column)
+        if value is not None and value not in objects.columns:
+            log.warning(f'Колонка "{value}" используется ({column}), но не задана в файле')
 
     service_id = ensure_service_type(properties.conn, args.service_type, args.service_type_code, args.min_capacity, args.max_capacity,
             args.min_status, args.max_status, args.city_function, not args.dry_run)
