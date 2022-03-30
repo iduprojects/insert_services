@@ -25,10 +25,10 @@ class Properties:
         return f'host={self.db_addr} port={self.db_port} dbname={self.db_name}' \
                 f' user={self.db_user} password={self.db_pass}'
     @property
-    def conn(self):
+    def conn(self) -> 'psycopg2.connection':
         if self._conn is None or self._conn.closed:
             try:
-                self._conn = psycopg2.connect(self.conn_string)
+                self._conn = psycopg2.connect(self.conn_string, connect_timeout=10)
             except psycopg2.OperationalError:
                 self._connected = False
                 return None

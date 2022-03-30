@@ -87,7 +87,7 @@ sqltype_mapping: Dict[str, SQLType] = dict(itertools.chain(
         map(lambda x: (x, SQLType.TIMESTAMP), ('timestamp', 'date', 'time', 'datetime', 'дата', 'время'))
 ))
 
-def ensure_service_type(conn: psycopg2.extensions.connection, service_type: str, service_type_code: Optional[str],
+def ensure_service_type(conn: 'psycopg2.connection', service_type: str, service_type_code: Optional[str],
         capacity_min: Optional[int], capacity_max: Optional[int], status_min: Optional[int], status_max: Optional[int],
         city_function: str, is_building: bool, commit: bool = True) -> int:
     '''ensure_service_type returns id of a service_type from database or inserts it if service_type is not present and all of the parameters are given'''
@@ -129,7 +129,7 @@ def initInsertionMapping(name: Optional[str] = 'Name', opening_hours: Optional[s
     fixer = lambda s: None if s in ('', '-') else s
     return InsertionMapping(*map(fixer, (name, opening_hours, website, phone, address, capacity, osm_id, latitude, longitude, geometry))) # type: ignore
 
-def insert_object(conn: psycopg2.extensions.connection, row: pd.Series, phys_id: int, service_type: str,
+def insert_object(conn: 'psycopg2.connection', row: pd.Series, phys_id: int, service_type: str,
         service_type_id: int, mapping: InsertionMapping, commit: bool = True) -> int:
     '''insert_object inserts functional_object with connection to physical_object with phys_id.
 
@@ -167,7 +167,7 @@ def insert_object(conn: psycopg2.extensions.connection, row: pd.Series, phys_id:
         return func_id
 
 
-def update_object(conn: psycopg2.extensions.connection, row: pd.Series, func_id: int, mapping: InsertionMapping, service_type: str,
+def update_object(conn: 'psycopg2.connection', row: pd.Series, func_id: int, mapping: InsertionMapping, service_type: str,
         commit: bool = True) -> int:
     '''update_object update functional_object and concrete <service_type>_object connected to it.
 
@@ -194,7 +194,7 @@ def update_object(conn: psycopg2.extensions.connection, row: pd.Series, func_id:
         return func_id
 
 
-def add_objects(conn: psycopg2.extensions.connection, objects: pd.DataFrame, city_name: str, service_type: str, service_type_id: int,
+def add_objects(conn: 'psycopg2.connection', objects: pd.DataFrame, city_name: str, service_type: str, service_type_id: int,
         mapping: InsertionMapping, address_prefixes: List[str] = ['Россия, Санкт-Петербург'], new_prefix: str = '',
         is_service_building: bool = True, commit: bool = True, verbose: bool = False, log_n: int = 200) -> pd.DataFrame:
     '''add_objects inserts objects to database.
@@ -350,8 +350,12 @@ def add_objects(conn: psycopg2.extensions.connection, objects: pd.DataFrame, cit
                             res = cur.fetchone()
                             if res is not None: # if service is already present in this building
                                 present += 1
-                                results[i] = f'Обновлен существующий сервис, находящийся в здании с другим адресом: "{address}"' \
-                                        f' (build_id = {build_id}, phys_id = {phys_id}, functional_object_id = {res[0]})'
+                                if address is not None:
+                                    results[i] = f'Обновлен существующий сервис, находящийся в здании с другим адресом: "{address}"' \
+                                            f' (build_id = {build_id}, phys_id = {phys_id}, functional_object_id = {res[0]})'
+                                else:
+                                    results[i] = f'Обновлен существующий сервис, находящийся в здании без адреса' \
+                                            f' (build_id = {build_id}, phys_id = {phys_id}, functional_object_id = {res[0]})'
                                 functional_ids[i] = res[0]
                                 update_object(conn, row, res[0], mapping, service_type, commit)
                                 continue
@@ -398,11 +402,17 @@ def add_objects(conn: psycopg2.extensions.connection, objects: pd.DataFrame, cit
                                 ' (%s, ST_SetSRID(ST_MakePoint(%s, %s), 4326), ST_SetSRID(ST_MakePoint(%s, %s), 4326), %s) RETURNING id',
                                 (row.get(mapping.osm_id), longitude, latitude, longitude, latitude, city_id))
                     phys_id = cur.fetchone()[0]
-                    if is_service_building and mapping.address in row and len(row.get(mapping.address)) != len(address_prefix):
-                        cur.execute("INSERT INTO buildings (physical_object_id, address) VALUES (%s, %s) RETURNING id",
-                                    (phys_id, new_prefix + row[mapping.address][len(address_prefix):].strip(', ')))
-                        build_id = cur.fetchone()[0]
-                        results[i] = f'Сервис вставлен в новое здание (build_id = {build_id}, phys_id = {phys_id})'
+                    if is_service_building:
+                        if mapping.address in row and len(row.get(mapping.address)) > len(address_prefix):
+                            cur.execute("INSERT INTO buildings (physical_object_id, address) VALUES (%s, %s) RETURNING id",
+                                        (phys_id, new_prefix + row[mapping.address][len(address_prefix):].strip(', ')))
+                            build_id = cur.fetchone()[0]
+                            results[i] = f'Сервис вставлен в новое здание (build_id = {build_id}, phys_id = {phys_id})'
+                        else:
+                            cur.execute("INSERT INTO buildings (physical_object_id) VALUES (%s) RETURNING id",
+                                        (phys_id,))
+                            build_id = cur.fetchone()[0]
+                            results[i] = f'Сервис вставлен в новое здание без указания адреса (build_id = {build_id}, phys_id = {phys_id})'
                     else:
                         if mapping.geometry in row:
                             results[i] = f'Сервис вставлен в новый физический объект, добавленный с геометрией (phys_id = {phys_id})'

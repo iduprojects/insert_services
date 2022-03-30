@@ -381,6 +381,8 @@ class InsertionWindow(QtWidgets.QWidget):
         for row in range(self._table_model.rowCount()):
             self._table_model.item(row, len(self._table_axes) - 2).setBackground(InsertionWindow.colorTable.sky_blue)
             self._table_model.item(row, len(self._table_axes) - 1).setBackground(InsertionWindow.colorTable.sky_blue)
+            self._table_model.item(row, len(self._table_axes) - 2).setForeground(QtCore.Qt.black)
+            self._table_model.item(row, len(self._table_axes) - 1).setForeground(QtCore.Qt.black)
             self._table_model.item(row, len(self._table_axes) - 1).setFlags(QtCore.Qt.ItemIsEnabled)
             self._table_model.item(row, len(self._table_axes) - 2).setFlags(QtCore.Qt.ItemIsEnabled)
         self._save_results_btn.setVisible(True)
