@@ -122,7 +122,7 @@ class DropPushButton(QtWidgets.QPushButton):
 
     def dropEvent(self, event: QtGui.QDropEvent) -> None:
         if event.mimeData().hasUrls():
-            self._callback(os.path.abspath(event.mimeData().urls()[0].path()))
+            self._callback(event.mimeData().urls()[0].url()[len('file:///'):])
         else:
             self._callback(event.mimeData().text()[len('file:///'):])
 
