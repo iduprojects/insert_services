@@ -1,9 +1,9 @@
 import json
+import os
 from typing import Any, Callable, List, NamedTuple, Optional, Sequence, Tuple
 
 import psycopg2
 from PySide6 import QtCore, QtGui, QtWidgets
-
 
 def check_geometry_correctness(geometry_geojson: Optional[str],
         conn: psycopg2.extensions.connection) -> Optional[Tuple[float, float, str]]:
@@ -122,7 +122,7 @@ class DropPushButton(QtWidgets.QPushButton):
 
     def dropEvent(self, event: QtGui.QDropEvent) -> None:
         if event.mimeData().hasUrls():
-            self._callback(event.mimeData().urls()[0].path())
+            self._callback(os.path.abspath(event.mimeData().urls()[0].path()))
         else:
             self._callback(event.mimeData().text()[len('file:///'):])
 

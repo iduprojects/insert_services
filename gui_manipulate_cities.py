@@ -364,8 +364,8 @@ class TerritoryWindow(QtWidgets.QWidget):
                     changes.append(('родительская территория', parent_territory, _to_str(dialog.parent_territory())))
                     self._table.item(row, 4).setText(_to_str(dialog.parent_territory()))
                     self._table.item(row, 4).setBackground(QtGui.QBrush(QtCore.Qt.GlobalColor.yellow))
-                    cur.execute(f'UPDATE {self._territory_table} SET {self._parent_id_column} ='
-                            f' (SELECT id FROM {self._other_territory_table} WHERE name = %s),'
+                    cur.execute(f'UPDATE {self._territory_table} u SET {self._parent_id_column} ='
+                            f' (SELECT id FROM {self._other_territory_table} p WHERE name = %s AND p.city_id = u.city_id),'
                             " updated_at = date_trunc('second', now()) WHERE id = %s", (dialog.parent_territory(), territory_id))
             self._on_territory_edit_callback(int(territory_id), self._table.item(row, 2).text(), changes)
     
@@ -465,9 +465,9 @@ class CitiesWindow(QtWidgets.QWidget):
         self._edit_buttons.listMO.clicked.connect(self._on_show_MOs)
         self._edit_buttons.listAU.clicked.connect(self._on_show_AUs)
         self._edit_buttons.commit.clicked.connect(self._on_commit_changes)
-        self._edit_buttons.commit.setStyleSheet('background-color: lightgreen')
+        self._edit_buttons.commit.setStyleSheet('background-color: lightgreen;color: black')
         self._edit_buttons.rollback.clicked.connect(self._on_rollback)
-        self._edit_buttons.rollback.setStyleSheet('background-color: red')
+        self._edit_buttons.rollback.setStyleSheet('background-color: red;color: black')
         self._edit_buttons.refresh_matviews.clicked.connect(self._on_refresh_matviews)
         self._edit_buttons.update_locations.clicked.connect(self._on_update_locations)
         for btn in self._edit_buttons:
@@ -710,16 +710,17 @@ class CitiesWindow(QtWidgets.QWidget):
         log.info('Обновление материализованных представлений')
         self._log_window.insertHtml('<font color=grey>Обновление материализованных представлений...</font>')
         self._log_window.repaint()
-        with self._db_properties.conn.cursor() as cur:
+        with self._db_properties.conn, self._db_properties.conn.cursor() as cur:
             cur.execute('REFRESH MATERIALIZED VIEW all_services')
             cur.execute('REFRESH MATERIALIZED VIEW houses')
+            cur.execute('REFRESH MATERIALIZED VIEW all_houses')
         self._log_window.insertHtml('<font color=green>Завершено</font><br>')
 
     def _on_update_locations(self) -> None:
         log.info('Обновление местоположения физических объектов без указания административного образования, МО или квартала')
         self._log_window.insertHtml('<font color=grey>Обновление местоположения физических объектов...</font>')
         self._log_window.repaint()
-        with self._db_properties.conn.cursor() as cur:
+        with self._db_properties.conn, self._db_properties.conn.cursor() as cur:
             cur.execute('select update_physical_objects_location()')
         self._log_window.insertHtml('<font color=green>Завершено</font><br>')
 
