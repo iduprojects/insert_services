@@ -121,7 +121,9 @@ CREATE TABLE city_service_types (
     capacity_max integer NOT NULL,
     status_min smallint NOT NULL,
     status_max smallint NOT NULL,
-    is_building boolean NOT NULL
+    is_building boolean NOT NULL,
+    public_transport_normative integer,
+    walking_radius_normative integer
 );
 ALTER TABLE city_service_types OWNER TO postgres;
 
@@ -346,7 +348,7 @@ ALTER TABLE provision.normatives OWNER TO postgres;
 -- Materialized views
 
 CREATE MATERIALIZED VIEW houses AS (
-    SELECT f.id AS functional_object_id,
+     SELECT f.id AS functional_object_id,
         p.id AS physical_object_id,
         b.id AS building_id,
         p.geometry,
@@ -367,13 +369,14 @@ CREATE MATERIALIZED VIEW houses AS (
         b.lift_count,
         b.failure,
         b.resident_number,
+        b.population_balanced,
         c.name AS city,
         c.id AS city_id,
         au.name AS administrative_unit,
         au.id AS administrative_unit_id,
         mu.name AS municipality,
         mu.id AS municipality_id,
-        p.block_id AS block_id,
+        p.block_id,
         GREATEST(f.updated_at, p.updated_at) AS updated_at,
         GREATEST(f.created_at, p.created_at) AS created_at
     FROM functional_objects f
@@ -383,12 +386,12 @@ CREATE MATERIALIZED VIEW houses AS (
         JOIN cities c ON p.city_id = c.id
         LEFT JOIN administrative_units au ON p.administrative_unit_id = au.id
         LEFT JOIN municipalities mu ON p.municipality_id = mu.id
-    WHERE st.name = 'Жилье' AND b.resident_number > 0
+    WHERE st.code = 'houses' AND (b.resident_number > 0 OR b.population_balanced > 0)
 );
 ALTER TABLE houses OWNER TO postgres;
 
 CREATE MATERIALIZED VIEW all_houses AS (
-    SELECT f.id AS functional_object_id,
+     SELECT f.id AS functional_object_id,
         p.id AS physical_object_id,
         b.id AS building_id,
         p.geometry,
@@ -409,13 +412,14 @@ CREATE MATERIALIZED VIEW all_houses AS (
         b.lift_count,
         b.failure,
         b.resident_number,
+        b.population_balanced,
         c.name AS city,
         c.id AS city_id,
         au.name AS administrative_unit,
         au.id AS administrative_unit_id,
         mu.name AS municipality,
         mu.id AS municipality_id,
-        p.block_id AS block_id,
+        p.block_id,
         GREATEST(f.updated_at, p.updated_at) AS updated_at,
         GREATEST(f.created_at, p.created_at) AS created_at
     FROM functional_objects f
@@ -425,7 +429,7 @@ CREATE MATERIALIZED VIEW all_houses AS (
         JOIN cities c ON p.city_id = c.id
         LEFT JOIN administrative_units au ON p.administrative_unit_id = au.id
         LEFT JOIN municipalities mu ON p.municipality_id = mu.id
-    WHERE st.name = 'Жилье'
+    WHERE st.code = 'houses'
 );
 ALTER TABLE all_houses OWNER TO postgres;
 
@@ -437,6 +441,7 @@ CREATE MATERIALIZED VIEW all_services AS (
         p.center,
         st.name AS city_service_type,
         st.id AS city_service_type_id,
+        st.code AS city_service_type_code,
         f.name AS service_name,
         f.opening_hours,
         f.website,
@@ -449,7 +454,7 @@ CREATE MATERIALIZED VIEW all_services AS (
         au.id AS administrative_unit_id,
         mu.name AS municipality,
         mu.id AS municipality_id,
-        p.block_id AS block_id,
+        p.block_id,
         f.capacity,
         f.is_capacity_real,
         GREATEST(f.updated_at, p.updated_at) AS updated_at,
@@ -461,8 +466,55 @@ CREATE MATERIALIZED VIEW all_services AS (
         LEFT JOIN buildings b ON p.id = b.physical_object_id
         LEFT JOIN administrative_units au ON p.administrative_unit_id = au.id
         LEFT JOIN municipalities mu ON p.municipality_id = mu.id
+    WHERE st.code::text <> 'houses'::text;
 );
 ALTER TABLE all_services OWNER TO postgres;
+
+CREATE MATERIALIZED VIEW all_buildings AS (
+     SELECT b.id AS building_id,
+        b.physical_object_id,
+        b.address,
+        b.project_type,
+        b.building_date,
+        b.repair_years,
+        b.building_area,
+        b.living_area,
+        b.storeys_count,
+        b.central_heating,
+        b.central_hotwater,
+        b.central_electro,
+        b.central_gas,
+        b.refusechute,
+        b.ukname,
+        b.lift_count,
+        b.failure,
+        b.is_living,
+        b.resident_number,
+        b.population_balanced,
+        f.id AS functional_object_id,
+        p.osm_id,
+        p.geometry,
+        p.center,
+        c.name AS city,
+        c.id AS city_id,
+        au.name AS administrative_unit,
+        au.id AS administrative_unit_id,
+        mu.name AS municipality,
+        mu.id AS municipality_id,
+        p.block_id,
+        GREATEST(f.updated_at, p.updated_at) AS updated_at,
+        GREATEST(f.created_at, p.created_at) AS created_at
+    FROM buildings b
+        JOIN physical_objects p ON b.physical_object_id = p.id
+        LEFT JOIN functional_objects f ON b.physical_object_id = f.physical_object_id AND f.city_service_type_id = (( SELECT city_service_types.id
+            FROM city_service_types
+            WHERE city_service_types.code::text = 'houses'::text))
+        LEFT JOIN city_service_types st ON f.city_service_type_id = st.id
+        LEFT JOIN cities c ON p.city_id = c.id
+        LEFT JOIN administrative_units au ON p.administrative_unit_id = au.id
+        LEFT JOIN municipalities mu ON p.municipality_id = mu.id
+);
+ALTER TABLE all_buildings OWNER TO postgres;
 
 -- functions
 
@@ -504,14 +556,16 @@ END;
 $$;
 ALTER FUNCTION trigger_set_timestamp() OWNER TO postgres;
 
-CREATE FUNCTION update_physical_objects_location() RETURNS void
+CREATE FUNCTION update_physical_objects_location() RETURNS integer
 LANGUAGE SQL AS
 $$
     UPDATE physical_objects p SET
-        administrative_unit_id = (SELECT id FROM administrative_units WHERE ST_CoveredBy(p.center, geometry) LIMIT 1),
-        municipality_id = (SELECT id FROM municipalities WHERE ST_CoveredBy(p.center, geometry) LIMIT 1),
-        block_id = (SELECT id FROM blocks WHERE ST_CoveredBy(p.center, geometry) LIMIT 1)
-    WHERE administrative_unit_id IS null OR municipality_id IS null OR block_id IS null;  
+        administrative_unit_id = (SELECT au.id FROM administrative_units au WHERE au.city_id = p.city_id AND ST_CoveredBy(p.center, au.geometry) LIMIT 1),
+        municipality_id = (SELECT m.id FROM municipalities m WHERE m.city_id = p.city_id AND ST_CoveredBy(p.center, m.geometry) LIMIT 1),
+        block_id = (SELECT b.id FROM blocks b WHERE b.city_id = p.city_id AND ST_CoveredBy(p.center, b.geometry) LIMIT 1)
+    WHERE administrative_unit_id IS null OR municipality_id IS null OR block_id IS null;
+
+    RETURN 1;
 $$;
 ALTER FUNCTION update_physical_objects_location OWNER TO postgres;
 

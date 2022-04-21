@@ -1,23 +1,17 @@
 import itertools
+import os
+import sys
 import traceback
-import logging
 from typing import NamedTuple, Optional
 
+import click
+from loguru import logger
 from PySide6 import QtCore, QtGui, QtWidgets
-
-log = logging.getLogger('services_manipulation')
-log.addHandler(logging.FileHandler('services_manipulation.log', 'a', 'utf8'))
-log.handlers[-1].setFormatter(logging.Formatter('{asctime} [{name}]: {message}', datefmt='%Y-%m-%d %H:%M:%S', style='{'))
-log.handlers[-1].setLevel('INFO')
-log.addHandler(logging.StreamHandler())
-log.handlers[-1].setFormatter(logging.Formatter('{asctime} [{name}]: {message}', datefmt='%Y-%m-%d %H:%M:%S', style='{'))
-log.handlers[-1].setLevel('DEBUG')
-log.setLevel('DEBUG')
 
 from database_properties import Properties
 from gui_insert_services import InsertionWindow
-from gui_update_services import UpdatingWindow
 from gui_manipulate_cities import CitiesWindow
+from gui_update_services import UpdatingWindow
 
 InitWindowDefaultValues = NamedTuple('InitWindowDefaultValues', [
         ('db_address', str),
@@ -30,6 +24,9 @@ InitWindowDefaultValues = NamedTuple('InitWindowDefaultValues', [
 
 def get_init_window_default_values() -> InitWindowDefaultValues:
     return InitWindowDefaultValues('127.0.0.1', 5432, 'city_db_final', 'postgres', 'postgres')
+
+app: QtWidgets.QApplication
+logger = logger.bind(name='gui_main')
 
 class InitWindow(QtWidgets.QWidget):
 
@@ -111,7 +108,7 @@ class InitWindow(QtWidgets.QWidget):
         try:
             with self._db_properties.conn, self._db_properties.conn.cursor() as cur:
                 cur.execute('SELECT 1')
-                assert cur.fetchone()[0] == 1, 'cannot connect to the database'
+                assert cur.fetchone()[0] == 1, 'cannot connect to the database' # type: ignore
                 self._insertion_window.change_db(self._db_properties.db_addr, self._db_properties.db_port, self._db_properties.db_name,
                         self._db_properties.db_user, self._db_properties.db_pass)
                 self._updating_window.change_db(self._db_properties.db_addr, self._db_properties.db_port, self._db_properties.db_name,
@@ -128,26 +125,26 @@ class InitWindow(QtWidgets.QWidget):
                 items = list(itertools.chain.from_iterable(cur.fetchall()))
                 self._insertion_window.set_city_functions(items)
 
-                cur.execute('SELECT st.name, st.code, st.capacity_min, st.capacity_max, st.status_min,'
-                        '       st.status_max, st.is_building, cf.name FROM city_service_types st'
+                cur.execute('SELECT st.name, st.code, st.capacity_min, st.capacity_max, st.is_building, cf.name FROM city_service_types st'
                         '   JOIN city_functions cf on st.city_function_id = cf.id'
                         ' ORDER BY 1')
                 service_types_params = dict(map(lambda x: (x[0], tuple(x[1:])), cur.fetchall()))
                 self._insertion_window.set_service_types_params(service_types_params) # type: ignore
                 
-            self._insertion_window._options_fields.city_function.setEnabled(True)
             self._launch_btn.setEnabled(True)
-        except Exception:
+        except Exception as ex:
             self._db_properties.close()
             self._launch_btn.setEnabled(False)
+            logger.error(f'Ошибка подключения к базе данных: {ex}')
+            logger.debug(f'Стек ошибок: {traceback.format_exc()}')
             if QtWidgets.QApplication.keyboardModifiers() & QtCore.Qt.ShiftModifier:
                 QtWidgets.QMessageBox.critical(self, 'Ошибка при попытке подключиться к БД', traceback.format_exc())
             self._db_check_res.setText('<b style=color:red;>x</b>')
         else:        
             self._db_check_res.setText('<b style=color:green;>v</b>')
             if not refresh:
-                log.info('Установлено подключение к базе данных:'
-                        f' {self._db_properties.db_user}@{self._db_properties.db_addr}:{self._db_properties.db_port}/{self._db_properties.db_name}')
+                logger.opt(colors=True).info('Установлено подключение к базе данных:'
+                        f' <cyan>{self._db_properties.db_user}@{self._db_properties.db_addr}:{self._db_properties.db_port}/{self._db_properties.db_name}</cyan>')
 
     def _on_launch(self):
         self.hide()
@@ -170,22 +167,46 @@ class InitWindow(QtWidgets.QWidget):
 
     def showEvent(self, event: QtGui.QShowEvent) -> None:
         if not self._was_first_open:
-            log.info('Открыто начальное окно работы с сервисами')
+            logger.info('Открыто начальное окно работы с сервисами')
         self._was_first_open = True
         return super().showEvent(event)
 
     def closeEvent(self, event: QtGui.QCloseEvent) -> None:
         if not self._insertion_window.isVisible() and not self._updating_window.isVisible():
-            log.info('Закрыто начальное окно работы с сервисами')
+            logger.info('Закрыто начальное окно работы с сервисами')
         return super().closeEvent(event)
 
 
-if __name__ == '__main__':
+@click.command('IDU - Insert Services App GUI')
+@click.option('--db_addr', '-H', envvar='DB_ADDR', help='Postgres DBMS address', default=InitWindow.default_values.db_address, show_default=True)
+@click.option('--db_port', '-P', envvar='DB_PORT', type=int, help='Postgres DBMS port', default=InitWindow.default_values.db_port, show_default=True)
+@click.option('--db_name', '-D', envvar='DB_NAME', help='Postgres city database name', default=InitWindow.default_values.db_name, show_default=True)
+@click.option('--db_user', '-U', envvar='DB_USER', help='Postgres DBMS user name', default=InitWindow.default_values.db_user, show_default=True)
+@click.option('--db_pass', '-W', envvar='DB_PASS', help='Postgres DBMS user password', default=InitWindow.default_values.db_pass, show_default=True)
+@click.option('--verbose', '-v', envvar='VERBOSE', is_flag=True, help='Include debug information')
+def main(db_addr: str, db_port: int, db_name: str, db_user: str, db_pass: str, verbose: bool):
+    global app
+
+    logger.remove(0)
+    logger.add(sys.stderr, level = 'INFO' if not verbose else 'DEBUG',
+            format='<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: ^8}</level> | <cyan>{extra[name]}:{line:03}</cyan> - <level>{message}</level>')
+
+    InitWindow.default_values = InitWindowDefaultValues(db_addr, db_port, db_name, db_user, db_pass)
+
     app = QtWidgets.QApplication([])
     app.setWindowIcon(QtGui.QIcon(QtGui.QPixmap('icon.png')))
-    app.setApplicationName('Работа с сервисами')
+    app.setApplicationName('IDU - Insert Services App')
 
     window = InitWindow()
     window.show()
 
     exit(app.exec())
+
+if __name__ == '__main__':
+    if os.path.isfile('.env'):
+        with open('.env', 'r') as f:
+            for name, value in (tuple((line[len('export '):] if line.startswith('export ') else line).strip().split('=')) \
+                        for line in f.readlines() if not line.startswith('#') and line != ''):
+                if name not in os.environ:
+                    os.environ[name] = value
+    main()

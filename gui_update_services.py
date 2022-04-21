@@ -1,16 +1,16 @@
 import itertools
 import json
-import logging
 import time
-from typing import Any, Callable, Iterable, List, NamedTuple, Optional, Sequence, Tuple, Type, Union
+from typing import Any, Callable, Iterable, List, NamedTuple, Optional, Sequence, Union
 
 import pandas as pd
+from loguru import logger
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from database_properties import Properties
 from gui_basics import ColoringTableWidget, ColorizingComboBox, check_geometry_correctness
 
-log = logging.getLogger('services_manipulation').getChild('services_update_gui')
+logger = logger.bind(name='gui_update_services')
 
 class PlatformServicesTableWidget(ColoringTableWidget):
     LABELS = ['id сервиса', 'Адрес', 'Название', 'Рабочие часы', 'Веб-сайт', 'Телефон',
@@ -330,7 +330,8 @@ class UpdatingWindow(QtWidgets.QWidget):
             ('addBuilding', QtWidgets.QPushButton),
             ('updateBuilding', QtWidgets.QPushButton),
             ('export', QtWidgets.QPushButton),
-            ('commit', QtWidgets.QPushButton)
+            ('commit', QtWidgets.QPushButton),
+            ('rollback', QtWidgets.QPushButton)
         ]
     )
 
@@ -383,7 +384,8 @@ class UpdatingWindow(QtWidgets.QWidget):
                 QtWidgets.QPushButton('Удалить сервис'), QtWidgets.QPushButton('Посмотреть геометрию'),
                 QtWidgets.QPushButton('Добавить физический объект'), QtWidgets.QPushButton('Изменить физический объект'),
                 QtWidgets.QPushButton('Добавить здание'), QtWidgets.QPushButton('Изменить здание'),
-                QtWidgets.QPushButton('Экспортировать таблицу'), QtWidgets.QPushButton('Сохранить изменения в БД')
+                QtWidgets.QPushButton('Экспортировать таблицу'), QtWidgets.QPushButton('Сохранить изменения в БД'),
+                QtWidgets.QPushButton('Отмена внесенных изменений')
         )
         self._edit_buttons.load.clicked.connect(self._on_objects_load)
         self._edit_buttons.delete.clicked.connect(self._on_object_delete)
@@ -394,7 +396,9 @@ class UpdatingWindow(QtWidgets.QWidget):
         self._edit_buttons.updateBuilding.clicked.connect(self._on_update_building)
         self._edit_buttons.export.clicked.connect(self._on_export)
         self._edit_buttons.commit.clicked.connect(self._on_commit_changes)
-        self._edit_buttons.commit.setStyleSheet('background-color: green')
+        self._edit_buttons.commit.setStyleSheet('background-color: green; color: black')
+        self._edit_buttons.rollback.clicked.connect(self._on_rollback)
+        self._edit_buttons.rollback.setStyleSheet('background-color: red; color: black')
         self._editing_group.addWidget(self._edit_buttons.load)
         self._right.addWidget(self._editing_group_box)
 
@@ -425,7 +429,7 @@ class UpdatingWindow(QtWidgets.QWidget):
         self._db_properties.conn.rollback()
         with self._db_properties.conn.cursor() as cur:
             cur.execute('SELECT is_building FROM city_service_types WHERE name = %s', (self._service_type_choose.currentText(),))
-            is_building = cur.fetchone()[0]
+            is_building = cur.fetchone()[0] # type: ignore
             cur.execute('SELECT f.id as functional_object_id, b.address, f.name AS service_name, f.opening_hours, f.website, f.phone,'
                     '   f.capacity, f.is_capacity_real, p.id as physical_object_id, ST_Y(p.center), ST_X(p.center),'
                     '   ST_GeometryType(p.geometry), au.name as administrative_unit, m.name as municipality,'
@@ -454,6 +458,7 @@ class UpdatingWindow(QtWidgets.QWidget):
                 self._editing_group.addWidget(self._edit_buttons.updatePhysicalObject)
             self._editing_group.addWidget(self._edit_buttons.export)
             self._editing_group.addWidget(self._edit_buttons.commit)
+            self._editing_group.addWidget(self._edit_buttons.rollback)
         left_placeholder = self._left.itemAt(0).widget()
         left_placeholder.setVisible(False)
         self._table = PlatformServicesTableWidget(services_list, self._on_cell_change, self._db_properties, is_building)
@@ -498,7 +503,7 @@ class UpdatingWindow(QtWidgets.QWidget):
                     (new_value, func_id))
 
     def _on_object_delete(self) -> None:
-        rows = sorted(set(map(lambda index: index.row() + 1, self._table.selectedIndexes())))
+        rows = sorted(set(map(lambda index: index.row() + 1, self._table.selectedIndexes()))) # type: ignore
         if len(rows) == 0:
             return
         if len(rows) > 1:
@@ -521,10 +526,10 @@ class UpdatingWindow(QtWidgets.QWidget):
                     cur.execute('DELETE FROM provision.services WHERE service_id = %s', (func_id,))
                     cur.execute('DELETE FROM provision.houses WHERE house_id = %s', (func_id,))
                     cur.execute('SELECT physical_object_id FROM functional_objects WHERE id = %s', (func_id,))
-                    phys_id = cur.fetchone()[0]
+                    phys_id = cur.fetchone()[0] # type: ignore
                     cur.execute('DELETE FROM functional_objects WHERE id = %s', (func_id,))
                     cur.execute('SELECT count(*) FROM functional_objects WHERE physical_object_id = %s', (phys_id,))
-                    phys_count = cur.fetchone()[0]
+                    phys_count = cur.fetchone()[0] # type: ignore
                     if phys_count == 0:
                         cur.execute('DELETE FROM buildings WHERE physical_object_id = %s', (phys_id,))
                         cur.execute('DELETE FROM physical_objects WHERE id = %s', (phys_id,))
@@ -552,7 +557,7 @@ class UpdatingWindow(QtWidgets.QWidget):
             with self._additional_conn.cursor() as cur:
                 cur.execute('SELECT ST_AsGeoJSON(ST_Centroid(ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326)), 6),'
                         ' ST_GeometryType(ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326))', (json.dumps(newGeometry),) * 2)
-                new_center, geom_type = cur.fetchone()
+                new_center, geom_type = cur.fetchone() # type: ignore
                 new_center = json.loads(new_center)
                 new_longitude, new_latitude = new_center['coordinates']
         except Exception:
@@ -566,7 +571,7 @@ class UpdatingWindow(QtWidgets.QWidget):
                         ' RETURNING id',
                         (dialog.osm_id(),) + (json.dumps(newGeometry),) * 2 + (self._city_choose.currentText(),)
                 )
-                new_phys_id = cur.fetchone()[0]
+                new_phys_id = cur.fetchone()[0] # type: ignore
                 cur.execute('UPDATE physical_objects SET'
                         ' administrative_unit_id = (SELECT id from administrative_units WHERE ST_CoveredBy('
                                 ' (SELECT center FROM physical_objects WHERE id = %s), geometry) ORDER BY population DESC LIMIT 1),'
@@ -594,7 +599,7 @@ class UpdatingWindow(QtWidgets.QWidget):
         func_id, phys_id = self._table.item(row, 0).text(), self._table.item(row, 8).text()
         with self._db_properties.conn.cursor() as cur:
             cur.execute('SELECT ST_AsGeoJSON(geometry), osm_id FROM physical_objects WHERE id = %s', (phys_id,))
-            geometry, osm_id = cur.fetchone()
+            geometry, osm_id = cur.fetchone() # type: ignore
         geometry = json.loads(geometry)
         dialog = PhysicalObjectCreation(f'Если необходимо, измените параметры физического объекта для сервиса на строке {row + 1}',
                 json.dumps(geometry, indent=2), osm_id)
@@ -658,7 +663,7 @@ class UpdatingWindow(QtWidgets.QWidget):
                     ' RETURNING id',
                     (osm_id,) + (dialog.get_geometry(),) * 2 + (self._city_choose.currentText(),)
             )
-            new_phys_id = cur.fetchone()[0]
+            new_phys_id = cur.fetchone()[0] # type: ignore
             cur.execute('UPDATE physical_objects SET'
                     ' administrative_unit_id = (SELECT id from administrative_units WHERE ST_CoveredBy('
                             ' (SELECT center FROM physical_objects WHERE id = %s), geometry) ORDER BY population DESC LIMIT 1),'
@@ -694,7 +699,7 @@ class UpdatingWindow(QtWidgets.QWidget):
                     ' JOIN physical_objects p ON b.physical_object_id = p.id'
                     ' WHERE p.id = %s', (phys_id,))
             try:
-                geometry, *res, b_id = cur.fetchone()
+                geometry, *res, b_id = cur.fetchone() # type: ignore
             except TypeError:
                 QtWidgets.QMessageBox.critical(self, 'Ошибка изменения здания', 'Здание, соответствующее физическому объекту'
                         f' с id={phys_id} не найдено в базе данных')
@@ -786,10 +791,14 @@ class UpdatingWindow(QtWidgets.QWidget):
 
     def _on_commit_changes(self) -> None:
         self._log_window.insertHtml('<font color=green>Запись изменений в базу данных</font><br>')
-        log.info(f'Коммит следующих изменений сервисов в базу данных:\n{self._log_window.toPlainText()[:-1]}')
+        logger.opt(colors=True).info(f'<green>Коммит следующих изменений сервисов в базу данных</green>:\n{self._log_window.toPlainText()[:-1]}')
         self._db_properties.conn.commit()
         self._edit_buttons.load.click()
         self._log_window.insertHtml('<font color=green>Изменения записаны, обновленная информация загружена</font><br>')
+
+    def _on_rollback(self) -> None:
+        self._db_properties.conn.rollback()
+        self._edit_buttons.load.click()
 
     def _set_service_types(self, service_types: Iterable[str]) -> None:
         service_types = list(service_types)
@@ -828,11 +837,11 @@ class UpdatingWindow(QtWidgets.QWidget):
         self._on_city_change()
     
     def showEvent(self, event: QtGui.QShowEvent) -> None:
-        log.info('Открыто окно изменения сервисов')
+        logger.info('Открыто окно изменения сервисов')
         return super().showEvent(event)
 
     def closeEvent(self, event: QtGui.QCloseEvent) -> None:
-        log.info('Закрыто окно изменения сервисов')
+        logger.info('Закрыто окно изменения сервисов')
         if self._on_close is not None:
             self._on_close()
         return super().closeEvent(event)

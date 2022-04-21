@@ -1,16 +1,16 @@
 import itertools
 import json
-import logging
 import time
 from typing import Any, Callable, List, Literal, NamedTuple, Optional, Set, Sequence, Tuple, Union
 
 from PySide6 import QtCore, QtGui, QtWidgets
 import psycopg2
+from loguru import logger
 
 from database_properties import Properties
 from gui_basics import ColoringTableWidget, GeometryShow, check_geometry_correctness
 
-log = logging.getLogger('services_manipulation').getChild('cities_manipulation_gui')
+logger = logger.bind(name='gui_manipulate_cities')
 
 class PlatformCitiesTableWidget(ColoringTableWidget):
     LABELS = ['id города', 'Название', 'Население', 'Тип деления', 'Широта', 'Долгота', 'Тип геометрии', 'Создание', 'Обновление']
@@ -43,7 +43,7 @@ class PlatformTerritoriesTableWidget(QtWidgets.QTableWidget):
         self.setRowCount(len(territories))
         self.setColumnCount(len(PlatformTerritoriesTableWidget.LABELS))
         self.setHorizontalHeaderLabels(PlatformTerritoriesTableWidget.LABELS)
-        self.setEditTriggers(QtWidgets.QTableWidget.NoEditTriggers)
+        self.setEditTriggers(QtWidgets.QTableWidget.NoEditTriggers) # type: ignore
         for i, row in enumerate(territories):
             for j, item in enumerate(row):
                 self.setItem(i, j, QtWidgets.QTableWidgetItem(_to_str(item)))
@@ -183,7 +183,7 @@ class TerritoryWindow(QtWidgets.QWidget):
             ('showGeometry', QtWidgets.QPushButton),
         ]
     )
-    def __init__(self, conn: psycopg2.extensions.connection, additional_conn: psycopg2.extensions.connection,
+    def __init__(self, conn: 'psycopg2.connection', additional_conn: 'psycopg2.connection',
             city_name: str, territory_type: Literal['municipality', 'administrative_unit'], on_territory_add_callback: Callable[[int, str], None],
             on_territory_edit_callback: Callable[[int, str, List[Tuple[str, str, str]]], None], on_territory_delete_callback: Callable[[List[Tuple[int, str]]], None],
             on_error_callback: Callable[[str], None], parent: Optional[QtWidgets.QWidget] = None):
@@ -288,7 +288,7 @@ class TerritoryWindow(QtWidgets.QWidget):
                         (self._city_name, dialog.territory_type(), dialog.name(), dialog.get_geometry(),
                                 dialog.get_geometry(), dialog.population())
                 )
-                territory_id = cur.fetchone()[0]
+                territory_id = cur.fetchone()[0] # type: ignore
             self._on_territory_add_callback(territory_id, _to_str(dialog.name()))
             row = self._table.rowCount()
             self._table.insertRow(row)
@@ -313,7 +313,7 @@ class TerritoryWindow(QtWidgets.QWidget):
             cur.execute(f'SELECT ST_AsGeoJSON(geometry), name, population, (SELECT name FROM {self._other_territory_table} WHERE id = {self._parent_id_column}),'
                     f'       (select full_name FROM {self._territory_types_table} WHERE id = type_id) FROM {self._territory_table} WHERE id = %s',
                     (self._table.item(row, 0).text(),))
-            geometry, name, population, parent_territory, territory_type = cur.fetchone()
+            geometry, name, population, parent_territory, territory_type = cur.fetchone() # type: ignore
             geometry = json.loads(geometry)
         dialog = TerritoryCreation(f'Изменение территории - {self._territory_name_what}', f'Город "{self._city_name}" - изменить {self._territory_name_action}',
                 self._territory_types, self._parents, json.dumps(geometry, indent=2), name, population, territory_type, parent_territory)
@@ -370,7 +370,7 @@ class TerritoryWindow(QtWidgets.QWidget):
             self._on_territory_edit_callback(int(territory_id), self._table.item(row, 2).text(), changes)
     
     def _on_territory_delete(self) -> None:
-        rows = sorted(set(map(lambda index: index.row() + 1, self._table.selectedIndexes())))
+        rows = sorted(set(map(lambda index: index.row() + 1, self._table.selectedIndexes()))) # type: ignore
         if len(rows) == 0:
             return
         if len(rows) > 1:
@@ -533,7 +533,7 @@ class CitiesWindow(QtWidgets.QWidget):
                         '   (%s, ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326), ST_SnapToGrid(ST_Centroid(ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326)), 0.000001), %s, %s)'
                         ' RETURNING id',
                         (dialog.name(), dialog.get_geometry(), dialog.get_geometry(), dialog.population(), dialog.division_type()))
-                city_id = cur.fetchone()[0]
+                city_id = cur.fetchone()[0] # type: ignore
             self._log_window.insertHtml(f'<font color=yellowgreen>Добавлен город "{dialog.name()}" c id={city_id}</font><br>')
             row = self._table.rowCount()
             self._table.insertRow(row)
@@ -557,7 +557,7 @@ class CitiesWindow(QtWidgets.QWidget):
         city_id = self._table.item(row, 0).text()
         with self._db_properties.conn.cursor() as cur:
             cur.execute('SELECT ST_AsGeoJSON(geometry), name, population, city_division_type FROM cities WHERE id = %s', (self._table.item(row, 0).text(),))
-            geometry, name, population, division_type = cur.fetchone()
+            geometry, name, population, division_type = cur.fetchone() # type: ignore
             geometry = json.loads(geometry)
         dialog = CityCreation(f'Внесение изменений в город в строке под номером {row + 1}', json.dumps(geometry, indent=2), name, population, division_type)
         if dialog.exec() != QtWidgets.QDialog.Accepted:
@@ -594,7 +594,7 @@ class CitiesWindow(QtWidgets.QWidget):
                 self._table.item(row, 3).setBackground(QtGui.QBrush(QtCore.Qt.GlobalColor.yellow))
             
     def _on_city_delete(self) -> None:
-        rows = sorted(set(map(lambda index: index.row() + 1, self._table.selectedIndexes())))
+        rows = sorted(set(map(lambda index: index.row() + 1, self._table.selectedIndexes()))) # type: ignore
         if len(rows) == 0:
             return
         if len(rows) > 1:
@@ -697,7 +697,7 @@ class CitiesWindow(QtWidgets.QWidget):
 
     def _on_commit_changes(self) -> None:
         self._log_window.insertHtml('<font color=green>Запись изменений в базу данных</font><br>')
-        log.info(f'Коммит следующих изменений сервисов в базу данных:\n{self._log_window.toPlainText()[:-1]}')
+        logger.opt(colors=True).info(f'<green>Коммит следующих изменений сервисов в базу данных</green>:\n{self._log_window.toPlainText()[:-1]}')
         self._db_properties.conn.commit()
         self._on_cities_load()
         self._log_window.insertHtml('<font color=green>Изменения записаны, обновленная информация загружена</font><br>')
@@ -707,21 +707,24 @@ class CitiesWindow(QtWidgets.QWidget):
         self._on_cities_load()
 
     def _on_refresh_matviews(self) -> None:
-        log.info('Обновление материализованных представлений')
+        logger.info('Обновление материализованных представлений запущено')
         self._log_window.insertHtml('<font color=grey>Обновление материализованных представлений...</font>')
         self._log_window.repaint()
         with self._db_properties.conn, self._db_properties.conn.cursor() as cur:
+            cur.execute('REFRESH MATERIALIZED VIEW all_buildings')
             cur.execute('REFRESH MATERIALIZED VIEW all_services')
-            cur.execute('REFRESH MATERIALIZED VIEW houses')
             cur.execute('REFRESH MATERIALIZED VIEW all_houses')
+            cur.execute('REFRESH MATERIALIZED VIEW houses')
+        logger.info('Обновление материализованных представлений завершено')
         self._log_window.insertHtml('<font color=green>Завершено</font><br>')
 
     def _on_update_locations(self) -> None:
-        log.info('Обновление местоположения физических объектов без указания административного образования, МО или квартала')
+        logger.info('Обновление местоположения физических объектов без указания административного образования, МО или квартала запущено')
         self._log_window.insertHtml('<font color=grey>Обновление местоположения физических объектов...</font>')
         self._log_window.repaint()
         with self._db_properties.conn, self._db_properties.conn.cursor() as cur:
             cur.execute('select update_physical_objects_location()')
+        logger.info('Обновление местоположения физических объектов завершено')
         self._log_window.insertHtml('<font color=green>Завершено</font><br>')
 
     def change_db(self, db_addr: str, db_port: int, db_name: str, db_user: str, db_pass: str) -> None:
@@ -731,12 +734,12 @@ class CitiesWindow(QtWidgets.QWidget):
         self._additional_conn = self._db_properties.copy().conn
     
     def showEvent(self, event: QtGui.QShowEvent) -> None:
-        log.info('Открыто окно работы с городами')
+        logger.info('Открыто окно работы с городами')
         self._on_cities_load()
         return super().showEvent(event)
 
     def closeEvent(self, event: QtGui.QCloseEvent) -> None:
-        log.info('Закрыто окно работы с городами')
+        logger.info('Закрыто окно работы с городами')
         if self._territory_window is not None:
             self._territory_window.close()
         if self._on_close is not None:

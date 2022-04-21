@@ -4,3 +4,6 @@ psycopg2
 openpyxl
 xlrd
 odfpy
+tqdm
+click
+loguru

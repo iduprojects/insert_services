@@ -1,19 +1,18 @@
 import json
-import os
 from typing import Any, Callable, List, NamedTuple, Optional, Sequence, Tuple
 
 import psycopg2
 from PySide6 import QtCore, QtGui, QtWidgets
 
 def check_geometry_correctness(geometry_geojson: Optional[str],
-        conn: psycopg2.extensions.connection) -> Optional[Tuple[float, float, str]]:
+        conn: 'psycopg2.connection') -> Optional[Tuple[float, float, str]]:
     if geometry_geojson is None:
         return None
     try:
         with conn.cursor() as cur:
             cur.execute('SELECT ST_AsGeoJSON(ST_Centroid(ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326)), 6),'
                     ' ST_GeometryType(ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326))', (geometry_geojson,) * 2)
-            new_center, geom_type = cur.fetchone()
+            new_center, geom_type = cur.fetchone() # type: ignore
             new_center = json.loads(new_center)
             new_longitude, new_latitude = new_center['coordinates']
         return new_latitude, new_longitude, geom_type
@@ -76,7 +75,7 @@ class CheckableTableView(QtWidgets.QTableView):
     def keyPressEvent(self, event: QtGui.QKeyEvent) -> None:
         key = event.key()
         if key in (QtCore.Qt.Key_Return, QtCore.Qt.Key_Enter, QtCore.Qt.Key_Minus, QtCore.Qt.Key_Plus):
-            indexes = set(map(lambda index: index.row(), filter(lambda index: index.column() == 0, self.selectedIndexes())))
+            indexes = set(map(lambda index: index.row(), filter(lambda index: index.column() == 0, self.selectedIndexes()))) # type: ignore
             if len(indexes) > 0:
                 func = self.turn_row_off if key == QtCore.Qt.Key_Minus else self.turn_row_on if key == QtCore.Qt.Key_Plus else self.toggle_row
                 for row in indexes:
@@ -122,7 +121,6 @@ class DropPushButton(QtWidgets.QPushButton):
 
     def dropEvent(self, event: QtGui.QDropEvent) -> None:
         if event.mimeData().hasUrls():
-            print(f'Path: {event.mimeData().urls()[0].toLocalFile()}')
             self._callback(event.mimeData().urls()[0].toLocalFile())
         else:
             self._callback(event.mimeData().text()[len('file:///'):])

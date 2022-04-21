@@ -1,5 +1,4 @@
 import json
-import logging
 import os
 import time
 import traceback
@@ -7,22 +6,18 @@ from typing import Any, Callable, Dict, Iterable, List, NamedTuple, Optional, Tu
 
 import pandas as pd
 import psycopg2
+from loguru import logger
 from PySide6 import QtCore, QtGui, QtWidgets
 
 import adding_functional_objects
 from database_properties import Properties
 from gui_basics import CheckableTableView, ColorizingComboBox, ColorizingLine, DropPushButton
 
-log = logging.getLogger('services_manipulation').getChild('services_insert_gui')
+logger = logger.bind(name='gui_insert_services')
 
 InsertionWindowDefaultValues = NamedTuple('InsertionWindowDefaultValues', [
-        ('service_type', str),
         ('service_code', str),
         ('city_function', str),
-        ('min_capacity', str),
-        ('max_capacity', str),
-        ('min_status', str),
-        ('max_status', str),
         ('latitude', str),
         ('longitude', str),
         ('geometry', str),
@@ -36,7 +31,7 @@ InsertionWindowDefaultValues = NamedTuple('InsertionWindowDefaultValues', [
 )
 
 def get_main_window_default_values() -> InsertionWindowDefaultValues:
-    return InsertionWindowDefaultValues('', '', '', '', '', '', '', 'x', 'y', 'geometry',
+    return InsertionWindowDefaultValues('', '', 'x', 'y', 'geometry',
             'yand_adr', 'name', 'opening_hours', 'contact:website', 'contact:phone', 'id')
 
 def get_main_window_default_address_prefixes() -> List[str]:
@@ -45,26 +40,16 @@ def get_main_window_default_address_prefixes() -> List[str]:
 def get_default_city_functions() -> List[str]:
     return ['(необходимо соединение с базой)']
 
-def get_default_object_classes() -> List[str]:
-    return ['(необходимо соединение с базой)']
-
 def get_default_service_types() -> List[str]:
     return ['(необходимо соединение с базой)']
-
     
 class InsertionWindow(QtWidgets.QWidget):
 
     InsertionOptionsFields = NamedTuple('InsertionOptionsFields', [
             ('city', QtWidgets.QComboBox),
-            ('service_type', QtWidgets.QLineEdit),
             ('service_code', QtWidgets.QLineEdit),
-            ('min_capacity', QtWidgets.QLineEdit),
-            ('max_capacity', QtWidgets.QLineEdit),
-            ('min_status', QtWidgets.QLineEdit),
-            ('max_status', QtWidgets.QLineEdit),
             ('city_function', QtWidgets.QComboBox),
-            ('service_type_choose', QtWidgets.QComboBox),
-            ('service_type_choosable', QtWidgets.QCheckBox),
+            ('service_type', QtWidgets.QComboBox),
             ('is_building', QtWidgets.QCheckBox)
         ]
     )
@@ -145,29 +130,17 @@ class InsertionWindow(QtWidgets.QWidget):
         self._options_fields = InsertionWindow.InsertionOptionsFields(
                 QtWidgets.QComboBox(),
                 ColorizingLine(self.on_options_change),
-                ColorizingLine(self.on_options_change),
-                ColorizingLine(self.on_options_change),
-                ColorizingLine(self.on_options_change),
-                ColorizingLine(self.on_options_change),
-                ColorizingLine(self.on_options_change),
                 ColorizingComboBox(self.on_options_change),
                 ColorizingComboBox(self.on_options_change),
-                QtWidgets.QCheckBox(),
                 QtWidgets.QCheckBox()
         )
-        self._options_fields.service_type_choosable.clicked.connect(lambda: self.on_choose_change(self._options_fields.service_type_choosable))
-        self._options_fields.service_type_choose.addItems(get_default_service_types())
-        self._options_fields.service_type_choose.view().setMinimumWidth(len(max(get_default_service_types(), key=len)) * 8)
+        self._options_fields.service_type.addItems(get_default_service_types())
+        self._options_fields.service_type.view().setMinimumWidth(len(max(get_default_service_types(), key=len)) * 8)
 
         self._options_group.addRow('Город:', self._options_fields.city)
         self._options_group.addRow('Тип сервиса:', self._options_fields.service_type)
-        self._options_group.addRow('Выбрать тип сервиса:', self._options_fields.service_type_choosable)
         self._options_group.addRow('Код сервиса:', self._options_fields.service_code)
         self._options_group.addRow('Городская функция:', self._options_fields.city_function)
-        self._options_group.addRow('Минимальная мощность:', self._options_fields.min_capacity)
-        self._options_group.addRow('Максимальная мощность:', self._options_fields.max_capacity)
-        self._options_group.addRow('Минимальный статус:', self._options_fields.min_status)
-        self._options_group.addRow('Максимальный статус:', self._options_fields.max_status)
         self._options_group.addRow('Сервис-здание?', self._options_fields.is_building)
         self._right.addWidget(self._options_group_box)
 
@@ -220,13 +193,15 @@ class InsertionWindow(QtWidgets.QWidget):
         self._document_group_box.setFixedWidth(right_width)
         self._prefixes_group_box.setFixedWidth(right_width)
         
-        self._options_fields.service_type.setText(InsertionWindow.default_values.service_type)
+        self._options_fields.service_type.setCurrentIndex(0)
         self._options_fields.service_code.setText(InsertionWindow.default_values.service_code)
+        self._options_fields.service_code.setEnabled(False)
         self._options_fields.city_function.addItems(get_default_city_functions())
         self._options_fields.city_function.view().setMinimumWidth(len(max(get_default_city_functions(), key=len)) * 8)
         self._options_fields.city_function.setEnabled(False)
-        self._options_fields.min_capacity.setText(InsertionWindow.default_values.min_capacity)
-        self._options_fields.max_capacity.setText(InsertionWindow.default_values.max_capacity)
+        self._options_fields.is_building.setEnabled(False)
+        self._is_options_ok = False
+        self._options_fields.service_type.setStyleSheet('background-color: rgb({}, {}, {});color: black'.format(*InsertionWindow.colorTable.light_red.getRgb()[:3]))
 
         for field in self._document_fields:
             field.addItem('(необходимо открыть файл)')
@@ -235,7 +210,7 @@ class InsertionWindow(QtWidgets.QWidget):
             line.setText(prefix_line)
             line.setMinimumWidth(250)
 
-        self._service_type_params: Dict[str, Tuple[str, int, int, int, int, bool, str]] = {}
+        self._service_type_params: Dict[str, Tuple[str, int, int, bool, str]] = {}
         
         self.on_options_change()
 
@@ -260,7 +235,7 @@ class InsertionWindow(QtWidgets.QWidget):
 
         df = adding_functional_objects.load_objects(filename)
         self.setWindowTitle(f'Загрузка объектов - "{filename[filename.rindex("/") + 1:]}"')
-        log.info(f'Открыт файл для вставки: {filename}, {df.shape[0]} объектов')
+        logger.info(f'Открыт файл для вставки: {filename}, {df.shape[0]} объектов')
 
         self._table_axes: List[str] = ['Загрузить'] + list(df.axes[1])
         field: QtWidgets.QComboBox
@@ -272,7 +247,7 @@ class InsertionWindow(QtWidgets.QWidget):
             if previous_text in self._table_axes:
                 field.setCurrentIndex(self._table_axes.index(previous_text))
             field.setEnabled(True)
-        for field, default_value in zip(self._document_fields, InsertionWindow.default_values[7:]):
+        for field, default_value in zip(self._document_fields, InsertionWindow.default_values[2:]):
             if field.currentIndex() == 0 and default_value in self._table_axes:
                 field.setCurrentIndex(self._table_axes.index(default_value))
         self._table_model = QtGui.QStandardItemModel(*df.shape)
@@ -316,31 +291,14 @@ class InsertionWindow(QtWidgets.QWidget):
     def on_load_objects(self) -> None:
         self._load_objects_btn.setEnabled(False)
         QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.BusyCursor)
-        is_commit = not bool(QtWidgets.QApplication.keyboardModifiers() & QtCore.Qt.ShiftModifier)
+        verbose = not bool(QtWidgets.QApplication.keyboardModifiers() & QtCore.Qt.ShiftModifier)
+        is_commit = not bool(QtWidgets.QApplication.keyboardModifiers() & QtCore.Qt.ControlModifier)
         try:
-            service_type_id = adding_functional_objects.ensure_service_type(self._db_properties.conn,
-                    self._options_fields.service_type.text() if not self._options_fields.service_type_choosable.isChecked() else \
-                             self._options_fields.service_type_choose.currentText(),
-                    self._options_fields.service_code.text() if not self._options_fields.service_type_choosable.isChecked() else \
-                             None,
-                    (int(self._options_fields.min_capacity.text()) if self._options_fields.min_capacity.text() not in ('', '-') else None) \
-                            if not self._options_fields.service_type_choosable.isChecked() else None,
-                    (int(self._options_fields.max_capacity.text()) if self._options_fields.max_capacity.text() not in ('', '-') else None) \
-                            if not self._options_fields.service_type_choosable.isChecked() else None,
-                    (int(self._options_fields.min_status.text()) if self._options_fields.min_status.text() not in ('', '-') else None) \
-                            if not self._options_fields.service_type_choosable.isChecked() else None,
-                    (int(self._options_fields.max_status.text()) if self._options_fields.max_status.text() not in ('', '-') else None) \
-                            if not self._options_fields.service_type_choosable.isChecked() else None,
-                    self._options_fields.city_function.currentText(),
-                    self._options_fields.is_building.isChecked(),
-                    is_commit)
             results = adding_functional_objects.add_objects(
                     self._db_properties.conn,
                     self.table_as_DataFrame(False),
                     self._options_fields.city.currentText(),
-                    self._options_fields.service_type.text() if not self._options_fields.service_type_choosable.isChecked() else \
-                             self._options_fields.service_type_choose.currentText(),
-                    service_type_id,
+                    self._options_fields.service_type.currentText(),
                     adding_functional_objects.initInsertionMapping(
                         self._document_fields.name.currentText(),
                         self._document_fields.opening_hours.currentText(),
@@ -355,8 +313,8 @@ class InsertionWindow(QtWidgets.QWidget):
                     ),
                     list(map(lambda line_edit: line_edit.text(), self._document_address_prefixes)),
                     self._prefixes_group.itemAt(self._prefixes_group.count() - 1).widget().text(),
-                    self._options_fields.is_building.isChecked(),
                     is_commit,
+                    verbose,
             )
             if not is_commit:
                 self._db_properties.conn.rollback()
@@ -443,51 +401,27 @@ class InsertionWindow(QtWidgets.QWidget):
         if self._table is not None:
             self._prefixes_group_box.setTitle(f'Префиксы адреса ({res} / {self._table_model.rowCount()}))') # )) = ) , magic
 
-    def on_options_change(self, what_changed: Optional[Union[QtWidgets.QLineEdit, QtWidgets.QComboBox]] = None, previous_value: Optional[Union[int, str]] = None):
+    def on_options_change(self, what_changed: Optional[Union[QtWidgets.QLineEdit, QtWidgets.QComboBox]] = None, _previous_value: Optional[Union[int, str]] = None):
         allowed_chars = set((chr(i) for i in range(ord('a'), ord('z') + 1))) | {'_'}
         self._is_options_ok = True
 
-        if what_changed is self._options_fields.service_type_choose:
+        if what_changed is self._options_fields.service_type:
             old_is_building = self._options_fields.is_building.isChecked()
-            if self._options_fields.service_type_choose.currentText() in self._service_type_params:
-                service = self._service_type_params[self._options_fields.service_type_choose.currentText()]
+            if self._options_fields.service_type.currentText() in self._service_type_params:
+                service = self._service_type_params[self._options_fields.service_type.currentText()]
                 self._options_fields.service_code.setText(service[0])
-                self._options_fields.min_capacity.setText(str(service[1]))
-                self._options_fields.max_capacity.setText(str(service[2]))
-                self._options_fields.min_status.setText(str(service[3]))
-                self._options_fields.max_status.setText(str(service[4]))
-                self._options_fields.is_building.setChecked(service[5])
-                self._options_fields.city_function.setCurrentText(service[6])
-                what_changed.setStyleSheet('background-color: rgb({}, {}, {});color: black'.format(*InsertionWindow.colorTable.light_green.getRgb()[:3]))
+                self._options_fields.is_building.setChecked(service[3])
+                self._options_fields.city_function.setCurrentText(service[4])
+                self._options_fields.service_type.setStyleSheet('background-color: rgb({}, {}, {});color: black'.format(*InsertionWindow.colorTable.light_green.getRgb()[:3]))
             else:
                 self._options_fields.service_code.setText('')
-                self._options_fields.min_capacity.setText('')
-                self._options_fields.max_capacity.setText('')
-                self._options_fields.min_status.setText('')
-                self._options_fields.max_status.setText('')
                 self._options_fields.is_building.setChecked(False)
                 self._options_fields.city_function.setCurrentIndex(0)
-                what_changed.setStyleSheet('background-color: rgb({}, {}, {});color: black'.format(*InsertionWindow.colorTable.light_red.getRgb()[:3]))
+                if what_changed is not None:
+                    what_changed.setStyleSheet('background-color: rgb({}, {}, {});color: black'.format(*InsertionWindow.colorTable.light_red.getRgb()[:3]))
             if old_is_building != self._options_fields.is_building.isChecked():
                 self.on_document_change(self._document_fields.address)
             
-
-        if what_changed is self._options_fields.service_type_choosable and self._options_fields.service_type_choosable.isChecked():
-            if self._options_fields.service_type_choose.currentIndex() == 0:
-                self._is_options_ok = False
-                self._options_fields.service_type_choose.setStyleSheet('background-color: rgb({}, {}, {});color: black'.format(*InsertionWindow.colorTable.light_red.getRgb()[:3]))
-            else:
-                self._options_fields.service_type_choose.setStyleSheet('background-color: rgb({}, {}, {});color: black'.format(*InsertionWindow.colorTable.light_green.getRgb()[:3]))
-            self.on_options_change(self._options_fields.service_type_choose)
-            return
-
-        if self._options_fields.service_type.text() != '' and '"' not in self._options_fields.service_type.text() \
-                and "'" not in self._options_fields.service_type.text():
-            self._options_fields.service_type.setStyleSheet('background-color: rgb({}, {}, {});color: black'.format(*InsertionWindow.colorTable.light_green.getRgb()[:3]))
-        else:
-            self._options_fields.service_type.setStyleSheet('background-color: rgb({}, {}, {});color: black'.format(*InsertionWindow.colorTable.light_red.getRgb()[:3]))
-            if self._options_fields.service_type.isVisible():
-                self._is_options_ok = False
         if self._options_fields.service_code.text() != '' and len(set(self._options_fields.service_code.text()) - allowed_chars - {'-'}) == 0:
             self._options_fields.service_code.setStyleSheet('background-color: rgb({}, {}, {});color: black'.format(*InsertionWindow.colorTable.light_green.getRgb()[:3]))
         else:
@@ -500,68 +434,10 @@ class InsertionWindow(QtWidgets.QWidget):
         else:
             self._options_fields.city_function.setStyleSheet('background-color: rgb({}, {}, {});color: black'.format(*InsertionWindow.colorTable.light_green.getRgb()[:3]))
         
-        num_lines_ok = 0
-        for line in (self._options_fields.min_capacity, self._options_fields.max_capacity):
-            if line.text() != '' and line.text().isdigit():
-                line.setStyleSheet('background-color: rgb({}, {}, {});color: black'.format(*InsertionWindow.colorTable.light_green.getRgb()[:3]))
-                num_lines_ok += 1
-            else:
-                self._is_options_ok = False
-                line.setStyleSheet('background-color: rgb({}, {}, {});color: black'.format(*InsertionWindow.colorTable.light_red.getRgb()[:3]))
-        if num_lines_ok < 2:
-            self._is_options_ok = False
-        elif num_lines_ok == 2 and int(self._options_fields.max_capacity.text()) < int(self._options_fields.min_capacity.text()):
-            self._options_fields.min_capacity.setStyleSheet('background-color: rgb({}, {}, {});color: black'.format(*InsertionWindow.colorTable.light_red.getRgb()[:3]))
-            self._options_fields.max_capacity.setStyleSheet('background-color: rgb({}, {}, {});color: black'.format(*InsertionWindow.colorTable.light_red.getRgb()[:3]))
-            self._is_options_ok = False
-
-        num_lines_ok = 0
-        for line in (self._options_fields.min_status, self._options_fields.max_status):
-            if line.text() != '' and line.text().isdigit():
-                line.setStyleSheet('background-color: rgb({}, {}, {});color: black'.format(*InsertionWindow.colorTable.light_green.getRgb()[:3]))
-                num_lines_ok += 1
-            else:
-                self._is_options_ok = False
-                line.setStyleSheet('background-color: rgb({}, {}, {});color: black'.format(*InsertionWindow.colorTable.light_red.getRgb()[:3]))
-
-        if num_lines_ok < 2:
-            self._is_options_ok = False
-        elif num_lines_ok == 2 and int(self._options_fields.max_status.text()) < int(self._options_fields.min_status.text()):
-            self._options_fields.min_status.setStyleSheet('background-color: rgb({}, {}, {});color: black'.format(*InsertionWindow.colorTable.light_red.getRgb()[:3]))
-            self._options_fields.max_status.setStyleSheet('background-color: rgb({}, {}, {});color: black'.format(*InsertionWindow.colorTable.light_red.getRgb()[:3]))
-            self._is_options_ok = False
-
         if self._is_options_ok and self._is_document_ok:
             self._load_objects_btn.setEnabled(True)
         else:
             self._load_objects_btn.setEnabled(False)
-
-    def on_choose_change(self, what_changed: QtWidgets.QCheckBox) -> None:
-        if what_changed.isChecked():
-            self._options_group.replaceWidget(self._options_fields.service_type, self._options_fields.service_type_choose)
-            self._options_fields.service_type.setVisible(False)
-            self._options_fields.service_type_choose.setVisible(True)
-            self._options_fields.service_code.setEnabled(False)
-            self._options_fields.min_capacity.setEnabled(False)
-            self._options_fields.max_capacity.setEnabled(False)
-            self._options_fields.min_status.setEnabled(False)
-            self._options_fields.max_status.setEnabled(False)
-            self._options_fields.city_function.setEnabled(False)
-            self._options_fields.is_building.setEnabled(False)
-            self.on_options_change(self._options_fields.service_type_choose)
-        else:
-            self._options_group.replaceWidget(self._options_fields.service_type_choose, self._options_fields.service_type)
-            self._options_fields.service_type_choose.setVisible(False)
-            self._options_fields.service_type.setVisible(True)
-            self._options_fields.service_code.setEnabled(True)
-            self._options_fields.min_capacity.setEnabled(True)
-            self._options_fields.max_capacity.setEnabled(True)
-            self._options_fields.min_status.setEnabled(True)
-            self._options_fields.max_status.setEnabled(True)
-            if self._db_properties.connected:
-                self._options_fields.city_function.setEnabled(True)
-            self._options_fields.is_building.setEnabled(True)
-        self.on_options_change()
 
     def on_document_change(self, what_changed: Optional[QtWidgets.QComboBox] = None,
             previous_value: Optional[int] = None) -> None:
@@ -643,26 +519,25 @@ class InsertionWindow(QtWidgets.QWidget):
             self._options_fields.city_function.setCurrentText(current_city_function)
         self._options_fields.city_function.view().setMinimumWidth(len(max(city_functions_list, key=len)) * 8)
 
-    def set_service_types_params(self, service_types_params: Dict[str, Tuple[str, int, int, int, int, bool, str]]):
+    def set_service_types_params(self, service_types_params: Dict[str, Tuple[str, int, int, bool, str]]):
         self._service_type_params = service_types_params
-        current_service_type = self._options_fields.service_type_choose.currentText()
-        self._options_fields.service_type_choose.clear()
-        self._options_fields.service_type_choose.addItem('(не выбрано)')
-        self._options_fields.service_type_choose.addItems(sorted(self._service_type_params.keys()))
+        current_service_type = self._options_fields.service_type.currentText()
+        self._options_fields.service_type.clear()
+        self._options_fields.service_type.addItem('(не выбрано)')
+        self._options_fields.service_type.addItems(sorted(self._service_type_params.keys()))
         if current_service_type in service_types_params:
-            self._options_fields.service_type_choose.setCurrentText(current_service_type)
-        self._options_fields.service_type_choose.view().setMinimumWidth(len(max(self._service_type_params.keys(), key=len)) * 8)
+            self._options_fields.service_type.setCurrentText(current_service_type)
+        self._options_fields.service_type.view().setMinimumWidth(len(max(self._service_type_params.keys(), key=len)) * 8)
     
     def change_db(self, db_addr: str, db_port: int, db_name: str, db_user: str, db_pass: str) -> None:
         self._db_properties.reopen(db_addr, db_port, db_name, db_user, db_pass)
 
     def showEvent(self, event: QtGui.QShowEvent) -> None:
-        log.info('Открыто окно вставки сервисов')
-        self.on_choose_change(self._options_fields.service_type_choosable)
+        logger.info('Открыто окно вставки сервисов')
         return super().showEvent(event)
 
     def closeEvent(self, event: QtGui.QCloseEvent) -> None:
-        log.info('Закрыто окно вставки сервисов')
+        logger.info('Закрыто окно вставки сервисов')
         if self._on_close is not None:
             self._on_close()
         return super().closeEvent(event)

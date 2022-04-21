@@ -45,10 +45,11 @@ with open('init_data_new.sql', 'w', encoding='utf-8') as f:
                 " FROM city_functions ORDER BY id")
         insert_values(cur.fetchall(), f)
 
-        print("\nINSERT INTO city_service_types (name, code, city_function_id, capacity_min, capacity_max, status_min, status_max, is_building) VALUES", file=f)
+        print("\nINSERT INTO city_service_types (name, code, city_function_id, capacity_min, capacity_max, status_min, status_max,"
+                " is_building, public_transport_time_normative, walking_radius_normative) VALUES", file=f)
         cur.execute("SELECT concat('''', name, ''''), concat('''', code, ''''),"
                 " concat('(SELECT id FROM city_functions WHERE code = ''', (SELECT code FROM city_functions WHERE id = city_function_id), ''')'),"
-                " capacity_min, capacity_max, status_min, status_max, is_building"
+                " capacity_min, capacity_max, status_min, status_max, is_building, public_transport_time_normative, walking_radius_normative"
                 " FROM city_service_types ORDER BY id")
         insert_values(cur.fetchall(), f)
 

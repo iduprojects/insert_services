@@ -1,4 +1,7 @@
+from typing import Optional
+
 import psycopg2
+
 
 class Properties:
     def __init__(self, db_addr: str, db_port: int, db_name: str, db_user: str, db_pass: str):
@@ -31,11 +34,11 @@ class Properties:
                 self._conn = psycopg2.connect(self.conn_string, connect_timeout=10)
             except psycopg2.OperationalError:
                 self._connected = False
-                return None
+                raise
         try:
-            with self._conn.cursor() as cur:
+            with self._conn.cursor() as cur: # type: ignore
                 cur.execute('SELECT 1')
-                assert cur.fetchone()[0] == 1
+                assert cur.fetchone()[0] == 1 # type: ignore
         except Exception:
             self._connected = False
             raise
@@ -47,4 +50,4 @@ class Properties:
         
     @property
     def connected(self):
-        return self._conn is not None
+        return self.conn is not None

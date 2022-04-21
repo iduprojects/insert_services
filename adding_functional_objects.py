@@ -1,35 +1,30 @@
-import argparse
 import itertools
 import json
-import logging
 import os
 import random
+import sys
 import time
+import traceback
+import warnings
 from enum import Enum
 from enum import auto as enum_auto
-from typing import Any, Dict, Iterable, List, NamedTuple, Optional
+from typing import Any, Dict, Iterable, List, NamedTuple, Optional, Tuple
 
+import click
 import pandas as pd
 import psycopg2
+from loguru import logger
+from tqdm import tqdm
 
 from database_properties import Properties
 
 properties: Properties
 
-if len(logging.getLogger('services_manipulation').handlers) > 0:
-    log = logging.getLogger('services_manipulation').getChild('services_insert_console')
-    log.addHandler(logging.FileHandler('insert_services.log', 'a', 'utf8'))
-    log.handlers[-1].setFormatter(logging.Formatter('{asctime} {name}: {message}', datefmt='%Y-%m-%d %H:%M:%S', style='{'))
-    log.handlers[-1].setLevel('INFO')
-else:
-    log = logging.getLogger('services_insert_console')
-    log.setLevel('INFO')
-    log.addHandler(logging.StreamHandler())
-    log.handlers[-1].setFormatter(logging.Formatter('{asctime} [{levelname:^8}]: {message}', datefmt='%Y-%m-%d %H:%M:%S', style='{'))
-    log.handlers[-1].setLevel('INFO')
-    log.addHandler(logging.FileHandler('insert_services.log', 'a', 'utf8'))
-    log.handlers[-1].setFormatter(logging.Formatter('{asctime} {name}: {message}', datefmt='%Y-%m-%d %H:%M:%S', style='{'))
-    log.handlers[-1].setLevel('INFO')
+warnings.filterwarnings('ignore', category=UserWarning, module='openpyxl')
+
+log_handler_id = logger.add('insert_services.log', level='INFO', filter=__name__, colorize=False,
+        format='{time:YYYY-MM-DD HH:mm:ss} | {level: ^8} | {message}')
+logger = logger.bind(name='insert_services')
 
 class SQLType(Enum):
     INT = enum_auto()
@@ -87,30 +82,6 @@ sqltype_mapping: Dict[str, SQLType] = dict(itertools.chain(
         map(lambda x: (x, SQLType.TIMESTAMP), ('timestamp', 'date', 'time', 'datetime', 'дата', 'время'))
 ))
 
-def ensure_service_type(conn: 'psycopg2.connection', service_type: str, service_type_code: Optional[str],
-        capacity_min: Optional[int], capacity_max: Optional[int], status_min: Optional[int], status_max: Optional[int],
-        city_function: str, is_building: bool, commit: bool = True) -> int:
-    '''ensure_service_type returns id of a service_type from database or inserts it if service_type is not present and all of the parameters are given'''
-    with conn.cursor() as cur:
-        cur.execute('SELECT id FROM city_service_types WHERE name = %s or code = %s', (service_type,) * 2)
-        res = cur.fetchone()
-        if res is not None:
-            return res[0]
-        if service_type_code is None or city_function is None:
-            raise ValueError(f'service type "{service_type}" is not found in the database, but code and/or city_function is not provided')
-        if capacity_min is None or capacity_max is None:
-            raise ValueError(f'service type "{service_type}" is not found in the database, but capacity_min and/or capacity_max is not provided.')
-        if status_min is None or status_max is None:
-            raise ValueError(f'service type "{service_type}" is not found in the database, but status_min and/or status_max is not provided.')
-        if is_building is None:
-            raise ValueError(f'service type "{service_type}" is not found in the database, but is_building is not provided')
-        cur.execute('INSERT INTO city_service_types (name, code, capacity_min, capacity_max, status_min, status_max, city_function_id, is_building) VALUES'
-                ' (%s, %s, %s, %s, %s, %s, (SELECT id from city_functions WHERE name = %s or code = %s), %s) RETURNING ID',
-                (service_type, service_type_code, capacity_min, capacity_max, status_min, status_max, city_function, city_function, is_building,))
-        if commit:
-            conn.commit()
-        return cur.fetchone()[0]
-
 InsertionMapping = NamedTuple('InsertionMapping', (
     ('name', Optional[str]),
     ('opening_hours', Optional[str]),
@@ -129,7 +100,7 @@ def initInsertionMapping(name: Optional[str] = 'Name', opening_hours: Optional[s
     fixer = lambda s: None if s in ('', '-') else s
     return InsertionMapping(*map(fixer, (name, opening_hours, website, phone, address, capacity, osm_id, latitude, longitude, geometry))) # type: ignore
 
-def insert_object(conn: 'psycopg2.connection', row: pd.Series, phys_id: int, service_type: str,
+def insert_object(conn: 'psycopg2.connection', row: pd.Series, phys_id: int, name: str,
         service_type_id: int, mapping: InsertionMapping, commit: bool = True) -> int:
     '''insert_object inserts functional_object with connection to physical_object with phys_id.
 
@@ -142,7 +113,7 @@ def insert_object(conn: 'psycopg2.connection', row: pd.Series, phys_id: int, ser
                 '   JOIN city_functions cf ON cf.city_infrastructure_type_id = it.id'
                 '   JOIN city_service_types st ON st.city_function_id = cf.id'
                 ' WHERE st.id = %s', (service_type_id,))
-        mn, mx, *ids = cur.fetchone()
+        mn, mx, *ids = cur.fetchone() # type: ignore
         assert ids[0] is not None and ids[1] is not None and ids[2] is not None, 'Service type, city function or infrastructure are not found in the database'
         if mapping.capacity in row and isinstance(row[mapping.capacity], int):
             capacity = row[mapping.capacity]
@@ -154,20 +125,17 @@ def insert_object(conn: 'psycopg2.connection', row: pd.Series, phys_id: int, ser
                 '   city_infrastructure_type_id, capacity, is_capacity_real, physical_object_id)'
                 ' VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id',
                 (
-                        row.get(mapping.name) or f'({service_type} без названия)', row.get(mapping.opening_hours), row.get(mapping.website),
-                        row.get(mapping.phone), *ids,
-                        capacity,
-                        is_capacity_real,
-                        phys_id
+                        name, row.get(mapping.opening_hours), row.get(mapping.website),
+                        row.get(mapping.phone), *ids, capacity, is_capacity_real, phys_id
                 )
         )
-        func_id = cur.fetchone()[0]
+        func_id = cur.fetchone()[0] # type: ignore
         if commit:
             cur.execute('SAVEPOINT previous_object')
         return func_id
 
 
-def update_object(conn: 'psycopg2.connection', row: pd.Series, func_id: int, mapping: InsertionMapping, service_type: str,
+def update_object(conn: 'psycopg2.connection', row: pd.Series, func_id: int, mapping: InsertionMapping, name: str,
         commit: bool = True) -> int:
     '''update_object update functional_object and concrete <service_type>_object connected to it.
 
@@ -176,14 +144,16 @@ def update_object(conn: 'psycopg2.connection', row: pd.Series, func_id: int, map
     Returns functional object id inserted
     '''
     with conn.cursor() as cur:
-        cur.execute('SELECT name, opening_hours, website, phone, capacity FROM functional_objects WHERE id = %s', (func_id,))
-        res = cur.fetchone()
+        cur.execute('SELECT name, opening_hours, website, phone, capacity, is_capacity_real FROM functional_objects WHERE id = %s', (func_id,))
+        res: Tuple[str, str, str, str, int] = cur.fetchone() # type: ignore
         change = list(filter(lambda c_v_nw: c_v_nw[1] != c_v_nw[2] and c_v_nw[2] is not None, zip(
-                ('name', 'opening_hours', 'website', 'phone', 'capacity'),
+                ('name', 'opening_hours', 'website', 'phone', 'capacity', 'is_capacity_real'),
                 res,
-                (row.get(mapping.name) or f'({service_type} без названия)', row.get(mapping.opening_hours), row.get(mapping.website),
-                        row.get(mapping.phone), row.get(mapping.capacity))
+                (name, row.get(mapping.opening_hours), row.get(mapping.website),
+                        row.get(mapping.phone), row.get(mapping.capacity), mapping.capacity in row)
         )))
+        if res[-1] and not mapping.capacity in row:
+            change = change[:-2]
         t = time.localtime()
         current_time = f'{t.tm_year}-{t.tm_mon:02}-{t.tm_mday:02} {t.tm_hour:02}:{t.tm_min:02}:{t.tm_sec:02}'
         change.append(('updated_at', '', current_time))
@@ -194,9 +164,9 @@ def update_object(conn: 'psycopg2.connection', row: pd.Series, func_id: int, map
         return func_id
 
 
-def add_objects(conn: 'psycopg2.connection', objects: pd.DataFrame, city_name: str, service_type: str, service_type_id: int,
+def add_objects(conn: 'psycopg2.connection', objects: pd.DataFrame, city_name: str, service_type: str,
         mapping: InsertionMapping, address_prefixes: List[str] = ['Россия, Санкт-Петербург'], new_prefix: str = '',
-        is_service_building: bool = True, commit: bool = True, verbose: bool = False, log_n: int = 200) -> pd.DataFrame:
+        commit: bool = True, verbose: bool = False, log_n: int = 200) -> pd.DataFrame:
     '''add_objects inserts objects to database.
 
     Input:
@@ -205,11 +175,9 @@ def add_objects(conn: 'psycopg2.connection', objects: pd.DataFrame, city_name: s
         - `objects` - DataFrame containing objects
         - `city_name` - name of the city to add objects to. Must be created in the database
         - `service_type` - name of service_type for logging and services names fillment if they are missing
-        - `service_type_id` - id of service_type (got by `ensure_service_type` function), must be valid
         - `mapping` - InsertionMapping of namings in the database and namings in the DataFrame columns
-        - `address_prefixes` - list of possible prefixes (will be sorted by length)
+        - `address_prefix` - list of possible prefixes (will be sorted by length)
         - `new_prefix` - unified prefix for all of the inserted objects
-        - `is_service_building` - True if there is need to use address, search or insert buildings
         - `commit` - True to commit changes, False for dry run, only resulting DataFrame is returned
         - `verbose` - True to output traceback with errors, False for only error messages printing
         - `log_n` - number of inserted/updated services to log after each
@@ -241,9 +209,9 @@ def add_objects(conn: 'psycopg2.connection', objects: pd.DataFrame, city_name: s
 
         5. Insert functional_object connected to physical_object by calling `insert_object`
     '''
-    log.info(f'Вставка сервисов запущена из {"командной строки" if __name__ == "__main__" else "внешнего приложения"}')
-    log.info(f'Вставка сервисов типа "{service_type}" (id {service_type_id}), всего {objects.shape[0]} объектов')
-    log.info(f'Город вставки - "{city_name}". Список префиксов: {address_prefixes}, новый префикс: "{new_prefix}"')
+    logger.info(f'Вставка сервисов запущена из {"командной строки" if __name__ == "__main__" else "внешнего приложения"}')
+    logger.info(f'Вставка сервисов типа "{service_type}", всего {objects.shape[0]} объектов')
+    logger.info(f'Город вставки - "{city_name}". Список префиксов: {address_prefixes}, новый префикс: "{new_prefix}"')
 
     if mapping.address in objects.columns:
         objects[mapping.address] = objects[mapping.address].apply(lambda x: x.replace('?', '').strip() if isinstance(x, str) else None)
@@ -256,197 +224,239 @@ def add_objects(conn: 'psycopg2.connection', objects: pd.DataFrame, city_name: s
         cur.execute('SELECT id FROM cities WHERE name = %s', (city_name,))
         city_id = cur.fetchone()
         if city_id is None:
-            log.error(f'Заданный город "{city_name}" отсутствует в базе данных')
+            logger.error(f'Заданный город "{city_name}" отсутствует в базе данных')
             objects['result'] = pd.Series([f'Город "{city_name}" отсутсвует в базе данных'] * objects.shape[0], index=objects.index)
             objects['functional_obj_id'] = pd.Series([-1] * objects.shape[0], index=objects.index)
             return objects
         city_id = city_id[0]
+
+        cur.execute('SELECT id, is_building FROM city_service_types WHERE name = %s or code = %s', (service_type,) * 2)
+        res = cur.fetchone()
+        if res is not None:
+            service_type_id, is_service_building = res
+        else:
+            logger.error(f'Заданный тип сервиса "{service_type}" отсутствует в базе данных')
+            objects['result'] = pd.Series([f'Тип сервиса "{service_type}" отсутствует в базе данных'] * objects.shape[0], index=objects.index)
+            objects['functional_obj_id'] = pd.Series([-1] * objects.shape[0], index=objects.index)
+            return objects
+
         if commit:
             cur.execute('SAVEPOINT previous_object')
-        for i, (_, row) in enumerate(objects.iterrows()):
-            if i % log_n == 0:
-                log.debug(f'Обработано {i:4} сервисов из {objects.shape[0]}: {added_as_points + added_to_address + added_to_geom} добавлены,'
-                        f' {present} обновлены, {skipped} пропущены')
-                if commit:
-                    conn.commit()
-                    cur.execute('SAVEPOINT previous_object')
-            try:
-                if mapping.geometry in row:
-                    try:
-                        cur.execute('SELECT ST_Y(ST_Centroid(ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326))), ST_X(ST_Centroid(ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326)))',
-                                (row[mapping.geometry],) * 2)
-                        latitude, longitude = cur.fetchone()
-                    except Exception:
-                        results[i] = f'Геометрия в поле "{mapping.geometry}" некорректна'
-                        if commit:
-                            cur.execute('ROLLBACK TO previous_object')
-                        else:
-                            conn.rollback()
-                        continue
-                else:
-                    try:
-                        latitude = round(float(row[mapping.latitude]), 6)
-                        longitude = round(float(row[mapping.longitude]), 6)
-                    except Exception:
-                        results[i] = 'Пропущен (широта или долгота некорректны)'
-                        skipped += 1
-                        continue
-                if is_service_building:
-                    if mapping.address not in row:
-                        address = None
-                    else:
-                        for address_prefix in address_prefixes:
-                            if row.get(mapping.address, '').startswith(address_prefix):
-                                address = row.get(mapping.address)[len(address_prefix):].strip(', ')
-                                break
-                        else:
-                            if len(address_prefixes) == 1:
-                                results[i] = f'Пропущен (Адрес не начинается с "{address_prefixes[0]}")'
+        i = 0
+        try:
+            for i, (_, row) in enumerate(tqdm(objects.iterrows(), total=objects.shape[0])):
+                if i % log_n == 0:
+                    logger.opt(colors=True).debug(f'Обработано {i:4} сервисов из {objects.shape[0]}:'
+                            f' <green>{added_as_points + added_to_address + added_to_geom} добавлены</green>,'
+                            f' <yellow>{present} обновлены</yellow>, <red>{skipped} пропущены</red>')
+                    if commit:
+                        conn.commit()
+                        cur.execute('SAVEPOINT previous_object')
+                try:
+                    if mapping.geometry in row:
+                        try:
+                            cur.execute('SELECT ST_Y(ST_Centroid(ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326))),'
+                                    ' ST_X(ST_Centroid(ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326)))',
+                                    (row[mapping.geometry],) * 2)
+                            latitude, longitude = cur.fetchone() # type: ignore
+                        except Exception:
+                            results[i] = f'Геометрия в поле "{mapping.geometry}" некорректна'
+                            if commit:
+                                cur.execute('ROLLBACK TO previous_object')
                             else:
-                                results[i] = f'Пропущен (Адрес не начинается ни с одного из {len(address_prefixes)} префиксов)'
+                                conn.rollback()
+                            continue
+                    else:
+                        try:
+                            latitude = round(float(row[mapping.latitude]), 6)
+                            longitude = round(float(row[mapping.longitude]), 6)
+                        except Exception:
+                            results[i] = 'Пропущен (широта или долгота некорректны)'
                             skipped += 1
                             continue
-                if mapping.geometry not in row and \
-                            (mapping.latitude not in row or mapping.longitude not in row):
-                    results[i] = 'Пропущен (отсутствует как минимум одно необходимое поле:' \
-                            f' (широта ({mapping.latitude}) + долгота ({mapping.longitude}) или геометрия({mapping.geometry}))'
-                    skipped += 1
-                    continue
-                name = row.get(mapping.name, f'({service_type} без названия)')
-                phys_id: int
-                build_id: Optional[int]
-                insert_physical_object = False
-                if is_service_building:
-                    cur.execute('SELECT phys.id, build.id FROM physical_objects phys JOIN buildings build ON build.physical_object_id = phys.id'
-                            ' WHERE phys.city_id = %s AND build.address LIKE %s AND'
-                            '   ST_Distance(phys.center::geography, ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography) < 100 LIMIT 1',
-                            (city_id,  f'%{address}', longitude, latitude))
-                    res = cur.fetchone()
-                    if res is not None: # if building with the same address found and distance between point and the center of geometry is less than 100m
-                        phys_id, build_id = res
-                        cur.execute('SELECT id FROM functional_objects f'
-                                ' WHERE physical_object_id = %s AND city_service_type_id = %s AND name = %s LIMIT 1', (phys_id, service_type_id, name))
-                        res = cur.fetchone()
-                        if res is not None: # if service is already present in this building
-                            present += 1
-                            results[i] = f'Обновлен существующий сервис (build_id = {build_id}, phys_id = {phys_id}, functional_object_id = {res[0]})'
-                            functional_ids[i] = res[0]
-                            update_object(conn, row, res[0], mapping, service_type, commit)
-                            continue
+                    address: Optional[str] = None
+                    if is_service_building:
+                        if mapping.address in row:
+                            for address_prefix in address_prefixes:
+                                if row.get(mapping.address, '').startswith(address_prefixes):
+                                    address = row.get(mapping.address)[len(address_prefix):].strip(', ')
+                                    break
+                            else:
+                                if len(address_prefixes) == 1:
+                                    results[i] = f'Пропущен (Адрес не начинается с "{address_prefixes[0]}")'
+                                else:
+                                    results[i] = f'Пропущен (Адрес не начинается ни с одного из {len(address_prefixes)} префиксов)'
+                                skipped += 1
+                                continue
+                    if mapping.geometry not in row and \
+                                (mapping.latitude not in row or mapping.longitude not in row):
+                        results[i] = 'Пропущен (отсутствует как минимум одно необходимое поле:' \
+                                f' (широта ({mapping.latitude}) + долгота ({mapping.longitude}) или геометрия({mapping.geometry}))'
+                        skipped += 1
+                        continue
+                    name = row.get(mapping.name, f'({service_type} без названия)')
+                    if name is None or name == '':
+                        name = f'({service_type} без названия)'
+                    phys_id: int
+                    build_id: Optional[int]
+                    insert_physical_object = False
+                    if is_service_building:
+                        if address is not None:
+                            cur.execute('SELECT phys.id, build.id FROM physical_objects phys JOIN buildings build ON build.physical_object_id = phys.id'
+                                    ' WHERE phys.city_id = %s AND build.address LIKE %s AND'
+                                    '   ST_Distance(phys.center::geography, ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography) < 100 LIMIT 1',
+                                    (city_id,  f'%{address}', longitude, latitude))
+                            res = cur.fetchone() # type: ignore
                         else:
-                            added_to_address += 1
-                            results[i] = f'Сервис вставлен в здание, найденное по совпадению адреса (build_id = {build_id}, phys_id = {phys_id}).'
-                    else: # if no building with the same address found or distance is too high (address is wrong or it's not a concrete house)
-                        cur.execute('SELECT phys.id, build.id, build.address FROM physical_objects phys JOIN buildings build ON build.physical_object_id = phys.id'
-                            ' WHERE city_id = %s AND (ST_CoveredBy(ST_SetSRID(ST_MakePoint(%s, %s), 4326), geometry) OR'
-                            "   ST_GeometryType(geometry) = 'ST_Point' AND abs(ST_X(geometry) - %s) < 0.0001 AND abs(ST_Y(geometry) - %s) < 0.0001)"
-                            ' LIMIT 1',
-                            (city_id,) + (longitude, latitude) * 2)
-                        res = cur.fetchone()
-                        if res is not None: # if building found by geometry
-                            phys_id, build_id, address = res
+                            res = None
+                        if res is not None: # if building with the same address found and distance between point and the center of geometry is less than 100m
+                            phys_id, build_id = res
                             cur.execute('SELECT id FROM functional_objects f'
                                     ' WHERE physical_object_id = %s AND city_service_type_id = %s AND name = %s LIMIT 1', (phys_id, service_type_id, name))
                             res = cur.fetchone()
                             if res is not None: # if service is already present in this building
                                 present += 1
-                                if address is not None:
-                                    results[i] = f'Обновлен существующий сервис, находящийся в здании с другим адресом: "{address}"' \
-                                            f' (build_id = {build_id}, phys_id = {phys_id}, functional_object_id = {res[0]})'
-                                else:
-                                    results[i] = f'Обновлен существующий сервис, находящийся в здании без адреса' \
-                                            f' (build_id = {build_id}, phys_id = {phys_id}, functional_object_id = {res[0]})'
+                                results[i] = f'Обновлен существующий сервис (build_id = {build_id}, phys_id = {phys_id}, functional_object_id = {res[0]})'
                                 functional_ids[i] = res[0]
                                 update_object(conn, row, res[0], mapping, service_type, commit)
                                 continue
-                            else: # if no service present, but buiding found
-                                added_to_geom += 1
-                                results[i] = f'Сервис вставлен в здание, подходящее по геометрии, но имеющее другой адрес: "{address}"' \
-                                                f' (build_id = {build_id}, phys_id = {phys_id})'
-                        else: # if no building found by address or geometry
-                            insert_physical_object = True
-                else:
-                    cur.execute('SELECT id FROM physical_objects phys'
-                            ' WHERE city_id = %s AND (SELECT EXISTS (SELECT 1 FROM buildings where physical_object_id = phys.id)) = false AND'
-                            '   (ST_CoveredBy(ST_SetSRID(ST_MakePoint(%s, %s), 4326), geometry) OR'
-                            "       ST_GeometryType(geometry) = 'ST_Point' AND abs(ST_X(geometry) - %s) < 0.0001 AND abs(ST_Y(geometry) - %s) < 0.0001)"
-                            ' LIMIT 1',
-                            (city_id,) + (longitude, latitude) * 2)
-                    res = cur.fetchone()
-                    if res is not None: # if physical_object found by geometry
-                        phys_id = res[0]
-                        cur.execute('SELECT id FROM functional_objects f '
-                                ' WHERE physical_object_id = %s AND city_service_type_id = %s AND name = %s'
+                            else:
+                                added_to_address += 1
+                                results[i] = f'Сервис вставлен в здание, найденное по совпадению адреса (build_id = {build_id}, phys_id = {phys_id}).'
+                        else: # if no building with the same address found or distance is too high (address is wrong or it's not a concrete house)
+                            cur.execute('SELECT phys.id, build.id, build.address FROM physical_objects phys JOIN buildings build ON build.physical_object_id = phys.id'
+                                ' WHERE city_id = %s AND (ST_CoveredBy(ST_SetSRID(ST_MakePoint(%s, %s), 4326), geometry) OR'
+                                "   ST_GeometryType(geometry) = 'ST_Point' AND abs(ST_X(geometry) - %s) < 0.0001 AND abs(ST_Y(geometry) - %s) < 0.0001)"
                                 ' LIMIT 1',
-                                (phys_id, service_type_id, name))
+                                (city_id,) + (longitude, latitude) * 2)
+                            res = cur.fetchone()
+                            if res is not None: # if building found by geometry
+                                phys_id, build_id, address = res
+                                cur.execute('SELECT id FROM functional_objects f'
+                                        ' WHERE physical_object_id = %s AND city_service_type_id = %s AND name = %s LIMIT 1', (phys_id, service_type_id, name))
+                                res = cur.fetchone()
+                                if res is not None: # if service is already present in this building
+                                    present += 1
+                                    if address is not None:
+                                        results[i] = f'Обновлен существующий сервис, находящийся в здании с другим адресом: "{address}"' \
+                                                f' (build_id = {build_id}, phys_id = {phys_id}, functional_object_id = {res[0]})'
+                                    else:
+                                        results[i] = f'Обновлен существующий сервис, находящийся в здании без адреса' \
+                                                f' (build_id = {build_id}, phys_id = {phys_id}, functional_object_id = {res[0]})'
+                                    functional_ids[i] = res[0]
+                                    update_object(conn, row, res[0], mapping, name, commit)
+                                    continue
+                                else: # if no service present, but buiding found
+                                    added_to_geom += 1
+                                    if address is None:
+                                        results[i] = f'Сервис вставлен в здание, подходящее по геометрии, но не имеющее адреса' \
+                                                f' (build_id = {build_id}, phys_id = {phys_id})'
+                                    else:
+                                        results[i] = f'Сервис вставлен в здание, подходящее по геометрии, но имеющее другой адрес: "{address}"' \
+                                                f' (build_id = {build_id}, phys_id = {phys_id})'
+                            else: # if no building found by address or geometry
+                                insert_physical_object = True
+                    else:
+                        cur.execute('SELECT id FROM physical_objects phys'
+                                ' WHERE city_id = %s AND (SELECT EXISTS (SELECT 1 FROM buildings where physical_object_id = phys.id)) = false AND'
+                                '   (ST_CoveredBy(ST_SetSRID(ST_MakePoint(%s, %s), 4326), geometry) OR'
+                                "       ST_GeometryType(geometry) = 'ST_Point' AND abs(ST_X(geometry) - %s) < 0.0001 AND abs(ST_Y(geometry) - %s) < 0.0001)"
+                                ' LIMIT 1',
+                                (city_id,) + (longitude, latitude) * 2)
                         res = cur.fetchone()
-                        if res is not None: # if service is already present in this pysical_object
-                            present += 1
-                            results[i] = f'Обновлен существующий сервис без здания' \
-                                    f' (phys_id = {phys_id}, functional_object_id = {res[0]})'
-                            functional_ids[i] = res[0]
-                            update_object(conn, row, res[0], mapping, service_type, commit)
-                            continue
-                        else: # if no service present, but physical_object found
-                            added_to_geom += 1
-                            results[i] = f'Сервис вставлен в физический объект, подходящий по геометрии (phys_id = {phys_id})'
-                    else:
-                        insert_physical_object = True
-                if insert_physical_object:
-                    if mapping.geometry in row:
-                        cur.execute('INSERT INTO physical_objects (osm_id, geometry, center, city_id) VALUES'
-                                ' (%s, ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326), ST_SetSRID(ST_MakePoint(%s, %s), 4326), %s) RETURNING id',
-                                (row.get(mapping.osm_id), row[mapping.geometry], longitude, latitude, city_id))
-                    else:
-                        cur.execute('INSERT INTO physical_objects (osm_id, geometry, center, city_id) VALUES'
-                                ' (%s, ST_SetSRID(ST_MakePoint(%s, %s), 4326), ST_SetSRID(ST_MakePoint(%s, %s), 4326), %s) RETURNING id',
-                                (row.get(mapping.osm_id), longitude, latitude, longitude, latitude, city_id))
-                    phys_id = cur.fetchone()[0]
-                    if is_service_building:
-                        if mapping.address in row and len(row.get(mapping.address)) > len(address_prefix):
-                            cur.execute("INSERT INTO buildings (physical_object_id, address) VALUES (%s, %s) RETURNING id",
-                                        (phys_id, new_prefix + row[mapping.address][len(address_prefix):].strip(', ')))
-                            build_id = cur.fetchone()[0]
-                            results[i] = f'Сервис вставлен в новое здание (build_id = {build_id}, phys_id = {phys_id})'
+                        if res is not None: # if physical_object found by geometry
+                            phys_id = res[0]
+                            cur.execute('SELECT id FROM functional_objects f '
+                                    ' WHERE physical_object_id = %s AND city_service_type_id = %s AND name = %s'
+                                    ' LIMIT 1',
+                                    (phys_id, service_type_id, name))
+                            res = cur.fetchone()
+                            if res is not None: # if service is already present in this pysical_object
+                                present += 1
+                                results[i] = f'Обновлен существующий сервис без здания' \
+                                        f' (phys_id = {phys_id}, functional_object_id = {res[0]})'
+                                functional_ids[i] = res[0]
+                                update_object(conn, row, res[0], mapping, name, commit)
+                                continue
+                            else: # if no service present, but physical_object found
+                                added_to_geom += 1
+                                results[i] = f'Сервис вставлен в физический объект, подходящий по геометрии (phys_id = {phys_id})'
                         else:
-                            cur.execute("INSERT INTO buildings (physical_object_id) VALUES (%s) RETURNING id",
-                                        (phys_id,))
-                            build_id = cur.fetchone()[0]
-                            results[i] = f'Сервис вставлен в новое здание без указания адреса (build_id = {build_id}, phys_id = {phys_id})'
-                    else:
+                            insert_physical_object = True
+                    if insert_physical_object:
                         if mapping.geometry in row:
-                            results[i] = f'Сервис вставлен в новый физический объект, добавленный с геометрией (phys_id = {phys_id})'
+                            cur.execute('INSERT INTO physical_objects (osm_id, geometry, center, city_id) VALUES'
+                                    ' (%s, ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326), ST_SetSRID(ST_MakePoint(%s, %s), 4326), %s) RETURNING id',
+                                    (row.get(mapping.osm_id), row[mapping.geometry], longitude, latitude, city_id))
                         else:
-                            results[i] = f'Сервис вставлен в новый физический объект, добавленный с типом геометрии "Точка" (phys_id = {phys_id})'
-                    added_as_points += 1
-                functional_ids[i] = insert_object(conn, row, phys_id, service_type, service_type_id, mapping, commit)
-            except Exception as ex:
-                log.error(f'Произошла ошибка: {ex}')
-                if verbose:
-                    log.error('Traceback:\ntraceback.format_exc()')
-                if commit:
-                    cur.execute('ROLLBACK TO previous_object')
+                            cur.execute('INSERT INTO physical_objects (osm_id, geometry, center, city_id) VALUES'
+                                    ' (%s, ST_SetSRID(ST_MakePoint(%s, %s), 4326), ST_SetSRID(ST_MakePoint(%s, %s), 4326), %s) RETURNING id',
+                                    (row.get(mapping.osm_id), longitude, latitude, longitude, latitude, city_id))
+                        phys_id = cur.fetchone()[0] # type: ignore
+                        if is_service_building:
+                            if address is not None:
+                                cur.execute("INSERT INTO buildings (physical_object_id, address) VALUES (%s, %s) RETURNING id",
+                                            (phys_id, new_prefix + address))
+                                build_id = cur.fetchone()[0] # type: ignore
+                                results[i] = f'Сервис вставлен в новое здание (build_id = {build_id}, phys_id = {phys_id})'
+                            else:
+                                cur.execute("INSERT INTO buildings (physical_object_id) VALUES (%s) RETURNING id",
+                                            (phys_id,))
+                                build_id = cur.fetchone()[0] # type: ignore
+                                results[i] = f'Сервис вставлен в новое здание без указания адреса (build_id = {build_id}, phys_id = {phys_id})'
+                        else:
+                            if mapping.geometry in row:
+                                results[i] = f'Сервис вставлен в новый физический объект, добавленный с геометрией (phys_id = {phys_id})'
+                            else:
+                                results[i] = f'Сервис вставлен в новый физический объект, добавленный с типом геометрии "Точка" (phys_id = {phys_id})'
+                        added_as_points += 1
+                    functional_ids[i] = insert_object(conn, row, phys_id, name, service_type_id, mapping, commit) # type: ignore
+                except Exception as ex:
+                    logger.error(f'Произошла ошибка: {ex}', traceback=True)
+                    if verbose:
+                        logger.error(f'Traceback:\n{traceback.format_exc()}')
+                    if commit:
+                        cur.execute('ROLLBACK TO previous_object')
+                    else:
+                        conn.rollback()
+                    results[i] = f'Пропущен, вызывает ошибку: {ex}'
+                    skipped += 1
+        except KeyboardInterrupt:
+            logger.warning('Прерывание процесса пользователем')
+            logger.opt(colors=True).warning(f'Обработано {i:4} сервисов из {objects.shape[0]}:'
+                    f' <green>{added_as_points + added_to_address + added_to_geom} добавлены</green>,'
+                    f' <yellow>{present} обновлены</yellow>, <red>{skipped} пропущены</red>')
+            if (commit):
+                choice = input('Сохранить внесенные на данный момент изменения? (y/д/1 / n/н/0): ')
+                if choice.startswith(('y', 'д', '1')):
+                    conn.commit()
+                    logger.success('Сохранение внесенных изменений')
                 else:
-                    conn.rollback()
-                results[i] = f'Пропущен, вызывает ошибку: {ex}'
-                skipped += 1
-        if commit:
-            conn.commit()
+                    logger.warning('Отмена внесенных изменений')
+            for j in range(i, objects.shape[0]):
+                results[j] = 'Пропущен (отмена пользователем)'
+        else:    
+            if commit:
+                conn.commit()
     objects['result'] = pd.Series(results, index=objects.index)
     objects['functional_obj_id'] = pd.Series(functional_ids, index=objects.index)
-    log.info(f'Вставка сервисов типа "{service_type}" завершена')
-    log.info(f'{objects.shape[0]} сервисов обработано: {added_as_points + added_to_address + added_to_geom} добавлены,'
-            f' {present} обновлены, {skipped} пропущены')
-    log.info(f'{added_as_points} сервисов были добавлены в новые физические объекты/здания, {added_to_address} добавлены в здания по совпадению адреса,'
-        f' {added_to_geom} добавлены в физические объекты/здания по совпадению геометрии')
+    logger.success(f'Вставка сервисов типа "{service_type}" завершена')
+    logger.opt(colors=True).info(f'{i} сервисов обработано: <green>{added_as_points + added_to_address + added_to_geom} добавлены</green>,'
+            f' <yellow>{present} обновлены</yellow>, <red>{skipped} пропущены</red>')
+    logger.opt(colors=True).info(f'<cyan>{added_as_points} сервисов были добавлены в новые физические объекты/здания</cyan>,'
+            f' <green>{added_to_address} добавлены в здания по совпадению адреса</green>,'
+            f' <yellow>{added_to_geom} добавлены в физические объекты/здания по совпадению геометрии</yellow>')
     filename = f'insertion_{conn.info.host}_{conn.info.port}_{conn.info.dbname}.xlsx'
     list_name = f'{service_type.replace("/", "_")}_{time.strftime("%Y-%m-%d %H_%M-%S")}'
+    logger.opt(colors=True).info(f'Сохранение лога в файл Excel (нажмите Ctrl+C для отмены, <magenta>но это может повредить файл лога</magenta>)')
     try:
-        with pd.ExcelWriter(filename, mode = ('a' if os.path.isfile(filename) else 'w')) as writer:
+        with pd.ExcelWriter(filename, mode = ('a' if os.path.isfile(filename) else 'w'), engine="openpyxl") as writer:
             objects.to_excel(writer, list_name)
-        log.info(f'Лог вставки сохранен в файл "{filename}", лист "{list_name}"')
-    except Exception:
-        log.error(f'Ошибка при сохранении лога вставки в файл "{filename}", лист "{list_name}"')
+        logger.info(f'Лог вставки сохранен в файл "{filename}", лист "{list_name}"')
+    except Exception as ex:
+        logger.error(f'Ошибка при сохранении лога вставки в файл "{filename}", лист "{list_name}": {ex!r}')
+    except KeyboardInterrupt:
+        logger.warning(f'Отмена сохранения файла лога, файл "{filename}" может быть поврежден')
     return objects
 
 
@@ -536,98 +546,73 @@ def load_objects(filename: str, default_values: Optional[Dict[str, Any]] = None,
     try:
         return funcs[filename[filename.rfind('.') + 1:]](filename, default_values, needed_columns)
     except KeyError:
-        raise ValueError(f'File extension "{args.filename[args.filename.rfind(".") + 1:]}" is not supported')
+        raise ValueError(f'File extension "{filename[filename.rfind(".") + 1:]}" is not supported')
     
 
-if __name__ == '__main__':
+@click.command('IDU - Insert Services CLI')
+@click.option('--db_addr', '-H', envvar='DB_ADDR', help='Postgres DBMS address', default='localhost', show_default=True)
+@click.option('--db_port', '-P', envvar='DB_PORT', type=int, help='Postgres DBMS port', default=5432, show_default=True)
+@click.option('--db_name', '-D', envvar='DB_NAME', help='Postgres city database name', default='city_db_final', show_default=True)
+@click.option('--db_user', '-U', envvar='DB_USER', help='Postgres DBMS user name', default='postgres', show_default=True)
+@click.option('--db_pass', '-W', envvar='DB_PASS', help='Postgres DBMS user password', default='postgres', show_default=True)
+@click.option('--dry_run', '-d', envvar='DRY_RUN', is_flag=True, help='Try to insert objects, but do not save results')
+@click.option('--verbose', '-v', envvar='VERBOSE', is_flag=True, help='Output stack trace when error happens')
+@click.option('--log_filename', '-l', envvar='LOGFILE', help='path to create log file, empty or "-" to disable logging',
+        required=False, show_default='current datetime "YYYY-MM-DD HH-mm-ss-<filename>.csv"')
+@click.option('--city', '-c', envvar='DB_PASS', help='City to insert services to, must exist in the database', show_default=True)
+@click.option('--service_type', '-T', envvar='DB_PASS', help='Service type name or code for inserting services, must exist in the database', show_default=True)
+@click.option('--document_latitude', '-dx', envvar='DOCUMENT_LATITUDE', help='Document latutude field (this and longitude or geometry)',
+        default='x', show_default=True)
+@click.option('--document_longitude', '-dy', envvar='DOCUMENT_LONGITUDE', help='Document longitude field (this and latitude or geometry)',
+        default='y', show_default=True)
+@click.option('--document_geometry', '-dg', envvar='DOCUMENT_GEOMETRY', help='Document geometry field (this or latitude and longitude)',
+        default='geometry', show_default=True)
+@click.option('--document_address', '-dA', envvar='DOCUMENT_ADDRESS', help='Document service building address field', default='yand_adr', show_default=True)
+@click.option('--document_service_name', '-dN', envvar='DOCUMENT_SERVICE_NAME', help='Document service name field', default='name', show_default=True)
+@click.option('--document_opening_hours', '-dO', envvar='DOCUMENT_OPENING_HOURS', help='Document service opening hours field',
+        default='opening_hours', show_default=True)
+@click.option('--document_website', '-dw', envvar='DOCUMENT_WEBSITE', help='Document service website field', default='contact:website', show_default=True)
+@click.option('--document_phone', '-dP', envvar='DOCUMENT_PHONE', help='Document service phone number field', default='contact:phone', show_default=True)
+@click.option('--document_osm_id', '-dI', envvar='DOCUMENT_OSM_ID', help='Document physical object OSM identifier field', default='id', show_default=True)
+@click.option('--document_capacity', '-dC', envvar='DOCUMENT_CAPACITY', help='Document service capacity field', default='-', show_default=True)
+@click.option('--address_prefix', '-aP', multiple=True, envvar='ADDRESS_PREFIX',
+        help='Address prefix (available for multiple prefixes), no comma or space needed', default=[], show_default='Россия, Санкт-Петербург')
+@click.option('--new_address_prefix', '-nAP', envvar='NEW_ADDRESS_PREFIX',
+        help='New address prefix that would be added to all addresses after cutting old address prefix', default='', show_default=True)
+@click.argument('filename')
+def main(db_addr: str, db_port: int, db_name: str, db_user: str, db_pass: str, dry_run: bool, verbose: bool, log_filename: Optional[str],
+        city: str, service_type: str, document_latitude: str, document_longitude: str, document_geometry: str, document_address: str,
+        document_service_name: str, document_opening_hours: str, document_website: str, document_phone: str, document_osm_id: str,
+        document_capacity: str, address_prefix: Tuple[str], new_address_prefix: str, filename: str):
 
-    properties = Properties('localhost', 5432, 'city_db_final', 'postgres', 'postgres')
+    global log_handler_id
+    if verbose:
+        logger.remove(log_handler_id)
+        log_handler_id = logger.add('insert_services.log', level='DEBUG', filter=__name__, colorize=False,
+                format='{time:YYYY-MM-DD HH:mm:ss} | {level: ^8} | {message}')
 
-    parser = argparse.ArgumentParser(description='Inserts functional objects to the database')
-    parser.add_argument('-H', '--db_addr', action='store', dest='db_addr',
-                        help=f'postgres host address [default: {properties.db_addr}]', type=str)
-    parser.add_argument('-P', '--db_port', action='store', dest='db_port',
-                        help=f'postgres port number [default: {properties.db_port}]', type=int)
-    parser.add_argument('-d', '--db_name', action='store', dest='db_name',
-                        help=f'postgres database name [default: {properties.db_name}]', type=str)
-    parser.add_argument('-U', '--db_user', action='store', dest='db_user',
-                        help=f'postgres user name [default: {properties.db_user}]', type=str)
-    parser.add_argument('-W', '--db_pass', action='store', dest='db_pass',
-                        help=f'postgres user password [default: {properties.db_pass}]', type=str)
+    logger.remove(0)
+    logger.add(sys.stderr, level = 'INFO' if not verbose else 'DEBUG',
+            format='<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: ^8}</level> | <cyan>{line:03}</cyan> - <level>{message}</level>')
 
-    parser.add_argument('-D', '--dry_run', action='store_true', dest='dry_run',
-                        help=f'do not commit anything to the database, only output log file')
-    parser.add_argument('-v', '--verbose', action='store_true', dest='verbose',
-                        help=f'output stack trace when error happens')
-    parser.add_argument('-l', '--log', action='store', dest='log_filename',
-                        help=f'path to create log file [default: current datetime "YYYY-MM-DD HH-mm-ss-<filename>.csv"]', type=str)
-    parser.add_argument('-c', '--city', action='store', dest='city',
-                        help=f'name of the city, must be in the database [required]', type=str, required=True)
-    parser.add_argument('-T', '--service_type', action='store', dest='service_type',
-                        help=f'service type name (for service_types table) [required]', type=str, required=True)
-    parser.add_argument('-C', '--service_type_code', action='store', dest='service_type_code',
-                        help=f'service type code (for service_types table) [required to insert, default null]', type=str)
-    parser.add_argument('-f', '--city_function', action='store', dest='city_function',
-                        help=f'name/code of city function of service type (from city_functions table) [required to insert, default null]', type=str)
-    parser.add_argument('-mC', '--min_capacity', action='store', dest='min_capacity',
-                        help=f'service type minimum capacity (for service_types table) [default null]', type=int)
-    parser.add_argument('-MC', '--max_capacity', action='store', dest='max_capacity',
-                        help=f'service type maximum capacity (for service_types table) [default null]', type=int)
-    parser.add_argument('-mS', '--min_status', action='store', dest='min_status',
-                        help=f'service type minimum status (for service_types table) [default null]', type=int)
-    parser.add_argument('-MS', '--max_status', action='store', dest='max_status',
-                        help=f'service type maximum status (for service_types table) [default null]', type=int)
-    
-    parser.add_argument('-dx', '--document_latitude', action='store', dest='latitude',
-                        help=f'[default x]', type=str, default='x')
-    parser.add_argument('-dy', '--document_longitude', action='store', dest='longitude',
-                        help=f'[default y]', type=str, default='y')
-    parser.add_argument('-dg', '--document_geometry', action='store', dest='geometry',
-                        help=f'[default geometry]', type=str, default='geometry')
-    parser.add_argument('-dN', '--document_name', action='store', dest='name',
-                        help=f'[default name]', type=str, default='name')
-    parser.add_argument('-dO', '--document_opening_hours', action='store', dest='opening_hours',
-                        help=f'[default opening_hours]', type=str, default='opening_hours')
-    parser.add_argument('-dW', '--document_website', action='store', dest='website',
-                        help=f'[default contact:website]', type=str, default='contact:website')
-    parser.add_argument('-dP', '--document_phone', action='store', dest='phone',
-                        help=f'[default contact:phone]', type=str, default='contact:phone')
-    parser.add_argument('-dC', '--document_capacity', action='store', dest='capacity',
-                        help=f'[default -]', type=str, default='-')
-    parser.add_argument('-dAD', '--document_address', action='store', dest='address',
-                        help=f'[default yand_adr]', type=str, default='yand_adr')
-    parser.add_argument('-dAP', '--document_address_prefix', action='append', dest='adr_prefixes',
-                        help=f'[default "Россия, Санкт-Петербург" (comma and space are not needed, adderess will be cut)], you can add multiple prefixes',
-                        type=str, default=[])
-    parser.add_argument('-nAP', '--new_address_prefix', action='store', dest='new_address_prefix',
-                        help=f'[default (empty)]', type=str, default='')
-    parser.add_argument('-dI', '--document_osm_id', action='store', dest='osm_id',
-                        help=f'[default id]', type=str, default='id')
-
-    parser.add_argument('filename', action='store', help=f'path to file with data [required]', type=str)
-    args = parser.parse_args()
-
-    if len(args.adr_prefixes) == 0:
-        args.adr_prefixes.append('Россия, Санкт-Петербург')
+    address_prefixes = list(address_prefix)
+    if len(address_prefixes) == 0:
+        address_prefixes.append('Россия, Санкт-Петербург')
     else:
-        args.adr_prefixes.sort(key=len, reverse=True)
+        address_prefixes.sort(key=len, reverse=True)
 
-    assert os.path.isfile(args.filename), 'Input file is not found. Exiting'
+    if not os.path.isfile(filename):
+        logger.error(f'Входной файл "{filename}" не найден или не является файлом, завершение работы')
+        exit(1)
 
-    if args.db_addr is not None:
-        properties.db_addr = args.db_addr
-    if args.db_port is not None:
-        properties.db_port = args.db_port
-    if args.db_name is not None:
-        properties.db_name = args.db_name
-    if args.db_user is not None:
-        properties.db_user = args.db_user
-    if args.db_pass is not None:
-        properties.db_pass = args.db_pass
-    if args.log_filename is None:
+    if log_filename is None:
         t = time.localtime()
-        fname = args.filename if os.path.sep not in os.path.relpath(args.filename) else \
-                os.path.relpath(args.filename)[os.path.relpath(args.filename).rfind(os.path.sep) + 1:]
+        fname: str
+        if os.path.sep in os.path.relpath(filename): # type: ignore
+            fname = os.path.relpath(filename)[os.path.relpath(filename).rfind(os.path.sep) + 1:] # type: ignore
+        else:
+            fname = filename
+                
         logfile = f'{t.tm_year}-{t.tm_mon:02}-{t.tm_mday:02} ' \
                 f'{t.tm_hour:02}-{t.tm_min:02}-{t.tm_sec:02}-' \
                 f'{fname[:fname.rfind(".")] if "." in fname else fname}.csv'
@@ -635,29 +620,44 @@ if __name__ == '__main__':
             logfile = f'{logfile[-4:]}-{time.time()}.csv'
         del fname
     else:
-        logfile = args.log_filename
+        if log_filename not in ('', '-'):
+            logfile = log_filename
+        else:
+            logfile = None
 
-    mapping = initInsertionMapping(args.name, args.opening_hours, args.website, args.phone, args.address, args.osm_id, args.capacity, args.latitude, args.longitude, args.geometry)
-    log.info(f"Document's mapping: {mapping}")
+    mapping = initInsertionMapping(document_service_name, document_opening_hours, document_website, document_phone, document_address,
+            document_osm_id, document_capacity, document_latitude, document_longitude, document_geometry)
+    logger.info(f"Соответствие (маппинг) документа: {mapping}")
 
-    log.info(f'Using database {properties.db_user}@{properties.db_addr}:{properties.db_port}/{properties.db_name}.')
-    if args.dry_run:
-        log.info('Dry run, no changes to database will be made')
+    logger.opt(colors=True).info(f'Подключение к базе данных <cyan>{db_user}@{db_addr}:{db_port}/{db_name}</cyan>.')
+
+    conn = psycopg2.connect(host=db_addr, port=db_port, dbname=db_name, user=db_user, password=db_pass, connect_timeout=20)
+
+    if dry_run:
+        logger.warning('Холостой запуск, изменения не будут сохранены')
     else:
-        log.info('Objects will be written to the database')
-    log.info(f'Output log file - "{logfile}"')
+        logger.info('Загруженные объекты будут сохранены в базе данных')
+    if logfile is not None:
+        logger.opt(colors=True).info(f'Сохарнение лога будет произведено в файл <cyan>"{logfile}"</cyan>')
 
-    objects: pd.DataFrame = load_objects(args.filename)
-    log.info(f'Loaded {objects.shape[0]} objects from file "{args.filename}"')
+    objects: pd.DataFrame = load_objects(filename)
+    logger.info(f'Загружено {objects.shape[0]} объектов из файла "{filename}"')
     for column in mapping._fields:
         value = getattr(mapping, column)
         if value is not None and value not in objects.columns:
-            log.warning(f'Колонка "{value}" используется ({column}), но не задана в файле')
+            logger.warning(f'Колонка "{value}" используется ({column}), но не задана в файле')
 
-    service_id = ensure_service_type(properties.conn, args.service_type, args.service_type_code, args.min_capacity, args.max_capacity,
-            args.min_status, args.max_status, args.city_function, not args.dry_run)
-    objects = add_objects(properties.conn, objects, args.city, args.service_type, service_id, mapping, args.adr_prefixes,
-            args.new_address_prefix, not args.dry_run, args.verbose)
+    objects = add_objects(conn, objects, city, service_type, mapping, address_prefixes, new_address_prefix, not dry_run, verbose)
 
-    objects.to_csv(logfile)
-    log.info(f'Finished, result is written to {logfile}')
+    if logfile is not None:
+        objects.to_csv(logfile)
+    logger.opt(colors=True).info(f'Завершено, лог записан в файл <green>"{logfile}"</green>')
+
+if __name__ == '__main__':
+    if os.path.isfile('.env'):
+        with open('.env', 'r') as f:
+            for name, value in (tuple((line[len('export '):] if line.startswith('export ') else line).strip().split('=')) \
+                        for line in f.readlines() if not line.startswith('#') and line != ''):
+                if name not in os.environ:
+                    os.environ[name] = value
+    main()
