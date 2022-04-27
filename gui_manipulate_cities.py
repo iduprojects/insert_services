@@ -421,7 +421,10 @@ class CitiesWindow(QtWidgets.QWidget):
         super().__init__(parent)
 
         self._db_properties = db_properties
-        self._additional_conn = db_properties.copy().conn
+        try:
+            self._additional_conn = db_properties.copy().conn
+        except Exception:
+            self._additional_conn = None # type: ignore
         self._on_close = on_close
         self._territory_window: Optional[TerritoryWindow] = None
 
@@ -520,7 +523,7 @@ class CitiesWindow(QtWidgets.QWidget):
 
     def _on_city_add(self) -> None:
         dialog = CityCreation('Добавление нового города', is_adding=True)
-        if dialog.exec() != QtWidgets.QDialog.Accepted:
+        if dialog.exec() != QtWidgets.QDialog.Accepted or self._additional_conn is None:
             return
         else:
             new_geom_tuple = check_geometry_correctness(dialog.get_geometry(), self._additional_conn)
@@ -560,7 +563,7 @@ class CitiesWindow(QtWidgets.QWidget):
             geometry, name, population, division_type = cur.fetchone() # type: ignore
             geometry = json.loads(geometry)
         dialog = CityCreation(f'Внесение изменений в город в строке под номером {row + 1}', json.dumps(geometry, indent=2), name, population, division_type)
-        if dialog.exec() != QtWidgets.QDialog.Accepted:
+        if dialog.exec() != QtWidgets.QDialog.Accepted or self._additional_conn is None:
             return
         else:
             new_geom_tuple = check_geometry_correctness(dialog.get_geometry(), self._additional_conn)
@@ -649,7 +652,7 @@ class CitiesWindow(QtWidgets.QWidget):
 
     def _on_show_MOs(self) -> None:
         row = self._table.currentRow()
-        if row == -1:
+        if row == -1 or self._additional_conn is None:
             return
         self._territory_window = TerritoryWindow(self._db_properties.conn, self._additional_conn, self._table.item(row, 1).text(),
                 'municipality', self._on_municipality_add, self._on_municipality_edit, self._on_municipality_delete, self._on_error)
@@ -673,7 +676,7 @@ class CitiesWindow(QtWidgets.QWidget):
     
     def _on_show_AUs(self) -> None:
         row = self._table.currentRow()
-        if row == -1:
+        if row == -1 or self._additional_conn is None:
             return
         self._territory_window = TerritoryWindow(self._db_properties.conn, self._additional_conn, self._table.item(row, 1).text(),
                 'administrative_unit', self._on_administrative_unit_add, self._on_administrative_unit_edit, self._on_administrative_unit_delete, self._on_error)

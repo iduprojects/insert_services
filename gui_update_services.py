@@ -339,7 +339,10 @@ class UpdatingWindow(QtWidgets.QWidget):
         super().__init__(parent)
 
         self._db_properties = db_properties
-        self._additional_conn = db_properties.copy().conn
+        try:
+            self._additional_conn = db_properties.copy().conn
+        except Exception:
+            self._additional_conn = None # type: ignore
         self._on_close = on_close
 
         self._layout = QtWidgets.QHBoxLayout()
@@ -550,7 +553,7 @@ class UpdatingWindow(QtWidgets.QWidget):
         row = self._table.currentRow()
         func_id, phys_id = self._table.item(row, 0).text(), self._table.item(row, 8).text()
         dialog = PhysicalObjectCreation(f'Введите информацию о физическом объекте для сервиса в строке {row + 1} в поля ниже', is_adding=True)
-        if dialog.exec() != QtWidgets.QDialog.Accepted:
+        if dialog.exec() != QtWidgets.QDialog.Accepted or self._additional_conn is None:
             return
         try:
             newGeometry = json.loads(dialog.get_geometry()) # type: ignore
@@ -603,7 +606,7 @@ class UpdatingWindow(QtWidgets.QWidget):
         geometry = json.loads(geometry)
         dialog = PhysicalObjectCreation(f'Если необходимо, измените параметры физического объекта для сервиса на строке {row + 1}',
                 json.dumps(geometry, indent=2), osm_id)
-        if dialog.exec() != QtWidgets.QDialog.Accepted:
+        if dialog.exec() != QtWidgets.QDialog.Accepted or self._additional_conn is None:
             return
         new_geom_tuple = check_geometry_correctness(dialog.get_geometry(), self._additional_conn)
         if new_geom_tuple is None:
@@ -644,7 +647,7 @@ class UpdatingWindow(QtWidgets.QWidget):
         row = self._table.currentRow()
         func_id = self._table.item(row, 0).text()
         dialog = BuildingCreation(f'Введите информацию о здании для добавления для сервиса на строке {row + 1} в поля ниже', is_adding=True)
-        if dialog.exec() != QtWidgets.QDialog.Accepted:
+        if dialog.exec() != QtWidgets.QDialog.Accepted or self._additional_conn is None:
             return
         osm_id, address, building_date, building_area, repair_years, building_area_living, storeys, lift_count, population, project_type, ukname = \
                 dialog.osm_id(), dialog.address(), dialog.building_date(), dialog.repair_years(), dialog.building_area(), \
@@ -706,7 +709,7 @@ class UpdatingWindow(QtWidgets.QWidget):
                 return
         geometry = json.loads(geometry)
         dialog = BuildingCreation(f'Если необходимо, измените параметры здания для сервиса на строке {row + 1}', json.dumps(geometry, indent=2), *res)
-        if dialog.exec() != QtWidgets.QDialog.Accepted:
+        if dialog.exec() != QtWidgets.QDialog.Accepted or self._additional_conn is None:
             return
         new_geom_tuple = check_geometry_correctness(dialog.get_geometry(), self._additional_conn)
         if new_geom_tuple is None:
