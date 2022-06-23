@@ -184,8 +184,8 @@ class TerritoryWindow(QtWidgets.QWidget):
         ]
     )
     def __init__(self, conn: 'psycopg2.connection', additional_conn: 'psycopg2.connection',
-            city_name: str, territory_type: Literal['municipality', 'administrative_unit'], on_territory_add_callback: Callable[[int, str], None],
-            on_territory_edit_callback: Callable[[int, str, List[Tuple[str, str, str]]], None], on_territory_delete_callback: Callable[[List[Tuple[int, str]]], None],
+            city_name: str, territory_type: Literal['municipality', 'administrative_unit'], on_territory_add_callback: Callable[[int, str, str], None],
+            on_territory_edit_callback: Callable[[int, str, List[Tuple[str, str, str]], str], None], on_territory_delete_callback: Callable[[List[Tuple[int, str]], str], None],
             on_error_callback: Callable[[str], None], parent: Optional[QtWidgets.QWidget] = None):
         super().__init__(parent)
         self._conn = conn
@@ -289,7 +289,7 @@ class TerritoryWindow(QtWidgets.QWidget):
                                 dialog.get_geometry(), dialog.population())
                 )
                 territory_id = cur.fetchone()[0] # type: ignore
-            self._on_territory_add_callback(territory_id, _to_str(dialog.name()))
+            self._on_territory_add_callback(territory_id, _to_str(dialog.name()), self._city_name)
             row = self._table.rowCount()
             self._table.insertRow(row)
             self._table.setItem(row, 0, QtWidgets.QTableWidgetItem(str(territory_id)))
@@ -323,7 +323,7 @@ class TerritoryWindow(QtWidgets.QWidget):
             changes = []
             new_geom_tuple = check_geometry_correctness(dialog.get_geometry(), self._additional_conn)
             if new_geom_tuple is None:
-                self._on_error_callback(f'{self._territory_name_what} "{name}" с id={territory_id} не изменен, ошибка в геометрии')
+                self._on_error_callback(f'{self._territory_name_what} "{name}" с id={territory_id} для города "{self._city_name}" не изменен, ошибка в геометрии')
                 return
             new_geometry = json.loads(dialog.get_geometry()) # type: ignore
             with self._conn.cursor() as cur:
@@ -367,7 +367,7 @@ class TerritoryWindow(QtWidgets.QWidget):
                     cur.execute(f'UPDATE {self._territory_table} u SET {self._parent_id_column} ='
                             f' (SELECT id FROM {self._other_territory_table} p WHERE name = %s AND p.city_id = u.city_id),'
                             " updated_at = date_trunc('second', now()) WHERE id = %s", (dialog.parent_territory(), territory_id))
-            self._on_territory_edit_callback(int(territory_id), self._table.item(row, 2).text(), changes)
+            self._on_territory_edit_callback(int(territory_id), self._table.item(row, 2).text(), changes, self._city_name)
     
     def _on_territory_delete(self) -> None:
         rows = sorted(set(map(lambda index: index.row() + 1, self._table.selectedIndexes()))) # type: ignore
@@ -389,7 +389,7 @@ class TerritoryWindow(QtWidgets.QWidget):
                     cur.execute(f'UPDATE {self._other_territory_table} SET {self._other_parent_id_column} = null WHERE {self._other_parent_id_column} = %s', (territory_id,))
                     cur.execute(f'DELETE FROM {self._territory_table} WHERE id = %s', (territory_id,))
                     self._table.removeRow(row - 1)
-            self._on_territory_delete_callback(deleting)
+            self._on_territory_delete_callback(deleting, self._city_name)
 
     def _on_geometry_show(self) -> None:
         with self._conn.cursor() as cur:
@@ -658,21 +658,21 @@ class CitiesWindow(QtWidgets.QWidget):
                 'municipality', self._on_municipality_add, self._on_municipality_edit, self._on_municipality_delete, self._on_error)
         self._territory_window.show()
 
-    def _on_municipality_add(self, municipality_id: int, municipality_name: str) -> None:
+    def _on_municipality_add(self, municipality_id: int, municipality_name: str, city_name) -> None:
         self._log_window.insertHtml('<font color=yellowgreen>Добавлено муниципальное образование к городу'
-                f' {self._table.item(self._table.currentRow(), 1).text()}: "{municipality_name}" (id={municipality_id})</font><br>')
+                f' {city_name}: "{municipality_name}" (id={municipality_id})</font><br>')
     
-    def _on_municipality_edit(self, municipality_id: int, municipality_name: str, changes: List[Tuple[str, str, str]]) -> None:
+    def _on_municipality_edit(self, municipality_id: int, municipality_name: str, changes: List[Tuple[str, str, str]], city_name: str) -> None:
         if len(changes) != 0:
             self._log_window.insertHtml(f'<font color=yellowgreen>Изменены параметры муниципального образования "{municipality_name}"'
-                    f' (id={municipality_id}):<br>')
+                    f' (id={municipality_id}) города {city_name}:<br>')
             for what_changed, old_value, new_value in changes:
                 self._log_window.insertHtml(f'&nbsp;&nbsp;{what_changed}: "{_to_str(old_value)}"->"{_to_str(new_value)}"<br>')
             self._log_window.insertHtml('</font>')
     
-    def _on_municipality_delete(self, deleting: List[Tuple[int, str]]) -> None:
+    def _on_municipality_delete(self, deleting: List[Tuple[int, str]], city_name: str) -> None:
         for municipality_id, municipality_name in deleting:
-            self._log_window.insertHtml(f'<font color=red>Удаление муниципального образования "{municipality_name}" с id={municipality_id}</font><br>')
+            self._log_window.insertHtml(f'<font color=red>Удаление муниципального образования "{municipality_name}" с id={municipality_id} города {city_name}</font><br>')
     
     def _on_show_AUs(self) -> None:
         row = self._table.currentRow()
@@ -682,21 +682,22 @@ class CitiesWindow(QtWidgets.QWidget):
                 'administrative_unit', self._on_administrative_unit_add, self._on_administrative_unit_edit, self._on_administrative_unit_delete, self._on_error)
         self._territory_window.show()
 
-    def _on_administrative_unit_add(self, administrative_unit_id: int, administrative_unit_name: str) -> None:
+    def _on_administrative_unit_add(self, administrative_unit_id: int, administrative_unit_name: str, city_name: str) -> None:
         self._log_window.insertHtml('<font color=yellowgreen>Добавлена административная единица к городу'
-                f' {self._table.item(self._table.currentRow(), 1).text()}: "{administrative_unit_name}" (id={administrative_unit_id})</font><br>')
+                f' {city_name}: "{administrative_unit_name}" (id={administrative_unit_id})</font><br>')
     
-    def _on_administrative_unit_edit(self, administrative_unit_id: int, administrative_unit_name: str, changes: List[Tuple[str, str, str]]) -> None:
+    def _on_administrative_unit_edit(self, administrative_unit_id: int, administrative_unit_name: str, changes: List[Tuple[str, str, str]], city_name: str) -> None:
         if len(changes) != 0:
             self._log_window.insertHtml(f'<font color=yellowgreen>Изменены параметры административной единицы "{administrative_unit_name}"'
-                    f' (id={administrative_unit_id}):<br>')
+                    f' (id={administrative_unit_id}) города {city_name}:<br>')
             for what_changed, old_value, new_value in changes:
                 self._log_window.insertHtml(f'&nbsp;&nbsp;{what_changed}: "{_to_str(old_value)}"->"{_to_str(new_value)}"<br>')
             self._log_window.insertHtml('</font>')
     
-    def _on_administrative_unit_delete(self, deleting: List[Tuple[int, str]]) -> None:
+    def _on_administrative_unit_delete(self, deleting: List[Tuple[int, str]], city_name: str) -> None:
         for administrative_unit_id, administrative_unit_name in deleting:
-            self._log_window.insertHtml(f'<font color=red>Удаление административной единицы "{administrative_unit_name}" с id={administrative_unit_id}</font><br>')
+            self._log_window.insertHtml(f'<font color=red>Удаление административной единицы "{administrative_unit_name}"'
+                    f' с id={administrative_unit_id} города {city_name}</font><br>')
 
     def _on_commit_changes(self) -> None:
         self._log_window.insertHtml('<font color=green>Запись изменений в базу данных</font><br>')

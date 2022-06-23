@@ -26,7 +26,7 @@ class Properties:
     @property
     def conn_string(self) -> str:
         return f'host={self.db_addr} port={self.db_port} dbname={self.db_name}' \
-                f' user={self.db_user} password={self.db_pass}'
+                f' user={self.db_user} password={self.db_pass} application_name=insert_services'
     @property
     def conn(self) -> 'psycopg2.connection':
         if self._conn is None or self._conn.closed:
