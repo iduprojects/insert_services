@@ -110,7 +110,7 @@ class InsertionWindow(QtWidgets.QWidget):
         self._open_file_btn.clicked.connect(self.on_open_file)
         self._load_objects_btn = QtWidgets.QPushButton('Загрузить сервисы')
         self._load_objects_btn.setStyleSheet('font-weight: bold')
-        self._load_objects_btn.clicked.connect(self.on_load_objects)
+        self._load_objects_btn.clicked.connect(self.on_upload_objects)
         self._load_objects_btn.setVisible(False)
         self._save_results_btn = QtWidgets.QPushButton('Сохранить результаты')
         self._save_results_btn.setStyleSheet('font-weight: bold')
@@ -238,6 +238,17 @@ class InsertionWindow(QtWidgets.QWidget):
         logger.info(f'Открыт файл для вставки: {filename}, {df.shape[0]} объектов')
 
         self._table_axes: List[str] = ['Загрузить'] + list(df.axes[1])
+        self._table_model = QtGui.QStandardItemModel(*df.shape)
+        self._table_model.setHorizontalHeaderLabels(list(self._table_axes))
+        for i, service in df.iterrows():
+            for j, data in enumerate(service, 1):
+                self._table_model.setItem(i, j, QtGui.QStandardItem(data if isinstance(data, str) else str(data) if data is not None else ''))
+            ok_item = QtGui.QStandardItem('+')
+            ok_item.setTextAlignment(QtCore.Qt.AlignCenter)
+            self._table_model.setItem(i, 0, ok_item)
+            self._table_model.item(i, 0).setBackground(CheckableTableView.colorTable.on)
+            self._table_model.item(i, 0).setForeground(QtCore.Qt.black)
+
         field: QtWidgets.QComboBox
         for field in self._document_fields: # type: ignore
             previous_text = field.currentText()
@@ -250,16 +261,6 @@ class InsertionWindow(QtWidgets.QWidget):
         for field, default_value in zip(self._document_fields, InsertionWindow.default_values[2:]):
             if field.currentIndex() == 0 and default_value in self._table_axes:
                 field.setCurrentIndex(self._table_axes.index(default_value))
-        self._table_model = QtGui.QStandardItemModel(*df.shape)
-        self._table_model.setHorizontalHeaderLabels(list(self._table_axes))
-        for i, service in df.iterrows():
-            for j, data in enumerate(service, 1):
-                self._table_model.setItem(i, j, QtGui.QStandardItem(data if isinstance(data, str) else str(data) if data is not None else ''))
-            ok_item = QtGui.QStandardItem('+')
-            ok_item.setTextAlignment(QtCore.Qt.AlignCenter)
-            self._table_model.setItem(i, 0, ok_item)
-            self._table_model.item(i, 0).setBackground(CheckableTableView.colorTable.on)
-            self._table_model.item(i, 0).setForeground(QtCore.Qt.black)
 
         if self._table is None:
             self._table = CheckableTableView()
@@ -288,7 +289,7 @@ class InsertionWindow(QtWidgets.QWidget):
         df = pd.DataFrame(lines, columns=self._table_axes, index=index)
         return df
 
-    def on_load_objects(self) -> None:
+    def on_upload_objects(self) -> None:
         self._load_objects_btn.setEnabled(False)
         QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.BusyCursor)
         verbose = not bool(QtWidgets.QApplication.keyboardModifiers() & QtCore.Qt.ShiftModifier)
@@ -312,7 +313,7 @@ class InsertionWindow(QtWidgets.QWidget):
                         self._document_fields.geometry.currentText()
                     ),
                     list(map(lambda line_edit: line_edit.text(), self._document_address_prefixes)),
-                    self._prefixes_group.itemAt(self._prefixes_group.count() - 1).widget().text(),
+                    self._prefixes_group.itemAt(self._prefixes_group.count() - 1).widget().text(), # type: ignore
                     is_commit,
                     verbose,
             )
@@ -441,18 +442,20 @@ class InsertionWindow(QtWidgets.QWidget):
 
     def on_document_change(self, what_changed: Optional[QtWidgets.QComboBox] = None,
             previous_value: Optional[int] = None) -> None:
+        logger.debug(f'on_document_changed called ({what_changed})')
         self._is_document_ok = True
         if self._table is None:
             return
-        if what_changed is not None:
-            if what_changed is self._document_fields.address and what_changed.currentIndex() != 0:
+        if what_changed is not None and what_changed.currentIndex() > 0:
+            if what_changed is self._document_fields.address:
                 self.on_prefix_check()
-            elif what_changed.currentIndex() != 0:
+            else:
                 what_changed.setStyleSheet('')
                 col = what_changed.currentIndex()
-                for row in range(self._table_model.rowCount()):
-                    self._table_model.item(row, col).setBackground(InsertionWindow.colorTable.light_green)
-                    self._table_model.item(row, col).setForeground(QtCore.Qt.black)
+                if col > 0:
+                    for row in range(self._table_model.rowCount()):
+                        self._table_model.item(row, col).setBackground(InsertionWindow.colorTable.light_green)
+                        self._table_model.item(row, col).setForeground(QtCore.Qt.black)
 
             if previous_value is not None and previous_value != 0:
                 if previous_value == self._document_fields.address.currentIndex():
@@ -483,13 +486,17 @@ class InsertionWindow(QtWidgets.QWidget):
             elif field is not self._document_fields.address:
                 field.setStyleSheet('')
                 col = field.currentIndex()
-                color = InsertionWindow.colorTable.light_green
-                for field_inner in self._document_fields:
-                    if field_inner is not field and field_inner.currentIndex() == col:
-                        color = InsertionWindow.colorTable.grey
-                for row in range(self._table_model.rowCount()):
-                    self._table_model.item(row, col).setBackground(color)
-                    self._table_model.item(row, col).setForeground(QtCore.Qt.black)
+                if col > 0:
+                    color = InsertionWindow.colorTable.light_green
+                    for field_inner in self._document_fields:
+                        if field_inner is not field and field_inner.currentIndex() == col:
+                            color = InsertionWindow.colorTable.grey
+                    for row in range(self._table_model.rowCount()):
+                        if self._table_model.item(row, col) is None:
+                            logger.debug(f'Table {row}, {col} is None')
+                            continue
+                        self._table_model.item(row, col).setBackground(color)
+                        self._table_model.item(row, col).setForeground(QtCore.Qt.black)
 
             else:
                 field.setStyleSheet('background-color: rgb({}, {}, {});color: black'.format(*InsertionWindow.colorTable.grey.getRgb()[:3]))

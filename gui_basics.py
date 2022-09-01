@@ -53,6 +53,9 @@ class ColorizingComboBox(QtWidgets.QComboBox):
             self._state = self.currentIndex()
             if self.isVisible():
                 self._callback(self, old_state)
+    
+    def __str__(self) -> str:
+        return f'ColorizingComboBox("{self.currentText()}" / {self.currentIndex()}) at {hex(id(self))})'
 
 
 

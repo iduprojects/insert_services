@@ -99,12 +99,17 @@ class InitWindow(QtWidgets.QWidget):
         except ValueError:
             self._db_check_res.setText('<b style=color:red;>x</b>')
             return
-        if not (self._db_properties.db_addr == host and self._db_properties.db_port == port and 
-                self._db_properties.db_name == self._database_fields.name.text() and
-                self._db_properties.db_user == self._database_fields.user.text() and
-                self._db_properties.db_pass == self._database_fields.password.text()):
+        if self._db_properties.db_addr == host and \
+                self._db_properties.db_port == port and \
+                self._db_properties.db_name == self._database_fields.name.text() and \
+                self._db_properties.db_user == self._database_fields.user.text() and \
+                self._db_properties.db_pass == self._database_fields.password.text():
+            logger.debug('Connection didn\'t change')
+        else:
+            logger.debug('Reopening the connection')
             self._db_properties.reopen(host, port, self._database_fields.name.text(),
                     self._database_fields.user.text(), self._database_fields.password.text())
+            logger.debug('Connection reopened')
         try:
             with self._db_properties.conn, self._db_properties.conn.cursor() as cur:
                 cur.execute('SELECT 1')
@@ -178,11 +183,11 @@ class InitWindow(QtWidgets.QWidget):
 
 
 @click.command('IDU - Insert Services App GUI')
-@click.option('--db_addr', '-H', envvar='DB_ADDR', help='Postgres DBMS address', default=InitWindow.default_values.db_address, show_default=True)
-@click.option('--db_port', '-P', envvar='DB_PORT', type=int, help='Postgres DBMS port', default=InitWindow.default_values.db_port, show_default=True)
-@click.option('--db_name', '-D', envvar='DB_NAME', help='Postgres city database name', default=InitWindow.default_values.db_name, show_default=True)
-@click.option('--db_user', '-U', envvar='DB_USER', help='Postgres DBMS user name', default=InitWindow.default_values.db_user, show_default=True)
-@click.option('--db_pass', '-W', envvar='DB_PASS', help='Postgres DBMS user password', default=InitWindow.default_values.db_pass, show_default=True)
+@click.option('--db_addr', '-H', envvar='DB_ADDR', help='Postgres DBMS address', default=InitWindow.default_values.db_address, show_default=True, show_envvar=True)
+@click.option('--db_port', '-P', envvar='DB_PORT', type=int, help='Postgres DBMS port', default=InitWindow.default_values.db_port, show_default=True, show_envvar=True)
+@click.option('--db_name', '-D', envvar='DB_NAME', help='Postgres city database name', default=InitWindow.default_values.db_name, show_default=True, show_envvar=True)
+@click.option('--db_user', '-U', envvar='DB_USER', help='Postgres DBMS user name', default=InitWindow.default_values.db_user, show_default=True, show_envvar=True)
+@click.option('--db_pass', '-W', envvar='DB_PASS', help='Postgres DBMS user password', default=InitWindow.default_values.db_pass, show_default=True, show_envvar=True)
 @click.option('--verbose', '-v', envvar='VERBOSE', is_flag=True, help='Include debug information')
 def main(db_addr: str, db_port: int, db_name: str, db_user: str, db_pass: str, verbose: bool):
     global app

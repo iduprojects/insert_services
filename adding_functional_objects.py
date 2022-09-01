@@ -230,7 +230,7 @@ def add_objects(conn: 'psycopg2.connection', objects: pd.DataFrame, city_name: s
             return objects
         city_id = city_id[0]
 
-        cur.execute('SELECT id, is_building FROM city_service_types WHERE name = %s or code = %s', (service_type,) * 2)
+        cur.execute('SELECT id, is_building FROM city_service_types WHERE name = %(service)s or code = %(service)s', {'service': service_type})
         res = cur.fetchone()
         if res is not None:
             service_type_id, is_service_building = res
@@ -255,9 +255,9 @@ def add_objects(conn: 'psycopg2.connection', objects: pd.DataFrame, city_name: s
                 try:
                     if mapping.geometry in row:
                         try:
-                            cur.execute('SELECT ST_Y(ST_Centroid(ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326))),'
-                                    ' ST_X(ST_Centroid(ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326)))',
-                                    (row[mapping.geometry],) * 2)
+                            cur.execute('WITH tmp AS (SELECT geometry FROM (VALUES (ST_Centroid(ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326)))) tmp_inner(geometry))'
+                                    ' SELECT ST_Y((SELECT geometry FROM tmp)), ST_X((SELECT geometry FROM tmp))',
+                                    (row[mapping.geometry],))
                             latitude, longitude = cur.fetchone() # type: ignore
                         except Exception:
                             results[i] = f'Геометрия в поле "{mapping.geometry}" некорректна'
@@ -301,7 +301,7 @@ def add_objects(conn: 'psycopg2.connection', objects: pd.DataFrame, city_name: s
                     build_id: Optional[int]
                     insert_physical_object = False
                     if is_service_building:
-                        if address is not None:
+                        if address is not None and address != '':
                             cur.execute('SELECT phys.id, build.id FROM physical_objects phys JOIN buildings build ON build.physical_object_id = phys.id'
                                     ' WHERE phys.city_id = %s AND build.address LIKE %s AND'
                                     '   ST_Distance(phys.center::geography, ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography) < 100 LIMIT 1',
@@ -324,11 +324,17 @@ def add_objects(conn: 'psycopg2.connection', objects: pd.DataFrame, city_name: s
                                 added_to_address += 1
                                 results[i] = f'Сервис вставлен в здание, найденное по совпадению адреса (build_id = {build_id}, phys_id = {phys_id}).'
                         else: # if no building with the same address found or distance is too high (address is wrong or it's not a concrete house)
-                            cur.execute('SELECT phys.id, build.id, build.address FROM physical_objects phys JOIN buildings build ON build.physical_object_id = phys.id'
-                                ' WHERE city_id = %s AND (ST_CoveredBy(ST_SetSRID(ST_MakePoint(%s, %s), 4326), geometry) OR'
-                                "   ST_GeometryType(geometry) = 'ST_Point' AND abs(ST_X(geometry) - %s) < 0.0001 AND abs(ST_Y(geometry) - %s) < 0.0001)"
-                                ' LIMIT 1',
-                                (city_id,) + (longitude, latitude) * 2)
+                            if mapping.geometry in row:
+                                cur.execute('SELECT phys.id, build.id, build.address FROM physical_objects phys JOIN buildings build ON build.physical_object_id = phys.id'
+                                    ' WHERE city_id = %s AND ST_Intersects(ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326), geometry)'
+                                    ' LIMIT 1',
+                                    (city_id, json.dumps(row[mapping.geometry])))
+                            else:
+                                cur.execute('SELECT phys.id, build.id, build.address FROM physical_objects phys JOIN buildings build ON build.physical_object_id = phys.id'
+                                    " WHERE city_id = %(city_id)s AND (ST_GeometryType(geometry) = 'ST_Point' AND abs(ST_X(geometry) - %(lng)s) < 0.0001 AND abs(ST_Y(geometry) - %(lat)s) < 0.0001 OR"
+                                    '   ST_Intersects(ST_SetSRID(ST_MakePoint(%(lng)s, %(lat)s), 4326), geometry))'
+                                    ' LIMIT 1',
+                                    {'city_id': city_id, 'lng': longitude, 'lat': latitude})
                             res = cur.fetchone()
                             if res is not None: # if building found by geometry
                                 phys_id, build_id, address = res
@@ -357,12 +363,19 @@ def add_objects(conn: 'psycopg2.connection', objects: pd.DataFrame, city_name: s
                             else: # if no building found by address or geometry
                                 insert_physical_object = True
                     else:
-                        cur.execute('SELECT id FROM physical_objects phys'
-                                ' WHERE city_id = %s AND (SELECT EXISTS (SELECT 1 FROM buildings where physical_object_id = phys.id)) = false AND'
-                                '   (ST_CoveredBy(ST_SetSRID(ST_MakePoint(%s, %s), 4326), geometry) OR'
-                                "       ST_GeometryType(geometry) = 'ST_Point' AND abs(ST_X(geometry) - %s) < 0.0001 AND abs(ST_Y(geometry) - %s) < 0.0001)"
-                                ' LIMIT 1',
-                                (city_id,) + (longitude, latitude) * 2)
+                        if mapping.geometry in row:
+                            cur.execute('SELECT id FROM physical_objects phys'
+                                    ' WHERE city_id = %s AND (SELECT EXISTS (SELECT 1 FROM buildings where physical_object_id = phys.id)) = false AND'
+                                    '   (ST_CoveredBy(ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326), geometry)'
+                                    ' LIMIT 1',
+                                    (city_id, json.dumps(row[mapping.geometry])))
+                        else:
+                            cur.execute('SELECT id FROM physical_objects phys'
+                                    ' WHERE city_id = %(city_id)s AND (SELECT EXISTS (SELECT 1 FROM buildings where physical_object_id = phys.id)) = false AND'
+                                    "   (ST_GeometryType(geometry) = 'ST_Point' AND abs(ST_X(geometry) - %(lng)s) < 0.0001 AND abs(ST_Y(geometry) - %(lat)s) < 0.0001 OR"
+                                    '   ST_Intersects(ST_SetSRID(ST_MakePoint(%(lng)s, %(lat)s), 4326), geometry))'
+                                    ' LIMIT 1',
+                                    {'city_id': city_id, 'lng': longitude, 'lat': latitude})
                         res = cur.fetchone()
                         if res is not None: # if physical_object found by geometry
                             phys_id = res[0]
@@ -426,13 +439,14 @@ def add_objects(conn: 'psycopg2.connection', objects: pd.DataFrame, city_name: s
             logger.opt(colors=True).warning(f'Обработано {i:4} сервисов из {objects.shape[0]}:'
                     f' <green>{added_as_points + added_to_address + added_to_geom} добавлены</green>,'
                     f' <yellow>{present} обновлены</yellow>, <red>{skipped} пропущены</red>')
-            if (commit):
+            if commit:
                 choice = input('Сохранить внесенные на данный момент изменения? (y/д/1 / n/н/0): ')
                 if choice.startswith(('y', 'д', '1')):
                     conn.commit()
                     logger.success('Сохранение внесенных изменений')
                 else:
                     logger.warning('Отмена внесенных изменений')
+                    conn.rollback()
             for j in range(i, objects.shape[0]):
                 results[j] = 'Пропущен (отмена пользователем)'
         else:    
@@ -482,7 +496,11 @@ def load_objects_geojson(filename: str, default_values: Optional[Dict[str, Any]]
     Calls `replace_with_default` after load if `default_values` is present
     '''
     with open(filename, 'r', encoding='utf-8') as f:
-        data = json.load(f)
+        try:
+            data = json.load(f)
+            assert 'features' in data
+        except Exception:
+            raise ValueError('Given GeoJSON has wrong format')
         res = pd.DataFrame((entry['properties'] | {'geometry': json.dumps(entry['geometry'])}) for entry in data['features'])
         if default_values is not None:
             res = replace_with_default(res, default_values)

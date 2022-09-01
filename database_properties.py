@@ -13,16 +13,17 @@ class Properties:
         self._conn = None
 
     def reopen(self, db_addr: str, db_port: int, db_name: str, db_user: str, db_pass: str):
-        if self._conn is not None:
-            self.close()
+        self.close()
         self.db_addr = db_addr
         self.db_port = db_port
         self.db_name = db_name
         self.db_user = db_user
         self.db_pass = db_pass
         self._conn = None
-    def copy(self):
+
+    def copy(self) -> 'Properties':
         return Properties(self.db_addr, self.db_port, self.db_name, self.db_user, self.db_pass)
+
     @property
     def conn_string(self) -> str:
         return f'host={self.db_addr} port={self.db_port} dbname={self.db_name}' \
@@ -43,6 +44,7 @@ class Properties:
             self._connected = False
             raise
         return self._conn
+
     def close(self):
         if self._conn is not None and not self._conn.closed:
             self._conn.close()
