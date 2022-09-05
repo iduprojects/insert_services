@@ -47,8 +47,11 @@ class InitWindow(QtWidgets.QWidget):
         self._db_properties = Properties(InitWindow.default_values.db_address, InitWindow.default_values.db_port,
                 InitWindow.default_values.db_name, InitWindow.default_values.db_user, InitWindow.default_values.db_pass)
 
+        logger.debug('Creating insertion window')
         self._insertion_window = InsertionWindow(self._db_properties.copy(), self._on_restart)
+        logger.debug('Creating updating window')
         self._updating_window = UpdatingWindow(self._db_properties.copy(), self._on_restart)
+        logger.debug('Creating cities manipulation window')
         self._cities_window = CitiesWindow(self._db_properties.copy(), self._on_restart)
 
         self._layout = QtWidgets.QHBoxLayout()
@@ -93,6 +96,7 @@ class InitWindow(QtWidgets.QWidget):
         self.setFixedHeight(self.sizeHint().height())
 
     def on_connection_check(self, refresh: bool = False) -> None:
+        logger.debug('on_connection_check called')
         host, port_str = (self._database_fields.address.text().split(':') + [str(InitWindow.default_values.db_port)])[0:2]
         try:
             port = int(port_str)
@@ -111,6 +115,9 @@ class InitWindow(QtWidgets.QWidget):
                     self._database_fields.user.text(), self._database_fields.password.text())
             logger.debug('Connection reopened')
         try:
+            QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.BusyCursor)
+            self._db_check_res.setText('<b style=color:yellow;>o</b>')
+            self.repaint()
             with self._db_properties.conn, self._db_properties.conn.cursor() as cur:
                 cur.execute('SELECT 1')
                 assert cur.fetchone()[0] == 1, 'cannot connect to the database' # type: ignore
@@ -150,6 +157,8 @@ class InitWindow(QtWidgets.QWidget):
             if not refresh:
                 logger.opt(colors=True).info('Установлено подключение к базе данных:'
                         f' <cyan>{self._db_properties.db_user}@{self._db_properties.db_addr}:{self._db_properties.db_port}/{self._db_properties.db_name}</cyan>')
+        finally:
+            QtWidgets.QApplication.restoreOverrideCursor()
 
     def _on_launch(self):
         self.hide()
@@ -191,6 +200,7 @@ class InitWindow(QtWidgets.QWidget):
 @click.option('--verbose', '-v', envvar='VERBOSE', is_flag=True, help='Include debug information')
 def main(db_addr: str, db_port: int, db_name: str, db_user: str, db_pass: str, verbose: bool):
     global app
+    logger.debug('Starting the application')
 
     logger.remove(0)
     logger.add(sys.stderr, level = 'INFO' if not verbose else 'DEBUG',

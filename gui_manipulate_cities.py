@@ -422,9 +422,12 @@ class CitiesWindow(QtWidgets.QWidget):
 
         self._db_properties = db_properties
         try:
-            self._additional_conn = db_properties.copy().conn
+            self._db_properties.connect_timeout = 1
+            self._additional_conn = self._db_properties.copy().conn
         except Exception:
             self._additional_conn = None # type: ignore
+        finally:
+            self._db_properties.connect_timeout = 10
         self._on_close = on_close
         self._territory_window: Optional[TerritoryWindow] = None
 
