@@ -385,11 +385,11 @@ def add_objects(conn: 'psycopg2.connection', objects: pd.DataFrame, city_name: s
                                 insert_physical_object = True
                     else:
                         if mapping.geometry in row:
-                            cur.execute('SELECT id FROM physical_objects phys'
+                            cur.execute('SELECT ST_GeometryType(geometry), id FROM physical_objects phys'
                                     ' WHERE city_id = %s AND (SELECT EXISTS (SELECT 1 FROM buildings where physical_object_id = phys.id)) = false' +
                                     ('  AND municipality_id = %s' if municipality_id is not None else '') +
                                     ('  AND administrative_unit_id = %s' if administrative_unit_id is not None else '') +
-                                    '   AND (ST_CoveredBy(ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326), geometry)'
+                                    '   AND (ST_CoveredBy(ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326), geometry))'
                                     ' LIMIT 1',
                                     list(filter(lambda x: x is not None, (city_id, municipality_id, administrative_unit_id, row[mapping.geometry]))))
                         else:
