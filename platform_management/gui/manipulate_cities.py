@@ -1,27 +1,32 @@
 import itertools
 import json
 import time
-from typing import Any, Callable, List, Literal, NamedTuple, Optional, Set, Sequence, Tuple, Union
+from typing import (Any, Callable, List, Literal, NamedTuple, Optional,
+                    Sequence, Tuple, Union)
 
-from PySide6 import QtCore, QtGui, QtWidgets
+import pandas as pd
 import psycopg2
 from loguru import logger
+from PySide6 import QtCore, QtGui, QtWidgets
 
-from database_properties import Properties
-from gui_basics import ColoringTableWidget, GeometryShow, check_geometry_correctness
+from platform_management.database_properties import Properties
+from platform_management.gui.basics import (ColoringTableWidget, GeometryShow,
+                                            check_geometry_correctness)
 
 logger = logger.bind(name='gui_manipulate_cities')
 
 class PlatformCitiesTableWidget(ColoringTableWidget):
-    LABELS = ['id города', 'Название', 'Население', 'Тип деления', 'Широта', 'Долгота', 'Тип геометрии', 'Создание', 'Обновление']
-    LABELS_DB = ['id', 'name', 'population', 'city_division_type', '-', '-', '-', '-', '-']
+    LABELS = ['id города', 'Название', 'Код', 'Население', 'Регион', 'Тип деления', 'Широта', 'Долгота', 'Тип геометрии', 'Создание', 'Обновление']
+    LABELS_DB = ['id', 'name', 'code', 'population', '-', '-', '-', '-', '-', '-', '-']
     def __init__(self, services: Sequence[Sequence[Any]], changed_callback: Callable[[int, str, Any, Any, bool], None],
             parent: Optional[QtWidgets.QWidget] = None):
-        super().__init__(services, PlatformCitiesTableWidget.LABELS, self.correction_checker, (0, 3, 4, 5, 6, 7, 8), parent=parent)
+        super().__init__(services, PlatformCitiesTableWidget.LABELS,
+                self.correction_checker,
+                list(map(lambda x: x[0], filter(lambda y: y[1] in ('id', '-'), enumerate(PlatformCitiesTableWidget.LABELS_DB)))),
+                parent=parent)
         self._changed_callback = changed_callback
         self.setColumnWidth(1, 200)
-        self.setColumnWidth(2, 90)
-        for column in (3, 4, 5, 6, 7, 8):
+        for column in range(2, len(PlatformCitiesTableWidget.LABELS)):
             self.resizeColumnToContents(column)
         self.setSortingEnabled(True)
 
@@ -36,7 +41,8 @@ class PlatformCitiesTableWidget(ColoringTableWidget):
         return res
 
 class PlatformTerritoriesTableWidget(QtWidgets.QTableWidget):
-    LABELS = ['id территории', 'Название', 'Население', 'Тип территории', 'Родительская территория', 'Широта', 'Долгота', 'Тип геометрии', 'Создание', 'Обновление']
+    LABELS = ['id территории', 'Название', 'Население', 'Тип территории', 'Родительская территория',
+            'Широта', 'Долгота', 'Тип геометрии', 'Создание', 'Обновление']
     LABELS_DB = ['id', 'name', 'population', '-', '-', '-', '-', '-', '-', '-']
     def __init__(self, territories: Sequence[Sequence[Any]], parent: Optional[QtWidgets.QWidget] = None):
         super().__init__(parent=parent)
@@ -49,7 +55,7 @@ class PlatformTerritoriesTableWidget(QtWidgets.QTableWidget):
                 self.setItem(i, j, QtWidgets.QTableWidgetItem(_to_str(item)))
         self.setColumnWidth(1, 200)
         self.setColumnWidth(2, 90)
-        for column in range(3, 10):
+        for column in range(2, len(PlatformTerritoriesTableWidget.LABELS)):
             self.resizeColumnToContents(column)
         self.setSortingEnabled(True)
 
@@ -126,7 +132,13 @@ class TerritoryCreation(QtWidgets.QDialog):
         return self._parent_territory.currentText() if self._parent_territory.currentIndex() != 0 else None
 
 class CityCreation(QtWidgets.QDialog):
-    def __init__(self, text: str, geometry: Optional[str] = None, name: Optional[str] = None,
+    def __init__(self,
+            text: str,
+            regions: List[str],
+            geometry: Optional[str] = None,
+            name: Optional[str] = None,
+            code: Optional[str] = None,
+            region: Optional[str] = None,
             population: Optional[int] = None,
             division_type: Optional[Literal['NO_PARENT', 'ADMIN_UNIT_PARENT', 'MUNICIPALITY_PARENT']] = None,
             is_adding: bool = False, parent: Optional[QtWidgets.QWidget] = None):
@@ -143,6 +155,14 @@ class CityCreation(QtWidgets.QDialog):
         self._name = QtWidgets.QLineEdit(name or '')
         self._name.setPlaceholderText('Санкт-Петербург')
         self._options_layout.addRow('Название:', self._name)
+        self._code = QtWidgets.QLineEdit(code or '')
+        self._code.setPlaceholderText('saint-petersburg')
+        self._region = QtWidgets.QComboBox()
+        self._region.addItems([None] + regions)
+        if region is not None:
+            self._region.setCurrentText(region)
+        self._options_layout.addRow('Регион:', self._region)
+        self._options_layout.addRow('Код:', self._code)
         self._population = QtWidgets.QLineEdit(_to_str(population))
         self._population.setPlaceholderText('6000000')
         self._options_layout.addRow('Население:', self._population)
@@ -167,6 +187,12 @@ class CityCreation(QtWidgets.QDialog):
 
     def name(self) -> Optional[str]:
         return _str_or_none(self._name.text())
+
+    def code(self) -> Optional[str]:
+        return _str_or_none(self._code.text())
+
+    def region(self) -> Optional[str]:
+        return _str_or_none(self._region.currentText())
 
     def population(self) -> Optional[int]:
         return _int_or_none(self._population.text())
@@ -326,6 +352,7 @@ class TerritoryWindow(QtWidgets.QWidget):
                 self._on_error_callback(f'{self._territory_name_what} "{name}" с id={territory_id} для города "{self._city_name}" не изменен, ошибка в геометрии')
                 return
             new_geometry = json.loads(dialog.get_geometry()) # type: ignore
+            changed = False
             with self._conn.cursor() as cur:
                 if geometry != new_geometry:
                     new_latitude, new_longitude, geom_type = new_geom_tuple
@@ -339,24 +366,28 @@ class TerritoryWindow(QtWidgets.QWidget):
                     self._table.item(row, 5).setText(str(new_latitude))
                     self._table.item(row, 6).setText(str(new_longitude))
                     self._table.item(row, 7).setText(geom_type)
+                    changed = True
                     for c in (5, 6, 7):
                         self._table.item(row, c).setBackground(QtGui.QBrush(QtCore.Qt.GlobalColor.yellow))
                 if name != dialog.name():
                     changes.append(('название', name, _to_str(dialog.name())))
                     self._table.item(row, 1).setText(_to_str(name))
                     self._table.item(row, 1).setBackground(QtGui.QBrush(QtCore.Qt.GlobalColor.yellow))
+                    changed = True
                     cur.execute(f'UPDATE {self._territory_table} SET name = %s,'
                             " updated_at = date_trunc('second', now()) WHERE id = %s", (dialog.name(), territory_id))
                 if population != dialog.population():
                     changes.append(('население', population, _to_str(dialog.population())))
                     self._table.item(row, 2).setText(_to_str(population))
                     self._table.item(row, 2).setBackground(QtGui.QBrush(QtCore.Qt.GlobalColor.yellow))
+                    changed = True
                     cur.execute(f'UPDATE {self._territory_table} SET population = %s,'
                             " updated_at = date_trunc('second', now()) WHERE id = %s", (dialog.population(), territory_id))
                 if territory_type != dialog.territory_type():
                     changes.append(('тип территории', territory_type, _to_str(dialog.territory_type())))
                     self._table.item(row, 3).setText(_to_str(dialog.territory_type()))
                     self._table.item(row, 3).setBackground(QtGui.QBrush(QtCore.Qt.GlobalColor.yellow))
+                    changed = True
                     cur.execute(f'UPDATE {self._territory_table} SET type_id ='
                             f' (SELECT id FROM {self._territory_types_table} WHERE full_name = %s),'
                             " updated_at = date_trunc('second', now()) WHERE id = %s", (dialog.territory_type(), territory_id))
@@ -364,9 +395,12 @@ class TerritoryWindow(QtWidgets.QWidget):
                     changes.append(('родительская территория', parent_territory, _to_str(dialog.parent_territory())))
                     self._table.item(row, 4).setText(_to_str(dialog.parent_territory()))
                     self._table.item(row, 4).setBackground(QtGui.QBrush(QtCore.Qt.GlobalColor.yellow))
+                    changed = True
                     cur.execute(f'UPDATE {self._territory_table} u SET {self._parent_id_column} ='
                             f' (SELECT id FROM {self._other_territory_table} p WHERE name = %s AND p.city_id = u.city_id),'
                             " updated_at = date_trunc('second', now()) WHERE id = %s", (dialog.parent_territory(), territory_id))
+                if changed:
+                    cur.execute(f'UPDATE {self._territory_types_table} SET updated_at = now() WHERE id = %s', (territory_id,))
             self._on_territory_edit_callback(int(territory_id), self._table.item(row, 2).text(), changes, self._city_name)
     
     def _on_territory_delete(self) -> None:
@@ -430,6 +464,7 @@ class CitiesWindow(QtWidgets.QWidget):
             self._db_properties.connect_timeout = 10
         self._on_close = on_close
         self._territory_window: Optional[TerritoryWindow] = None
+        self._regions = pd.Series(dtype=object)
 
         self._layout = QtWidgets.QHBoxLayout()
         self._left = QtWidgets.QVBoxLayout()
@@ -496,12 +531,16 @@ class CitiesWindow(QtWidgets.QWidget):
         self._log_window.clear()
         self._db_properties.conn.rollback()
         with self._db_properties.conn.cursor() as cur:
-            cur.execute('SELECT id, name, population, city_division_type, ST_Y(center), ST_X(center), ST_GeometryType(geometry),'
+            cur.execute('SELECT id, name, code, population, (SELECT name FROM regions WHERE id = region_id),'
+                    '   city_division_type, ST_Y(center), ST_X(center), ST_GeometryType(geometry),'
                     "   date_trunc('minute', created_at)::timestamp, date_trunc('minute', updated_at)::timestamp"
                     ' FROM cities'
                     ' ORDER BY 1'
             )
             cities = cur.fetchall()
+            cur.execute('SELECT id, name FROM regions ORDER BY id')
+            regions = cur.fetchall()
+            self._regions = pd.Series((r[1] for r in regions), (r[0] for r in regions))
         left_placeholder = self._left.itemAt(0).widget()
         left_placeholder.setVisible(False)
         self._table = PlatformCitiesTableWidget(cities, self._on_cell_change)
@@ -535,24 +574,26 @@ class CitiesWindow(QtWidgets.QWidget):
                 return
             latitude, longitude, geom_type = new_geom_tuple
             with self._db_properties.conn.cursor() as cur:
-                cur.execute('INSERT INTO cities (name, geometry, center, population, city_division_type) VALUES'
-                        '   (%s, ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326), ST_SnapToGrid(ST_Centroid(ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326)), 0.000001), %s, %s)'
+                cur.execute('INSERT INTO cities (name, code, region_id, geometry, center, population, city_division_type) VALUES'
+                        '   (%s, %s, %s, ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326), ST_SnapToGrid(ST_Centroid(ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326)), 0.000001), %s, %s)'
                         ' RETURNING id',
-                        (dialog.name(), dialog.get_geometry(), dialog.get_geometry(), dialog.population(), dialog.division_type()))
+                        (dialog.name(), dialog.code(), (int(self._regions[self._regions == dialog.region()].index[0]) if self.region() is not None else None),
+                        dialog.get_geometry(), dialog.get_geometry(), dialog.population(), dialog.division_type()))
                 city_id = cur.fetchone()[0] # type: ignore
             self._log_window.insertHtml(f'<font color=yellowgreen>Добавлен город "{dialog.name()}" c id={city_id}</font><br>')
             row = self._table.rowCount()
             self._table.insertRow(row)
             self._table.setItem(row, 0, QtWidgets.QTableWidgetItem(str(city_id)))
             self._table.setItem(row, 1, QtWidgets.QTableWidgetItem(_to_str(dialog.name())))
-            self._table.setItem(row, 2, QtWidgets.QTableWidgetItem(_to_str(dialog.population())))
-            self._table.setItem(row, 3, QtWidgets.QTableWidgetItem(_to_str(dialog.division_type())))
-            self._table.setItem(row, 4, QtWidgets.QTableWidgetItem(str(latitude)))
-            self._table.setItem(row, 5, QtWidgets.QTableWidgetItem(str(longitude)))
-            self._table.setItem(row, 6, QtWidgets.QTableWidgetItem(geom_type))
+            self._table.setItem(row, 2, QtWidgets.QTableWidgetItem(_to_str(dialog.code())))
+            self._table.setItem(row, 3, QtWidgets.QTableWidgetItem(_to_str(dialog.population())))
+            self._table.setItem(row, 4, QtWidgets.QTableWidgetItem(_to_str(dialog.division_type())))
+            self._table.setItem(row, 5, QtWidgets.QTableWidgetItem(str(latitude)))
+            self._table.setItem(row, 6, QtWidgets.QTableWidgetItem(str(longitude)))
+            self._table.setItem(row, 7, QtWidgets.QTableWidgetItem(geom_type))
             now = time.strftime('%Y-%M-%d %H:%M:00')
-            self._table.setItem(row, 7, QtWidgets.QTableWidgetItem(now))
             self._table.setItem(row, 8, QtWidgets.QTableWidgetItem(now))
+            self._table.setItem(row, 9, QtWidgets.QTableWidgetItem(now))
             for column in range(self._table.columnCount()):
                 self._table.item(row, column).setBackground(QtGui.QBrush(QtCore.Qt.GlobalColor.yellow))
 
@@ -562,10 +603,11 @@ class CitiesWindow(QtWidgets.QWidget):
             return
         city_id = self._table.item(row, 0).text()
         with self._db_properties.conn.cursor() as cur:
-            cur.execute('SELECT ST_AsGeoJSON(geometry), name, population, city_division_type FROM cities WHERE id = %s', (self._table.item(row, 0).text(),))
-            geometry, name, population, division_type = cur.fetchone() # type: ignore
-            geometry = json.loads(geometry)
-        dialog = CityCreation(f'Внесение изменений в город в строке под номером {row + 1}', json.dumps(geometry, indent=2), name, population, division_type)
+            cur.execute('SELECT ST_AsGeoJSON(geometry)::jsonb, name, code, (SELECT name FROM regions WHERE id = region_id),'
+                    ' population, city_division_type FROM cities WHERE id = %s', (city_id,))
+            geometry, name, code, region, population, division_type = cur.fetchone() # type: ignore
+        dialog = CityCreation(f'Внесение изменений в город в строке под номером {row + 1}', list(self._regions), json.dumps(geometry, indent=2),
+                name, code, region, population, division_type)
         if dialog.exec() != QtWidgets.QDialog.Accepted or self._additional_conn is None:
             return
         else:
@@ -574,6 +616,7 @@ class CitiesWindow(QtWidgets.QWidget):
                 self._log_window.insertHtml(f'<font color=#e6783c>Город "{name}" с id={city_id} не изменен, ошибка в геометрии</font><br>')
                 return
             new_geometry = json.loads(dialog.get_geometry()) # type: ignore
+            changed = False
             if geometry != new_geometry:
                 new_latitude, new_longitude, geom_type = new_geom_tuple
                 with self._db_properties.conn.cursor() as cur:
@@ -582,23 +625,40 @@ class CitiesWindow(QtWidgets.QWidget):
                             ' WHERE id = %s',
                             (dialog.get_geometry(), dialog.get_geometry(), city_id))
                 self._log_window.insertHtml(f'<font color=yellowgreen>Изменена геометрия города "{dialog.name()}" c id={city_id}:'
-                        f' {self._table.item(row, 6).text()}({self._table.item(row, 4).text()}, {self._table.item(row, 5).text()})'
+                        f' {self._table.item(row, 8).text()}({self._table.item(row, 6).text()}, {self._table.item(row, 7).text()})'
                         f'->{geom_type}({new_latitude, new_longitude}</font><br>')
-                self._table.item(row, 4).setText(str(new_latitude))
-                self._table.item(row, 5).setText(str(new_longitude))
-                self._table.item(row, 6).setText(geom_type)
-                for c in (4, 5, 6):
+                self._table.item(row, 6).setText(str(new_latitude))
+                self._table.item(row, 7).setText(str(new_longitude))
+                self._table.item(row, 8).setText(geom_type)
+                changed = True
+                for c in (6, 7, 8):
                     self._table.item(row, c).setBackground(QtGui.QBrush(QtCore.Qt.GlobalColor.yellow))
             if name != dialog.name():
                 self._table.item(row, 1).setText(_to_str(name))
                 self._table.item(row, 1).setBackground(QtGui.QBrush(QtCore.Qt.GlobalColor.yellow))
-            if population != dialog.population():
-                self._table.item(row, 2).setText(_to_str(population))
+                changed = True
+            if code != dialog.code():
+                self._table.item(row, 2).setText(_to_str(code))
                 self._table.item(row, 2).setBackground(QtGui.QBrush(QtCore.Qt.GlobalColor.yellow))
-            if division_type != dialog.division_type():
-                self._table.item(row, 3).setText(dialog.division_type())
+                changed = True
+            if population != dialog.population():
+                self._table.item(row, 3).setText(_to_str(population))
                 self._table.item(row, 3).setBackground(QtGui.QBrush(QtCore.Qt.GlobalColor.yellow))
-            
+                changed = True
+            if region != dialog.region():
+                self._table.item(row, 4).setText(_to_str(dialog.region()))
+                self._table.item(row, 4).setBackground(QtGui.QBrush(QtCore.Qt.GlobalColor.yellow))
+                changed = True
+                with self._db_properties.conn.cursor() as cur:
+                    cur.execute('UPDATE cities SET region_id = %s WHERE id = %s',
+                    (int(self._regions[self._regions == dialog.region()].index[0]), city_id))
+            if division_type != dialog.division_type():
+                self._table.item(row, 5).setText(dialog.division_type())
+                self._table.item(row, 5).setBackground(QtGui.QBrush(QtCore.Qt.GlobalColor.yellow))
+                changed = True
+            if changed:
+                with self._additional_conn.cursor() as cur:
+                    cur.execute('UPDATE cities SET updated_at = now() WHERE id = %s', (city_id,))
     def _on_city_delete(self) -> None:
         rows = sorted(set(map(lambda index: index.row() + 1, self._table.selectedIndexes()))) # type: ignore
         if len(rows) == 0:

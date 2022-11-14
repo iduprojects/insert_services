@@ -10,13 +10,12 @@ from enum import Enum
 from enum import auto as enum_auto
 from typing import Any, Dict, Iterable, List, NamedTuple, Optional, Tuple
 
-import click
 import pandas as pd
 import psycopg2
 from loguru import logger
 from tqdm import tqdm
 
-from database_properties import Properties
+from platform_management.database_properties import Properties
 
 properties: Properties
 
@@ -94,6 +93,7 @@ InsertionMapping = NamedTuple('InsertionMapping', (
     ('longitude', Optional[str]),
     ('geometry', Optional[str])
 ))
+
 def initInsertionMapping(name: Optional[str] = 'Name', opening_hours: Optional[str] = 'opening_hours', website: Optional[str] = 'contact:website',
         phone: Optional[str] = 'contact:phone', address: Optional[str] = 'yand_adr', osm_id: Optional[str] = 'id', capacity: Optional[str] = None,
         latitude: str = 'x', longitude: str = 'y', geometry: Optional[str] = 'geometry') -> InsertionMapping:
@@ -101,12 +101,12 @@ def initInsertionMapping(name: Optional[str] = 'Name', opening_hours: Optional[s
     return InsertionMapping(*map(fixer, (name, opening_hours, website, phone, address, capacity, osm_id, latitude, longitude, geometry))) # type: ignore
 
 def insert_object(conn: 'psycopg2.connection', row: pd.Series, phys_id: int, name: str,
-        service_type_id: int, mapping: InsertionMapping, commit: bool = True) -> int:
-    '''insert_object inserts functional_object with connection to physical_object with phys_id.
+        service_type_id: int, mapping: InsertionMapping, properties_mapping: Dict[str, str], commit: bool = True) -> int:
+    '''insert_object inserts functional_object.
 
     service_type_id must be vaild.
     
-    Returns functional object id of the inserted object
+    Returns id of the inserted functional object
     '''
     with conn.cursor() as cur:
         cur.execute('SELECT st.capacity_min, st.capacity_max, st.id, cf.id, it.id FROM city_infrastructure_types it'
@@ -121,32 +121,34 @@ def insert_object(conn: 'psycopg2.connection', row: pd.Series, phys_id: int, nam
         else:
             capacity = random.randint(mn, mx)
             is_capacity_real = False
+        properties = {db_name: row[row_name] for db_name, row_name in properties_mapping.items() \
+                if row_name in row and row[row_name] is not None and row[row_name] != ''}
         cur.execute('INSERT INTO functional_objects (name, opening_hours, website, phone, city_service_type_id, city_function_id,'
-                '   city_infrastructure_type_id, capacity, is_capacity_real, physical_object_id)'
-                ' VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id',
+                '   city_infrastructure_type_id, capacity, is_capacity_real, physical_object_id, properties)'
+                ' VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id',
                 (
                         name, row.get(mapping.opening_hours), row.get(mapping.website),
-                        row.get(mapping.phone), *ids, capacity, is_capacity_real, phys_id
+                        row.get(mapping.phone), *ids, capacity, is_capacity_real, phys_id, json.dumps(properties)
                 )
         )
-        func_id = cur.fetchone()[0] # type: ignore
+        functional_object_id = cur.fetchone()[0] # type: ignore
         if commit:
             cur.execute('SAVEPOINT previous_object')
-        return func_id
+        return functional_object_id
 
 
-def update_object(conn: 'psycopg2.connection', row: pd.Series, func_id: int, mapping: InsertionMapping, name: str,
-        commit: bool = True) -> int:
-    '''update_object update functional_object and concrete <service_type>_object connected to it.
+def update_object(conn: 'psycopg2.connection', row: pd.Series, functional_object_id: int, name: str,
+        mapping: InsertionMapping, properties_mapping: Dict[str, str], commit: bool = True) -> int:
+    '''update_object updates functional_object data.
 
-    service_type_id must be valid.
-    
-    Returns functional object id inserted
+    Returns id of the updated functional object
     '''
     with conn.cursor() as cur:
-        cur.execute('SELECT name, opening_hours, website, phone, capacity, is_capacity_real FROM functional_objects WHERE id = %s', (func_id,))
-        res: Tuple[str, str, str, str, int] = cur.fetchone() # type: ignore
-        change = list(filter(lambda c_v_nw: c_v_nw[1] != c_v_nw[2] and c_v_nw[2] is not None, zip(
+        cur.execute('SELECT name, opening_hours, website, phone, capacity, is_capacity_real, properties FROM functional_objects WHERE id = %s',
+                (functional_object_id,))
+        res: Tuple[str, str, str, str, int]
+        *res, db_properties = cur.fetchone() # type: ignore
+        change = list(filter(lambda c_v_nw: c_v_nw[1] != c_v_nw[2] and c_v_nw[2] is not None and c_v_nw[2] != '', zip(
                 ('name', 'opening_hours', 'website', 'phone', 'capacity', 'is_capacity_real'),
                 res,
                 (name, row.get(mapping.opening_hours), row.get(mapping.website),
@@ -158,14 +160,28 @@ def update_object(conn: 'psycopg2.connection', row: pd.Series, func_id: int, map
         current_time = f'{t.tm_year}-{t.tm_mon:02}-{t.tm_mday:02} {t.tm_hour:02}:{t.tm_min:02}:{t.tm_sec:02}'
         change.append(('updated_at', '', current_time))
         cur.execute(f'UPDATE functional_objects SET {", ".join(list(map(lambda x: x[0] + "=%s", change)))} WHERE id = %s',
-                list(map(lambda x: x[2], change)) + [func_id])
+                list(map(lambda x: x[2], change)) + [functional_object_id])
+        properties = {db_name: row[row_name] for db_name, row_name in properties_mapping.items() \
+                if row_name in row and row[row_name] is not None and row[row_name] != ''}
+        logger.debug('functional_object {} properties: ({} vs db_properties ({}))', functional_object_id, properties, db_properties)
+        if db_properties != properties:
+            cur.execute('UPDATE functional_objects SET properties = properties || %s::jsonb WHERE id = %s',
+                    (json.dumps(properties), functional_object_id))
         if commit:
             cur.execute('SAVEPOINT previous_object')
-        return func_id
+        return functional_object_id
 
+def get_properties_keys(conn: 'psycopg2.connection', city_service_type: str) -> List[int]:
+    '''get_properties_keys returns a list of properties keys of a given city_service_type by name or id
+    '''
+    with conn.cursor() as cur:
+        cur.execute('WITH st AS (SELECT id FROM city_service_types WHERE name = %(city_service_type)s or code = %(city_service_type)s)'
+            ' SELECT DISTINCT jsonb_object_keys(properties) FROM functional_objects WHERE city_service_type_id = (SELECT id FROM st) ORDER BY 1',
+            {'city_service_type': city_service_type})
+        return [r[0] for r in cur.fetchall()]
 
 def add_objects(conn: 'psycopg2.connection', objects: pd.DataFrame, city_name: str, service_type: str,
-        mapping: InsertionMapping, address_prefixes: List[str] = ['Россия, Санкт-Петербург'], new_prefix: str = '',
+        mapping: InsertionMapping, properties_mapping: Dict[str, str] = {}, address_prefixes: List[str] = ['Россия, Санкт-Петербург'], new_prefix: str = '',
         commit: bool = True, verbose: bool = False, log_n: int = 200) -> pd.DataFrame:
     '''add_objects inserts objects to database.
 
@@ -176,6 +192,7 @@ def add_objects(conn: 'psycopg2.connection', objects: pd.DataFrame, city_name: s
         - `city_name` - name of the city to add objects to. Must be created in the database
         - `service_type` - name of service_type for logging and services names fillment if they are missing
         - `mapping` - InsertionMapping of namings in the database and namings in the DataFrame columns
+        - `properties_mapping` - dict[str, str] of additional properties namings in the functional_objects.properties and namings in the DataFrame columns
         - `address_prefix` - list of possible prefixes (will be sorted by length)
         - `new_prefix` - unified prefix for all of the inserted objects
         - `commit` - True to commit changes, False for dry run, only resulting DataFrame is returned
@@ -184,7 +201,7 @@ def add_objects(conn: 'psycopg2.connection', objects: pd.DataFrame, city_name: s
 
     Return:
 
-        - dataframe of objects with "result" column added and "functional_obj_id" columns added
+        - dataframe of objects with "result" and "functional_obj_id" columns added
 
     Algorithm steps:
 
@@ -215,7 +232,7 @@ def add_objects(conn: 'psycopg2.connection', objects: pd.DataFrame, city_name: s
 
     if mapping.address in objects.columns:
         objects[mapping.address] = objects[mapping.address].apply(lambda x: x.replace('?', '').strip() if isinstance(x, str) else None)
-    present = 0 # objects already present in the database
+    present = 0 # number of inesrting objects already present in the database
     added_to_address, added_to_geom, added_as_points, skipped = 0, 0, 0, 0
     results: List[str] = list(('',) * objects.shape[0])
     functional_ids: List[int] = [-1 for _ in range(objects.shape[0])]
@@ -267,7 +284,7 @@ def add_objects(conn: 'psycopg2.connection', objects: pd.DataFrame, city_name: s
                                 conn.rollback()
                             continue
                     else:
-                        geom_type = 'Point'
+                        geom_type = 'ST_Point'
                         try:
                             latitude = round(float(row[mapping.latitude]), 6)
                             longitude = round(float(row[mapping.longitude]), 6)
@@ -322,10 +339,10 @@ def add_objects(conn: 'psycopg2.connection', objects: pd.DataFrame, city_name: s
                                     ' WHERE physical_object_id = %s AND city_service_type_id = %s AND name = %s LIMIT 1', (phys_id, service_type_id, name))
                             res = cur.fetchone()
                             if res is not None: # if service is already present in this building
-                                present += 1
                                 results[i] = f'Обновлен существующий сервис (build_id = {build_id}, phys_id = {phys_id}, functional_object_id = {res[0]})'
                                 functional_ids[i] = res[0]
-                                update_object(conn, row, res[0], mapping, service_type, commit)
+                                update_object(conn, row, res[0], name, mapping, properties_mapping, commit)
+                                present += 1
                                 continue
                             else:
                                 added_to_address += 1
@@ -359,7 +376,6 @@ def add_objects(conn: 'psycopg2.connection', objects: pd.DataFrame, city_name: s
                                         ' WHERE physical_object_id = %s AND city_service_type_id = %s AND name = %s LIMIT 1', (phys_id, service_type_id, name))
                                 res = cur.fetchone()
                                 if res is not None: # if service is already present in this building
-                                    present += 1
                                     if address is not None:
                                         results[i] = f'Обновлен существующий сервис, находящийся в здании с другим адресом: "{address}"' \
                                                 f' (build_id = {build_id}, phys_id = {phys_id}, functional_object_id = {res[0]})'
@@ -367,7 +383,8 @@ def add_objects(conn: 'psycopg2.connection', objects: pd.DataFrame, city_name: s
                                         results[i] = f'Обновлен существующий сервис, находящийся в здании без адреса' \
                                                 f' (build_id = {build_id}, phys_id = {phys_id}, functional_object_id = {res[0]})'
                                     functional_ids[i] = res[0]
-                                    update_object(conn, row, res[0], mapping, name, commit)
+                                    update_object(conn, row, res[0], name, mapping, properties_mapping, commit)
+                                    present += 1
                                     continue
                                 else: # if no service present, but buiding found
                                     added_to_geom += 1
@@ -413,11 +430,11 @@ def add_objects(conn: 'psycopg2.connection', objects: pd.DataFrame, city_name: s
                                     (phys_id, service_type_id, name))
                             res = cur.fetchone()
                             if res is not None: # if service is already present in this pysical_object
-                                present += 1
                                 results[i] = f'Обновлен существующий сервис без здания' \
                                         f' (phys_id = {phys_id}, functional_object_id = {res[0]})'
                                 functional_ids[i] = res[0]
-                                update_object(conn, row, res[0], mapping, name, commit)
+                                update_object(conn, row, res[0], name, mapping, properties_mapping, commit)
+                                present += 1
                                 continue
                             else: # if no service present, but physical_object found
                                 added_to_geom += 1
@@ -450,12 +467,12 @@ def add_objects(conn: 'psycopg2.connection', objects: pd.DataFrame, city_name: s
                                 build_id = cur.fetchone()[0] # type: ignore
                                 results[i] = f'Сервис вставлен в новое здание без указания адреса (build_id = {build_id}, phys_id = {phys_id})'
                         else:
-                            if mapping.geometry in row:
+                            if geom_type != 'ST_Point':
                                 results[i] = f'Сервис вставлен в новый физический объект, добавленный с геометрией (phys_id = {phys_id})'
                             else:
                                 results[i] = f'Сервис вставлен в новый физический объект, добавленный с типом геометрии "Точка" (phys_id = {phys_id})'
                         added_as_points += 1
-                    functional_ids[i] = insert_object(conn, row, phys_id, name, service_type_id, mapping, commit) # type: ignore
+                    functional_ids[i] = insert_object(conn, row, phys_id, name, service_type_id, mapping, properties_mapping, commit) # type: ignore
                 except Exception as ex:
                     logger.error('Произошла ошибка: {}', ex, traceback=True)
                     if verbose:
@@ -468,7 +485,7 @@ def add_objects(conn: 'psycopg2.connection', objects: pd.DataFrame, city_name: s
                     skipped += 1
         except KeyboardInterrupt:
             logger.warning('Прерывание процесса пользователем')
-            logger.opt(colors=True).warning(f'Обработано {i:4} сервисов из {objects.shape[0]}:'
+            logger.opt(colors=True).warning(f'Обработано {i+1:4} сервисов из {objects.shape[0]}:'
                     f' <green>{added_as_points + added_to_address + added_to_geom} добавлены</green>,'
                     f' <yellow>{present} обновлены</yellow>, <red>{skipped} пропущены</red>')
             if commit:
@@ -487,7 +504,7 @@ def add_objects(conn: 'psycopg2.connection', objects: pd.DataFrame, city_name: s
     objects['result'] = pd.Series(results, index=objects.index)
     objects['functional_obj_id'] = pd.Series(functional_ids, index=objects.index)
     logger.success(f'Вставка сервисов типа "{service_type}" завершена')
-    logger.opt(colors=True).info(f'{i} сервисов обработано: <green>{added_as_points + added_to_address + added_to_geom} добавлены</green>,'
+    logger.opt(colors=True).info(f'{i+1} сервисов обработано: <green>{added_as_points + added_to_address + added_to_geom} добавлены</green>,'
             f' <yellow>{present} обновлены</yellow>, <red>{skipped} пропущены</red>')
     logger.opt(colors=True).info(f'<cyan>{added_as_points} сервисов были добавлены в новые физические объекты/здания</cyan>,'
             f' <green>{added_to_address} добавлены в здания по совпадению адреса</green>,'
@@ -572,7 +589,7 @@ def load_objects_csv(filename: str, default_values: Optional[Dict[str, Any]] = N
 
 
 def load_objects_xlsx(filename: str, default_values: Optional[Dict[str, Any]] = None, needed_columns: Optional[Iterable[str]] = None) -> pd.DataFrame:
-    '''load_objects_xlcx loads objects as DataFrame from xlsx by calling pd.read_excel (need to have `openpyxl` Pyhton module installed).
+    '''load_objects_xlcx loads objects as DataFrame from xlsx by calling pd.read_excel (need to install `openpyxl` Pyhton module installed).
     Calls `replace_with_default` after load if `default_values` is present
     '''
     res: pd.DataFrame = pd.read_excel(filename, engine='openpyxl')
@@ -585,7 +602,7 @@ def load_objects_xlsx(filename: str, default_values: Optional[Dict[str, Any]] = 
 
 def load_objects_excel(filename: str, default_values: Optional[Dict[str, Any]] = None, needed_columns: Optional[Iterable[str]] = None) -> pd.DataFrame:
     '''load_objects_excel loads objects as DataFrame from xls or ods by calling pd.read_excel
-        (need to have `xlrd` Pyhton module installed for xls and `odfpy` for ods).
+        (need to install `xlrd` Pyhton module installed for xls and `odfpy` for ods).
     Calls `replace_with_default` after load if `default_values` is present
     '''
     res: pd.DataFrame = pd.read_excel(filename)
@@ -604,42 +621,10 @@ def load_objects(filename: str, default_values: Optional[Dict[str, Any]] = None,
     except KeyError:
         raise ValueError(f'File extension "{filename[filename.rfind(".") + 1:]}" is not supported')
     
-
-@click.command('IDU - Insert Services CLI')
-@click.option('--db_addr', '-H', envvar='DB_ADDR', help='Postgres DBMS address', default='localhost', show_default=True)
-@click.option('--db_port', '-P', envvar='DB_PORT', type=int, help='Postgres DBMS port', default=5432, show_default=True)
-@click.option('--db_name', '-D', envvar='DB_NAME', help='Postgres city database name', default='city_db_final', show_default=True)
-@click.option('--db_user', '-U', envvar='DB_USER', help='Postgres DBMS user name', default='postgres', show_default=True)
-@click.option('--db_pass', '-W', envvar='DB_PASS', help='Postgres DBMS user password', default='postgres', show_default=True)
-@click.option('--dry_run', '-d', envvar='DRY_RUN', is_flag=True, help='Try to insert objects, but do not save results')
-@click.option('--verbose', '-v', envvar='VERBOSE', is_flag=True, help='Output stack trace when error happens')
-@click.option('--log_filename', '-l', envvar='LOGFILE', help='path to create log file, empty or "-" to disable logging',
-        required=False, show_default='current datetime "YYYY-MM-DD HH-mm-ss-<filename>.csv"')
-@click.option('--city', '-c', envvar='DB_PASS', help='City to insert services to, must exist in the database', show_default=True)
-@click.option('--service_type', '-T', envvar='DB_PASS', help='Service type name or code for inserting services, must exist in the database', show_default=True)
-@click.option('--document_latitude', '-dx', envvar='DOCUMENT_LATITUDE', help='Document latutude field (this and longitude or geometry)',
-        default='x', show_default=True)
-@click.option('--document_longitude', '-dy', envvar='DOCUMENT_LONGITUDE', help='Document longitude field (this and latitude or geometry)',
-        default='y', show_default=True)
-@click.option('--document_geometry', '-dg', envvar='DOCUMENT_GEOMETRY', help='Document geometry field (this or latitude and longitude)',
-        default='geometry', show_default=True)
-@click.option('--document_address', '-dA', envvar='DOCUMENT_ADDRESS', help='Document service building address field', default='yand_adr', show_default=True)
-@click.option('--document_service_name', '-dN', envvar='DOCUMENT_SERVICE_NAME', help='Document service name field', default='name', show_default=True)
-@click.option('--document_opening_hours', '-dO', envvar='DOCUMENT_OPENING_HOURS', help='Document service opening hours field',
-        default='opening_hours', show_default=True)
-@click.option('--document_website', '-dw', envvar='DOCUMENT_WEBSITE', help='Document service website field', default='contact:website', show_default=True)
-@click.option('--document_phone', '-dP', envvar='DOCUMENT_PHONE', help='Document service phone number field', default='contact:phone', show_default=True)
-@click.option('--document_osm_id', '-dI', envvar='DOCUMENT_OSM_ID', help='Document physical object OSM identifier field', default='id', show_default=True)
-@click.option('--document_capacity', '-dC', envvar='DOCUMENT_CAPACITY', help='Document service capacity field', default='-', show_default=True)
-@click.option('--address_prefix', '-aP', multiple=True, envvar='ADDRESS_PREFIX',
-        help='Address prefix (available for multiple prefixes), no comma or space needed', default=[], show_default='Россия, Санкт-Петербург')
-@click.option('--new_address_prefix', '-nAP', envvar='NEW_ADDRESS_PREFIX',
-        help='New address prefix that would be added to all addresses after cutting old address prefix', default='', show_default=True)
-@click.argument('filename')
-def main(db_addr: str, db_port: int, db_name: str, db_user: str, db_pass: str, dry_run: bool, verbose: bool, log_filename: Optional[str],
+def run_cli(db_addr: str, db_port: int, db_name: str, db_user: str, db_pass: str, dry_run: bool, verbose: bool, log_filename: Optional[str],
         city: str, service_type: str, document_latitude: str, document_longitude: str, document_geometry: str, document_address: str,
         document_service_name: str, document_opening_hours: str, document_website: str, document_phone: str, document_osm_id: str,
-        document_capacity: str, address_prefix: Tuple[str], new_address_prefix: str, filename: str):
+        document_capacity: str, address_prefix: List[str], new_address_prefix: str, properties_mapping: List[str], filename: str):
 
     global log_handler_id
     if verbose:
@@ -656,6 +641,13 @@ def main(db_addr: str, db_port: int, db_name: str, db_user: str, db_pass: str, d
         address_prefixes.append('Россия, Санкт-Петербург')
     else:
         address_prefixes.sort(key=len, reverse=True)
+
+    for entry in properties_mapping:
+        if ':' not in entry:
+            logger.error(f'Properties mapping "{entry}" does not set a mapping (missing ":"). Exiting')
+            exit(1)
+
+    properties_mapping_dict = {entry[:entry.find(':')]: entry[entry.find(':') + 1:] for entry in properties_mapping}
 
     if not os.path.isfile(filename):
         logger.error(f'Входной файл "{filename}" не найден или не является файлом, завершение работы')
@@ -703,17 +695,11 @@ def main(db_addr: str, db_port: int, db_name: str, db_user: str, db_pass: str, d
         if value is not None and value not in objects.columns:
             logger.warning(f'Колонка "{value}" используется ({column}), но не задана в файле')
 
-    objects = add_objects(conn, objects, city, service_type, mapping, address_prefixes, new_address_prefix, not dry_run, verbose)
+    for column, value in properties_mapping.items():
+        pass
+
+    objects = add_objects(conn, objects, city, service_type, mapping, properties_mapping_dict, address_prefixes, new_address_prefix, not dry_run, verbose)
 
     if logfile is not None:
         objects.to_csv(logfile)
     logger.opt(colors=True).info(f'Завершено, лог записан в файл <green>"{logfile}"</green>')
-
-if __name__ == '__main__':
-    if os.path.isfile('.env'):
-        with open('.env', 'r') as f:
-            for name, value in (tuple((line[len('export '):] if line.startswith('export ') else line).strip().split('=')) \
-                        for line in f.readlines() if not line.startswith('#') and line != ''):
-                if name not in os.environ:
-                    os.environ[name] = value
-    main()

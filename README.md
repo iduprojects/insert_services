@@ -16,7 +16,7 @@ Also, on Linux you might need to install development files of opengl from `libqt
 
 ### Command line interface
 
-Launch script with `python adding_functional_objects.py --help` to get help.
+Launch script with `python -m platform_management cli --help` to get help.
 
 At the launch you must provide given arguments:
 
@@ -69,11 +69,11 @@ Other parameters:
 9. При необходимости, можно изменить данные сервисов через `gui_main.py` в разделе "Изменение сервисов"
 
 Также рекомендуется добавить зданиям геометрию и добавить кварталы, на данный момент первое возможно только для каждого здания вручную
-  через `gui_main.py` в разделе "Изменение сервисов", а работа с кварталами отсутствует в принципе.
+  через графический интерфейс в разделе "Изменение сервисов", а работа с кварталами отсутствует в принципе.
 
 ### Graphical user interface (russian)
 
-1. Запустите `python gui_main.py`
+1. Запустите `python -m platform_management gui.py`
 2. Подключение к БД. Задайте адрес, название БД, пользователя и пароль для PostgreSQL в блоке "База данных" и нажмите на "Проверить подключение".  
   Если знак вопроса справа от кнопки заменился на зеленую галочку, подключение успешно.  
   В противном случае можно посмотреть ошибку, повторив попытку с зажатой клавишей Shift.

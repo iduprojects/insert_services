@@ -4,14 +4,14 @@ import sys
 import traceback
 from typing import NamedTuple, Optional
 
-import click
 from loguru import logger
 from PySide6 import QtCore, QtGui, QtWidgets
 
-from database_properties import Properties
-from gui_insert_services import InsertionWindow
-from gui_manipulate_cities import CitiesWindow
-from gui_update_services import UpdatingWindow
+from platform_management.database_properties import Properties
+from platform_management.gui.insert_services import InsertionWindow
+from platform_management.gui.manipulate_cities import CitiesWindow
+from platform_management.gui.update_services import UpdatingWindow
+from platform_management.gui.manipulate_regions import RegionsWindow
 
 InitWindowDefaultValues = NamedTuple('InitWindowDefaultValues', [
         ('db_address', str),
@@ -53,6 +53,8 @@ class InitWindow(QtWidgets.QWidget):
         self._updating_window = UpdatingWindow(self._db_properties.copy(), self._on_restart)
         logger.debug('Creating cities manipulation window')
         self._cities_window = CitiesWindow(self._db_properties.copy(), self._on_restart)
+        logger.debug('Creating regions manipulation window')
+        self._regions_window = RegionsWindow(self._db_properties.copy(), self._on_restart)
 
         self._layout = QtWidgets.QHBoxLayout()
         self.setLayout(self._layout)
@@ -77,9 +79,10 @@ class InitWindow(QtWidgets.QWidget):
         self._variants = QtWidgets.QButtonGroup()
         self._variants.addButton(QtWidgets.QRadioButton('&Загрузка сервисов'), 0)
         self._variants.addButton(QtWidgets.QRadioButton('&Изменение сервисов'), 1)
-        self._variants.addButton(QtWidgets.QRadioButton('&Операции с городами'), 2)
+        self._variants.addButton(QtWidgets.QRadioButton('Операции с &городами'), 2)
+        self._variants.addButton(QtWidgets.QRadioButton('Операции с &регионами'), 3)
         self._variants.button(0).setChecked(True)
-        for btn_n in range(3):
+        for btn_n in range(4):
             self._right.addWidget(self._variants.button(btn_n))
 
         self._launch_btn = QtWidgets.QPushButton('З&апуск')
@@ -116,7 +119,7 @@ class InitWindow(QtWidgets.QWidget):
             logger.debug('Connection reopened')
         try:
             QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.BusyCursor)
-            self._db_check_res.setText('<b style=color:yellow;>o</b>')
+            self._db_check_res.setText('<b style=color:pink;>o</b>')
             self.repaint()
             with self._db_properties.conn, self._db_properties.conn.cursor() as cur:
                 cur.execute('SELECT 1')
@@ -126,6 +129,8 @@ class InitWindow(QtWidgets.QWidget):
                 self._updating_window.change_db(self._db_properties.db_addr, self._db_properties.db_port, self._db_properties.db_name,
                         self._db_properties.db_user, self._db_properties.db_pass)
                 self._cities_window.change_db(self._db_properties.db_addr, self._db_properties.db_port, self._db_properties.db_name,
+                        self._db_properties.db_user, self._db_properties.db_pass)
+                self._regions_window.change_db(self._db_properties.db_addr, self._db_properties.db_port, self._db_properties.db_name,
                         self._db_properties.db_user, self._db_properties.db_pass)
 
                 cur.execute('SELECT name FROM cities ORDER BY population DESC')
@@ -168,14 +173,18 @@ class InitWindow(QtWidgets.QWidget):
         elif self._variants.checkedId() == 1:
             app.setApplicationDisplayName('Изменение сервисов')
             self._updating_window.show()
-        else:
+        elif self._variants.checkedId() == 2:
             app.setApplicationDisplayName('Операции с городами')
             self._cities_window.show()
+        else:
+            app.setApplicationDisplayName('Операции с регионами')
+            self._regions_window.show()
 
     def _on_restart(self):
         self._insertion_window.hide()
         self._updating_window.hide()
         self._cities_window.hide()
+        self._regions_window.hide()
         self.show()
         self.on_connection_check(True)
 
@@ -190,38 +199,26 @@ class InitWindow(QtWidgets.QWidget):
             logger.info('Закрыто начальное окно работы с сервисами')
         return super().closeEvent(event)
 
-
-@click.command('IDU - Insert Services App GUI')
-@click.option('--db_addr', '-H', envvar='DB_ADDR', help='Postgres DBMS address', default=InitWindow.default_values.db_address, show_default=True, show_envvar=True)
-@click.option('--db_port', '-P', envvar='DB_PORT', type=int, help='Postgres DBMS port', default=InitWindow.default_values.db_port, show_default=True, show_envvar=True)
-@click.option('--db_name', '-D', envvar='DB_NAME', help='Postgres city database name', default=InitWindow.default_values.db_name, show_default=True, show_envvar=True)
-@click.option('--db_user', '-U', envvar='DB_USER', help='Postgres DBMS user name', default=InitWindow.default_values.db_user, show_default=True, show_envvar=True)
-@click.option('--db_pass', '-W', envvar='DB_PASS', help='Postgres DBMS user password', default=InitWindow.default_values.db_pass, show_default=True, show_envvar=True)
-@click.option('--verbose', '-v', envvar='VERBOSE', is_flag=True, help='Include debug information')
-def main(db_addr: str, db_port: int, db_name: str, db_user: str, db_pass: str, verbose: bool):
+def run_gui(db_addr: str, db_port: int, db_name: str, db_user: str, db_pass: str, verbose: bool):
     global app
-    logger.debug('Starting the application')
 
     logger.remove(0)
     logger.add(sys.stderr, level = 'INFO' if not verbose else 'DEBUG',
             format='<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: ^8}</level> | <cyan>{extra[name]}:{line:03}</cyan> - <level>{message}</level>')
+    logger.debug('Starting the application')
 
     InitWindow.default_values = InitWindowDefaultValues(db_addr, db_port, db_name, db_user, db_pass)
 
     app = QtWidgets.QApplication([])
-    app.setWindowIcon(QtGui.QIcon(QtGui.QPixmap('icon.png')))
-    app.setApplicationName('IDU - Insert Services App')
+    app.setWindowIcon(QtGui.QIcon(QtGui.QPixmap(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'resources', 'icon.png'))))
+    app.setApplicationName('IDU - Insertion Tool')
 
     window = InitWindow()
     window.show()
 
     exit(app.exec())
 
-if __name__ == '__main__':
-    if os.path.isfile('.env'):
-        with open('.env', 'r') as f:
-            for name, value in (tuple((line[len('export '):] if line.startswith('export ') else line).strip().split('=')) \
-                        for line in f.readlines() if not line.startswith('#') and line != ''):
-                if name not in os.environ:
-                    os.environ[name] = value
-    main()
+__all__ = (
+    'run_gui',
+    'InitWindow'
+)

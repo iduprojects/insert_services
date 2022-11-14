@@ -129,7 +129,9 @@ class DropPushButton(QtWidgets.QPushButton):
             self._callback(event.mimeData().text()[len('file:///'):])
 
 class ColoringTableWidget(QtWidgets.QTableWidget):
-    def __init__(self, data: Sequence[Sequence[Any]], labels: List[str],
+    def __init__(self,
+            data: List[Sequence[Any]],
+            labels: List[str],
             correction_checker: Callable[[int, int, Any, str], bool] = lambda _column, _row, _old_value, _new_value: True,
             blocked_columns: Sequence[int] = [],
             parent: Optional[QtWidgets.QWidget] = None):
@@ -163,6 +165,12 @@ class ColoringTableWidget(QtWidgets.QTableWidget):
                 self.item(row, column).setBackground(QtCore.Qt.GlobalColor.red)
             self._data[row][column] = data
         return super().dataChanged(topLeft, bottomRight, roles=roles)
+    
+    def disable_triggers(self) -> None:
+        self._initialized = False
+
+    def enable_triggers(self) -> None:
+        self._initialized = True
 
 class GeometryShow(QtWidgets.QDialog):
     def __init__(self, geometry: str, parent: Optional[QtWidgets.QWidget] = None):

@@ -42,13 +42,27 @@ CREATE TABLE social_groups (
 );
 ALTER TABLE social_groups OWNER TO postgres;
 
+CREATE TABLE regions (
+    id Serial PRIMARY KEY NOT NULL,
+    name varchar(50) UNIQUE NOT NULL,
+    code varchar(50) UNIQUE NOT NULL,
+    geometry geometry(geometry, 4326) NOT NULL,
+    center geometry(Point, 4326) NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE regions OWNER TO postgres;
+
 CREATE TABLE cities (
     id serial PRIMARY KEY NOT NULL,
     name character varying(50),
+    code character varying(50),
     geometry geometry(Geometry, 4326) NOT NULL,
     center geometry(Point, 4326) NOT NULL,
+    region_id integer REFERENCES regions(id),
     population int,
     city_division_type city_division_type,
+    local_crs integer,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL
 );
@@ -155,6 +169,8 @@ CREATE TABLE functional_objects (
     city_infrastructure_type_id integer REFERENCES city_infrastructure_types(id) NOT NULL,
     city_function_id integer REFERENCES city_functions(id) NOT NULL,
     city_service_type_id integer REFERENCES city_service_types(id) NOT NULL,
+    modeled jsonb NOT NULL DEFAULT '{}'::jsonb,
+    properties jsonb NOT NULL DEFAULT '{}'::jsonb,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL
 );
@@ -167,7 +183,7 @@ CREATE TABLE buildings (
     physical_object_id integer REFERENCES physical_objects(id) NOT NULL,
     address character varying(200),
     project_type character varying(100),
-    building_date character varying(50),
+    building_year smallint,
     building_area real,
     is_living boolean,
     living_area real,
@@ -181,7 +197,8 @@ CREATE TABLE buildings (
     ukname character varying(100),
     failure boolean,
     lift_count smallint,
-    repair_years character varying(100)
+    repair_years character varying(100),
+    modeled jsonb NOT NULL DEFAULT '{}'::jsonb
 );
 ALTER TABLE buildings OWNER TO postgres;
 
@@ -471,7 +488,8 @@ CREATE MATERIALIZED VIEW all_services AS (
 ALTER TABLE all_services OWNER TO postgres;
 
 CREATE MATERIALIZED VIEW all_buildings AS (
-     SELECT b.id AS building_id,
+     SELECT DISTINCT ON (b.physical_id)
+        b.id AS building_id,
         b.physical_object_id,
         b.address,
         b.project_type,

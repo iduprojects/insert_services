@@ -1,17 +1,21 @@
+import itertools
 import json
 import os
 import time
 import traceback
-from typing import Any, Callable, Dict, Iterable, List, NamedTuple, Optional, Tuple, Union
+from typing import (Any, Callable, Dict, Iterable, List, NamedTuple, Optional,
+                    Tuple, Union)
 
 import pandas as pd
 import psycopg2
 from loguru import logger
 from PySide6 import QtCore, QtGui, QtWidgets
 
-import adding_functional_objects
-from database_properties import Properties
-from gui_basics import CheckableTableView, ColorizingComboBox, ColorizingLine, DropPushButton
+import platform_management.cli.insert_services as insert_services_cli
+from platform_management.database_properties import Properties
+from platform_management.gui.basics import (CheckableTableView,
+                                            ColorizingComboBox, ColorizingLine,
+                                            DropPushButton)
 
 logger = logger.bind(name='gui_insert_services')
 
@@ -114,7 +118,7 @@ class InsertionWindow(QtWidgets.QWidget):
         self._load_objects_btn.setVisible(False)
         self._save_results_btn = QtWidgets.QPushButton('Сохранить результаты')
         self._save_results_btn.setStyleSheet('font-weight: bold')
-        self._save_results_btn.clicked.connect(self.on_save_results)
+        self._save_results_btn.clicked.connect(self.on_export_results)
         self._save_results_btn.setVisible(False)
         left_hlayout = QtWidgets.QHBoxLayout()
         left_hlayout.addWidget(self._open_file_btn)
@@ -161,6 +165,25 @@ class InsertionWindow(QtWidgets.QWidget):
         self._document_group.addRow('Мощность:', self._document_fields.capacity)
         self._right.addWidget(self._document_group_box)
 
+        self._properties_group_box = QtWidgets.QGroupBox('Дополнительные поля сервисов')
+        self._properties_group = QtWidgets.QGridLayout()
+        self._properties_group_box.setLayout(self._properties_group)
+        self._property_add_btn = QtWidgets.QPushButton('Добавить')
+        self._property_add_btn.clicked.connect(self.on_property_add)
+        self._property_delete_btn = QtWidgets.QPushButton('Удалить')
+        self._property_delete_btn.clicked.connect(self.on_property_delete)
+        self._property_delete_btn.setEnabled(False)
+        self._properties_group.addWidget(self._property_add_btn, 0, 0)
+        self._properties_group.addWidget(self._property_delete_btn, 0, 1)
+        self._properties_group.addWidget(QtWidgets.QLabel('В базе данных'), 1, 0)
+        self._properties_group.addWidget(QtWidgets.QLabel('В документе'), 1, 1)
+        for i in (0, 1):
+            self._properties_group.itemAtPosition(1, i).widget().setVisible(False)
+            self._properties_group.itemAtPosition(1, i).widget().setAlignment(QtCore.Qt.AlignCenter)
+            self._properties_group.itemAtPosition(1, i).widget().setStyleSheet('font-weight: bold;')
+        self._right.addWidget(self._properties_group_box)
+        self._properties_cnt = 0
+
         self._prefixes_group_box = QtWidgets.QGroupBox('Префиксы адреса')
         self._prefixes_group = QtWidgets.QVBoxLayout()
         self._prefixes_group_box.setLayout(self._prefixes_group)
@@ -186,12 +209,14 @@ class InsertionWindow(QtWidgets.QWidget):
             types = None
 
         self._right.setAlignment(QtCore.Qt.AlignTop)
-        right_width = max(map(lambda box: box.sizeHint().width(), (self._options_group_box, self._document_group_box, self._prefixes_group_box)))
+        right_width = max(map(lambda box: box.sizeHint().width(),
+                (self._options_group_box, self._document_group_box, self._prefixes_group_box, self._properties_group_box)))
         
         self._right_scroll.setFixedWidth(int(right_width * 1.15))
         self._options_group_box.setFixedWidth(right_width)
         self._document_group_box.setFixedWidth(right_width)
         self._prefixes_group_box.setFixedWidth(right_width)
+        self._properties_group_box.setFixedWidth(right_width)
         
         self._options_fields.service_type.setCurrentIndex(0)
         self._options_fields.service_code.setText(InsertionWindow.default_values.service_code)
@@ -233,7 +258,7 @@ class InsertionWindow(QtWidgets.QWidget):
         else:
             filename = filepath
 
-        df = adding_functional_objects.load_objects(filename)
+        df = insert_services_cli.load_objects(filename)
         self.setWindowTitle(f'Загрузка объектов - "{filename[filename.rindex("/") + 1:]}"')
         logger.info(f'Открыт файл для вставки: {filename}, {df.shape[0]} объектов')
 
@@ -250,7 +275,8 @@ class InsertionWindow(QtWidgets.QWidget):
             self._table_model.item(i, 0).setForeground(QtCore.Qt.black)
 
         field: QtWidgets.QComboBox
-        for field in self._document_fields: # type: ignore
+        for field in itertools.chain(self._document_fields,
+                (self._properties_group.itemAtPosition(i + 2, 1).widget() for i in range(self._properties_cnt))):
             previous_text = field.currentText()
             field.clear()
             field.addItem('-')
@@ -295,23 +321,25 @@ class InsertionWindow(QtWidgets.QWidget):
         verbose = not bool(QtWidgets.QApplication.keyboardModifiers() & QtCore.Qt.ShiftModifier)
         is_commit = not bool(QtWidgets.QApplication.keyboardModifiers() & QtCore.Qt.ControlModifier)
         try:
-            results = adding_functional_objects.add_objects(
+            results = insert_services_cli.add_objects(
                     self._db_properties.conn,
                     self.table_as_DataFrame(False),
                     self._options_fields.city.currentText(),
                     self._options_fields.service_type.currentText(),
-                    adding_functional_objects.initInsertionMapping(
+                    insert_services_cli.initInsertionMapping(
                         self._document_fields.name.currentText(),
                         self._document_fields.opening_hours.currentText(),
                         self._document_fields.website.currentText(),
                         self._document_fields.phone.currentText(),
                         self._document_fields.address.currentText(),
                         self._document_fields.osm_id.currentText(),
-                        None,
+                        self._document_fields.capacity.currentText(),
                         self._document_fields.latitude.currentText(),
                         self._document_fields.longitude.currentText(),
                         self._document_fields.geometry.currentText()
                     ),
+                    {self._properties_group.itemAtPosition(i + 2, 0).widget().text(): self._properties_group.itemAtPosition(i + 2, 1).widget().currentText() \
+                            for i in range(self._properties_cnt) if self._properties_group.itemAtPosition(i + 2, 1).widget().currentIndex() > 0},
                     list(map(lambda line_edit: line_edit.text(), self._document_address_prefixes)),
                     self._prefixes_group.itemAt(self._prefixes_group.count() - 1).widget().text(), # type: ignore
                     is_commit,
@@ -346,7 +374,7 @@ class InsertionWindow(QtWidgets.QWidget):
             self._table_model.item(row, len(self._table_axes) - 2).setFlags(QtCore.Qt.ItemIsEnabled)
         self._save_results_btn.setVisible(True)
 
-    def on_save_results(self) -> None:
+    def on_export_results(self) -> None:
         fileDialog = QtWidgets.QFileDialog(self)
         fileDialog.setAcceptMode(QtWidgets.QFileDialog.AcceptSave)
         fileDialog.setNameFilters(('Modern Excel files (*.xlsx)', 'Excel files (*.xls)', 'OpedDocumentTable files (*.ods)', 'CSV files (*.csv)'))
@@ -414,6 +442,11 @@ class InsertionWindow(QtWidgets.QWidget):
                 self._options_fields.is_building.setChecked(service[3])
                 self._options_fields.city_function.setCurrentText(service[4])
                 self._options_fields.service_type.setStyleSheet('background-color: rgb({}, {}, {});color: black'.format(*InsertionWindow.colorTable.light_green.getRgb()[:3]))
+                while self._properties_cnt > 0:
+                    self.on_property_delete()
+                properties_available = insert_services_cli.get_properties_keys(self._db_properties.conn, self._options_fields.service_type.currentText())
+                for property in properties_available:
+                    self.on_property_add(property)
             else:
                 self._options_fields.service_code.setText('')
                 self._options_fields.is_building.setChecked(False)
@@ -435,6 +468,13 @@ class InsertionWindow(QtWidgets.QWidget):
         else:
             self._options_fields.city_function.setStyleSheet('background-color: rgb({}, {}, {});color: black'.format(*InsertionWindow.colorTable.light_green.getRgb()[:3]))
         
+        for line in (self._properties_group.itemAtPosition(i + 2, 0).widget() for i in range(1, self._properties_cnt)):
+            if len(line.text()) == 0 or len(set(line.text()) - allowed_chars - {'-', '_'}) != 0:
+                self._is_options_ok = False
+                line.setStyleSheet('background-color: rgb({}, {}, {})'.format(*InsertionWindow.colorTable.light_red.getRgb()[:3]))
+            else:
+                line.setStyleSheet('')
+        
         if self._is_options_ok and self._is_document_ok:
             self._load_objects_btn.setEnabled(True)
         else:
@@ -442,7 +482,7 @@ class InsertionWindow(QtWidgets.QWidget):
 
     def on_document_change(self, what_changed: Optional[QtWidgets.QComboBox] = None,
             previous_value: Optional[int] = None) -> None:
-        logger.debug(f'on_document_changed called ({what_changed})')
+        logger.debug('on_document_changed called with what_changed argument ({}), previous_value ({})', what_changed, previous_value)
         self._is_document_ok = True
         if self._table is None:
             return
@@ -457,19 +497,22 @@ class InsertionWindow(QtWidgets.QWidget):
                         self._table_model.item(row, col).setBackground(InsertionWindow.colorTable.light_green)
                         self._table_model.item(row, col).setForeground(QtCore.Qt.black)
 
-            if previous_value is not None and previous_value != 0:
-                if previous_value == self._document_fields.address.currentIndex():
-                    self.on_prefix_check()
-                else:
-                    is_used = False
-                    field: QtWidgets.QComboBox
-                    for field in self._document_fields:
-                        if field.currentIndex() == previous_value:
-                            is_used = True
-                    if not is_used:
-                        col = previous_value
-                        for row in range(self._table_model.rowCount()):
-                            self._table_model.item(row, col).setBackground(QtGui.QColor(QtCore.Qt.white))
+        if previous_value is not None and previous_value != 0:
+            if previous_value == self._document_fields.address.currentIndex():
+                self.on_prefix_check()
+            else:
+                is_used = False
+                field: QtWidgets.QComboBox
+                for field in self._document_fields:
+                    if field.currentIndex() == previous_value:
+                        is_used = True
+                if not is_used:
+                    col = previous_value
+                    for row in range(self._table_model.rowCount()):
+                        item = self._table_model.item(row, col)
+                        if item is None:
+                            break
+                        item.setBackground(QtGui.QColor(QtCore.Qt.white))
                         
         for field in self._document_fields:
             if field.currentIndex() == 0:
@@ -504,6 +547,43 @@ class InsertionWindow(QtWidgets.QWidget):
             self._load_objects_btn.setEnabled(True)
         else:
             self._load_objects_btn.setEnabled(False)
+
+    def on_property_add(self, db_name: Optional[str] = None) -> None:
+        self._properties_group.addWidget(ColorizingLine(self.on_options_change), self._properties_cnt + 2, 0)
+        w3 = ColorizingComboBox(self.on_document_change)
+        w3.addItem('-')
+        if self._table is not None:
+            w3.addItems(self._table_axes[1:])
+        self._properties_group.addWidget(w3, self._properties_cnt + 2, 1)
+        self.on_document_change(self._properties_group.itemAtPosition(self._properties_cnt + 2, 1).widget())
+        if isinstance(db_name, str):
+            self._properties_group.itemAtPosition(self._properties_cnt + 2, 0).widget().setText(db_name)
+        self._properties_cnt += 1
+        if self._properties_cnt == 1:
+            self._properties_group.itemAtPosition(1, 0).widget().setVisible(True)
+            self._properties_group.itemAtPosition(1, 1).widget().setVisible(True)
+            self._property_delete_btn.setEnabled(True)
+        self.on_options_change()
+
+    def on_property_delete(self) -> None:
+        self._properties_cnt -= 1
+        widget = self._properties_group.itemAtPosition(self._properties_cnt + 2, 1).widget()
+        if self._table is not None:
+            old_text = widget.currentText()
+            widget.setCurrentIndex(0)
+            self.on_document_change(widget, old_text)
+        widget.setVisible(False)
+        self._properties_group.removeWidget(widget)
+
+        widget = self._properties_group.itemAtPosition(self._properties_cnt + 2, 0).widget()
+        widget.setVisible(False)
+        self._properties_group.removeWidget(widget)
+
+        if self._properties_cnt == 0:
+            self._properties_group.itemAtPosition(1, 0).widget().setVisible(False)
+            self._properties_group.itemAtPosition(1, 1).widget().setVisible(False)
+            self._property_delete_btn.setEnabled(False)
+        self.on_options_change()
 
     def set_cities(self, cities: Iterable[str]):
         cities = list(cities)

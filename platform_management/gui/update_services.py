@@ -1,14 +1,18 @@
 import itertools
 import json
 import time
-from typing import Any, Callable, Iterable, List, NamedTuple, Optional, Sequence, Union
+from typing import (Any, Callable, Iterable, List, NamedTuple, Optional,
+                    Sequence, Union)
 
 import pandas as pd
 from loguru import logger
 from PySide6 import QtCore, QtGui, QtWidgets
 
-from database_properties import Properties
-from gui_basics import ColoringTableWidget, ColorizingComboBox, check_geometry_correctness
+from platform_management.database_properties import Properties
+from platform_management.gui.basics import (ColoringTableWidget,
+                                            ColorizingComboBox,
+                                            check_geometry_correctness)
+from platform_management import get_properties_keys
 
 logger = logger.bind(name='gui_update_services')
 
@@ -16,12 +20,18 @@ class PlatformServicesTableWidget(ColoringTableWidget):
     LABELS = ['id сервиса', 'Адрес', 'Название', 'Рабочие часы', 'Веб-сайт', 'Телефон',
                 'Мощность', 'Мощ-real', 'id физ. объекта', 'Широта', 'Долгота', 'Тип геометрии', 'Админ. единица', 'Муницип. образование', 'Создание', 'Обновление']
     LABELS_DB = ['id', '-', 'name', 'opening_hours', 'website', 'phone', 'capacity', 'is_capacity_real', 'physical_object_id', '-', '-', '-', '-', '-', '-']
-    def __init__(self, services: Sequence[Sequence[Any]], changed_callback: Callable[[int, str, Any, Any, bool], None],
+    def __init__(self, services: List[Sequence[Any]], properties_keys: List[str], changed_callback: Callable[[int, str, Any, Any, bool], None],
             db_properties: Properties, is_service_building: bool):
-        super().__init__(services, PlatformServicesTableWidget.LABELS, self.correction_checker, (0, 1, 9, 10, 11, 12, 13, 14, 15))
+        super().__init__(services, PlatformServicesTableWidget.LABELS + properties_keys,
+                self.correction_checker, (0, 1, 9, 10, 11, 12, 13, 14, 15))
+        if len(services) > 0:
+            assert(len(PlatformServicesTableWidget.LABELS) + len(properties_keys) == len(list(services[0]))), \
+                    'size of a service table is not equal to a predefined table'
+        self._labels = PlatformServicesTableWidget.LABELS + properties_keys
         self._db_properties = db_properties
         self._changed_callback = changed_callback
         self._is_service_building = is_service_building
+        self._is_callback_endbled = True
         self.setColumnWidth(2, 200)
         self.setColumnWidth(3, 120)
         self.setColumnWidth(4, 190)
@@ -42,13 +52,22 @@ class PlatformServicesTableWidget(ColoringTableWidget):
             res = False
         elif column == 8:
             with self._db_properties.conn.cursor() as cur:
-                cur.execute('SELECT EXISTS (SELECT 1 FROM physical_objects WHERE id = %s), EXISTS (SELECT 1 FROM buildings WHERE physical_object_id = %s)',
-                        (new_data, new_data))
+                cur.execute('SELECT EXISTS (SELECT 1 FROM physical_objects WHERE id = %(new_data)s),'
+                        ' EXISTS (SELECT 1 FROM buildings WHERE physical_object_id = %(new_data)s)',
+                        ({'new_data': new_data}))
                 if cur.fetchone() != (True, self._is_service_building):
                     res = False
-        if PlatformServicesTableWidget.LABELS_DB[column] != '-':
-            self._changed_callback(row, PlatformServicesTableWidget.LABELS[column], old_data, new_data, res)
+        if self._is_callback_endbled and (column > len(PlatformServicesTableWidget.LABELS_DB) or PlatformServicesTableWidget.LABELS_DB[column] != '-'):
+            self._changed_callback(row, self._labels[column], old_data, new_data, res)
         return res
+
+    def disable_callback(self):
+        self._is_callback_enabled = False
+        self.disable_triggers()
+
+    def enable_callback(self):
+        self._is_callback_enabled = True
+        self.enable_triggers()
 
 
 class GeometryShow(QtWidgets.QDialog):
@@ -380,8 +399,8 @@ class UpdatingWindow(QtWidgets.QWidget):
         self._options_group.addRow('Город:', self._city_choose)
         self._right.addWidget(self._options_group_box)
         self._options_group_box.setLayout(self._options_group)
-        self._service_type_choose = QtWidgets.QComboBox()
-        self._options_group.addRow('Тип сервиса:', self._service_type_choose)
+        self._service_type = QtWidgets.QComboBox()
+        self._options_group.addRow('Тип сервиса:', self._service_type)
 
         self._editing_group_box = QtWidgets.QGroupBox('Изменение списка')
         self._editing_group = QtWidgets.QFormLayout()
@@ -433,13 +452,15 @@ class UpdatingWindow(QtWidgets.QWidget):
     def _on_objects_load(self) -> None:
         self._log_window.clear()
         self._db_properties.conn.rollback()
+        properties_keys = get_properties_keys(self._db_properties.conn, self._service_type.currentText())
         with self._db_properties.conn.cursor() as cur:
-            cur.execute('SELECT is_building FROM city_service_types WHERE name = %s', (self._service_type_choose.currentText(),))
+            cur.execute('SELECT is_building FROM city_service_types WHERE name = %s', (self._service_type.currentText(),))
             is_building = cur.fetchone()[0] # type: ignore
             cur.execute('SELECT f.id as functional_object_id, b.address, f.name AS service_name, f.opening_hours, f.website, f.phone,'
                     '   f.capacity, f.is_capacity_real, p.id as physical_object_id, ST_Y(p.center), ST_X(p.center),'
                     '   ST_GeometryType(p.geometry), au.name as administrative_unit, m.name as municipality,'
-                    "   date_trunc('second', f.created_at)::timestamp, date_trunc('second', f.updated_at)::timestamp"
+                    "   date_trunc('second', f.created_at)::timestamp, date_trunc('second', f.updated_at)::timestamp,"
+                    '   b.modeled building_modeled, f.modeled functional_object_modeled, f.properties'
                     ' FROM physical_objects p'
                     '   JOIN functional_objects f ON f.physical_object_id = p.id'
                     '   LEFT JOIN buildings b ON b.physical_object_id = p.id'
@@ -448,14 +469,15 @@ class UpdatingWindow(QtWidgets.QWidget):
                     ' WHERE f.city_service_type_id = (SELECT id from city_service_types WHERE name = %s)'
                     '   AND p.city_id = (SELECT id FROM cities WHERE name = %s)'
                     ' ORDER BY 1',
-                    (self._service_type_choose.currentText(), self._city_choose.currentText())
+                    (self._service_type.currentText(), self._city_choose.currentText())
             )
-            services_list = cur.fetchall()
+            services_list, buildings_modeled, functional_objects_modeled, functional_object_properties = zip(*[
+                (row[:-3] + ('',) * len(properties_keys), row[-3], row[-2], row[-1]) for row in cur.fetchall()
+            ])
         if '_table' not in dir(self):
             self._editing_group.addWidget(self._edit_buttons.load)
             self._editing_group.addWidget(self._edit_buttons.delete)
             self._editing_group.addWidget(self._edit_buttons.showGeometry)
-            # self._editing_group.addWidget(self._edit_buttons.updateGeometry)
             if is_building:
                 self._editing_group.addWidget(self._edit_buttons.addBuilding)
                 self._editing_group.addWidget(self._edit_buttons.updateBuilding)
@@ -467,7 +489,13 @@ class UpdatingWindow(QtWidgets.QWidget):
             self._editing_group.addWidget(self._edit_buttons.rollback)
         left_placeholder = self._left.itemAt(0).widget()
         left_placeholder.setVisible(False)
-        self._table = PlatformServicesTableWidget(services_list, self._on_cell_change, self._db_properties, is_building)
+        self._table = PlatformServicesTableWidget(services_list, properties_keys, self._on_cell_change, self._db_properties, is_building)
+        self._table.disable_callback()
+        for i, (building_modeled, functional_object_modeled, properties) in \
+                enumerate(zip(buildings_modeled, functional_objects_modeled, functional_object_properties)):
+            for property, value in properties.items():
+                self._table.item(i, len(PlatformServicesTableWidget.LABELS) + properties_keys.index(property)).setText(value)
+        self._table.enable_callback()
         self._left.replaceWidget(left_placeholder, self._table)
         if not is_building:
             self._table.setColumnWidth(1, 20)
@@ -487,7 +515,7 @@ class UpdatingWindow(QtWidgets.QWidget):
             self._editing_group.replaceWidget(self._edit_buttons.updatePhysicalObject, self._edit_buttons.updateBuilding)
         
         self._log_window.insertHtml(f'<font color=blue>Работа с городом "{self._city_choose.currentText()}"</font><br>')
-        self._log_window.insertHtml(f'<font color=blue>Загружены {len(services_list)} сервисов типа "{self._service_type_choose.currentText()}"</font><br>')
+        self._log_window.insertHtml(f'<font color=blue>Загружены {len(services_list)} сервисов типа "{self._service_type.currentText()}"</font><br>')
 
     def _on_cell_change(self, row: int, column_name: str, old_value: Any, new_value: Any, is_valid: bool) -> None:
         func_id = self._table.item(row, 0).text()
@@ -502,11 +530,15 @@ class UpdatingWindow(QtWidgets.QWidget):
             self._log_window.insertHtml(f'<font color=#e6783c>Не изменен объект с func_id='
                     f'{func_id}. {column_name}: "{_to_str(old_value)}"->"{_to_str(new_value)}" (некорректное значение)</font><br>')
             return
-        column = PlatformServicesTableWidget.LABELS.index(column_name)
-        db_column = PlatformServicesTableWidget.LABELS_DB[column]
         with self._db_properties.conn.cursor() as cur:
-            cur.execute(f"UPDATE functional_objects SET {db_column} = %s, updated_at = date_trunc('second', now()) WHERE id = %s",
-                    (new_value, func_id))
+            if column_name in PlatformServicesTableWidget.LABELS:
+                column = PlatformServicesTableWidget.LABELS.index(column_name)
+                db_column = PlatformServicesTableWidget.LABELS_DB[column]
+                cur.execute(f"UPDATE functional_objects SET {db_column} = %s, updated_at = date_trunc('second', now()) WHERE id = %s",
+                        (new_value, func_id))
+            else:
+                cur.execute('UPDATE functional_objects SET properties = properties || %s::jsonb WHERE id = %s',
+                        (json.dumps({column_name: new_value}), func_id))
 
     def _on_object_delete(self) -> None:
         rows = sorted(set(map(lambda index: index.row() + 1, self._table.selectedIndexes()))) # type: ignore
@@ -782,7 +814,7 @@ class UpdatingWindow(QtWidgets.QWidget):
         fileDialog.setAcceptMode(QtWidgets.QFileDialog.AcceptSave)
         fileDialog.setNameFilters(('Modern Excel files (*.xlsx)', 'Excel files (*.xls)', 'OpedDocumentTable files (*.ods)', 'CSV files (*.csv)'))
         t = time.localtime()
-        filename: str = f'{self._service_type_choose.currentText()} {t.tm_year}-{t.tm_mon:02}-{t.tm_mday:02} ' \
+        filename: str = f'{self._service_type.currentText()} {t.tm_year}-{t.tm_mon:02}-{t.tm_mday:02} ' \
                 f'{t.tm_hour:02}-{t.tm_min:02}-{t.tm_sec:02}.csv'
         fileDialog.selectNameFilter('CSV files (*.csv)')
         fileDialog.selectFile(filename)
@@ -808,17 +840,17 @@ class UpdatingWindow(QtWidgets.QWidget):
 
     def _set_service_types(self, service_types: Iterable[str]) -> None:
         service_types = list(service_types)
-        current_service_type = self._service_type_choose.currentText()
-        self._service_type_choose.clear()
+        current_service_type = self._service_type.currentText()
+        self._service_type.clear()
         if len(service_types) == 0:
-            self._service_type_choose.addItem('(Нет типов сервисов)')
-            self._service_type_choose.view().setMinimumWidth(len(self._service_type_choose.currentText()) * 8)
+            self._service_type.addItem('(Нет типов сервисов)')
+            self._service_type.view().setMinimumWidth(len(self._service_type.currentText()) * 8)
             self._edit_buttons.load.setEnabled(False)
         else:
-            self._service_type_choose.addItems(service_types)
+            self._service_type.addItems(service_types)
             if current_service_type in service_types:
-                self._service_type_choose.setCurrentText(current_service_type)
-            self._service_type_choose.view().setMinimumWidth(len(max(service_types, key=len)) * 8)
+                self._service_type.setCurrentText(current_service_type)
+            self._service_type.view().setMinimumWidth(len(max(service_types, key=len)) * 8)
             self._edit_buttons.load.setEnabled(True)
 
     def set_cities(self, cities: Iterable[str]) -> None:
