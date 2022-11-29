@@ -494,7 +494,7 @@ class UpdatingWindow(QtWidgets.QWidget):
         for i, (building_modeled, functional_object_modeled, properties) in \
                 enumerate(zip(buildings_modeled, functional_objects_modeled, functional_object_properties)):
             for property, value in properties.items():
-                self._table.item(i, len(PlatformServicesTableWidget.LABELS) + properties_keys.index(property)).setText(value)
+                self._table.item(i, len(PlatformServicesTableWidget.LABELS) + properties_keys.index(property)).setText(str(value))
         self._table.enable_callback()
         self._left.replaceWidget(left_placeholder, self._table)
         if not is_building:
