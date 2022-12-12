@@ -564,7 +564,7 @@ class CitiesWindow(QtWidgets.QWidget):
                     (new_value, city_id))
 
     def _on_city_add(self) -> None:
-        dialog = CityCreation('Добавление нового города', is_adding=True)
+        dialog = CityCreation('Добавление нового города', list(self._regions), is_adding=True)
         if dialog.exec() != QtWidgets.QDialog.Accepted or self._additional_conn is None:
             return
         else:
