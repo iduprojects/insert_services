@@ -577,7 +577,7 @@ class CitiesWindow(QtWidgets.QWidget):
                 cur.execute('INSERT INTO cities (name, code, region_id, geometry, center, population, city_division_type) VALUES'
                         '   (%s, %s, %s, ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326), ST_SnapToGrid(ST_Centroid(ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326)), 0.000001), %s, %s)'
                         ' RETURNING id',
-                        (dialog.name(), dialog.code(), (int(self._regions[self._regions == dialog.region()].index[0]) if self.region() is not None else None),
+                        (dialog.name(), dialog.code(), (int(self._regions[self._regions == dialog.region()].index[0]) if dialog.region() is not None else None),
                         dialog.get_geometry(), dialog.get_geometry(), dialog.population(), dialog.division_type()))
                 city_id = cur.fetchone()[0] # type: ignore
             self._log_window.insertHtml(f'<font color=yellowgreen>Добавлен город "{dialog.name()}" c id={city_id}</font><br>')
