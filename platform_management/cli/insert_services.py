@@ -695,9 +695,6 @@ def run_cli(db_addr: str, db_port: int, db_name: str, db_user: str, db_pass: str
         if value is not None and value not in objects.columns:
             logger.warning(f'Колонка "{value}" используется ({column}), но не задана в файле')
 
-    for column, value in properties_mapping.items():
-        pass
-
     objects = add_objects(conn, objects, city, service_type, mapping, properties_mapping_dict, address_prefixes, new_address_prefix, not dry_run, verbose)
 
     if logfile is not None:
