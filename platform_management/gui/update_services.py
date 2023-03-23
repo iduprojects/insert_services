@@ -1,37 +1,83 @@
+# pylint: disable=c-extension-no-member
+"""
+Services data update module.
+"""
 import itertools
 import json
 import time
-from typing import (Any, Callable, Iterable, List, NamedTuple, Optional,
-                    Sequence, Union)
+from typing import Any, Callable, Iterable, List, NamedTuple, Optional, Sequence, Union
 
 import pandas as pd
 from loguru import logger
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from platform_management.database_properties import Properties
-from platform_management.gui.basics import (ColoringTableWidget,
-                                            ColorizingComboBox,
-                                            check_geometry_correctness)
+from platform_management.gui.basics import ColoringTableWidget, ColorizingComboBox, check_geometry_correctness
 from platform_management import get_properties_keys
 
-logger = logger.bind(name='gui_update_services')
+logger = logger.bind(name="gui_update_services")
+
 
 class PlatformServicesTableWidget(ColoringTableWidget):
-    LABELS = ['id сервиса', 'Адрес', 'Название', 'Рабочие часы', 'Веб-сайт', 'Телефон',
-                'Мощность', 'Мощ-real', 'id физ. объекта', 'Широта', 'Долгота', 'Тип геометрии', 'Админ. единица', 'Муницип. образование', 'Создание', 'Обновление']
-    LABELS_DB = ['id', '-', 'name', 'opening_hours', 'website', 'phone', 'capacity', 'is_capacity_real', 'physical_object_id', '-', '-', '-', '-', '-', '-']
-    def __init__(self, services: List[Sequence[Any]], properties_keys: List[str], changed_callback: Callable[[int, str, Any, Any, bool], None],
-            db_properties: Properties, is_service_building: bool):
-        super().__init__(services, PlatformServicesTableWidget.LABELS + properties_keys,
-                self.correction_checker, (0, 1, 9, 10, 11, 12, 13, 14, 15))
+    LABELS = [
+        "id сервиса",
+        "Адрес",
+        "Название",
+        "Рабочие часы",
+        "Веб-сайт",
+        "Телефон",
+        "Мощность",
+        "Мощ-real",
+        "id физ. объекта",
+        "Широта",
+        "Долгота",
+        "Тип геометрии",
+        "Админ. единица",
+        "Муницип. образование",
+        "Создание",
+        "Обновление",
+    ]
+    LABELS_DB = [
+        "id",
+        "-",
+        "name",
+        "opening_hours",
+        "website",
+        "phone",
+        "capacity",
+        "is_capacity_real",
+        "physical_object_id",
+        "-",
+        "-",
+        "-",
+        "-",
+        "-",
+        "-",
+    ]
+
+    def __init__(
+        self,
+        services: List[Sequence[Any]],
+        properties_keys: List[str],
+        changed_callback: Callable[[int, str, Any, Any, bool], None],
+        db_properties: Properties,
+        is_service_building: bool,
+    ):
+        super().__init__(
+            services,
+            PlatformServicesTableWidget.LABELS + properties_keys,
+            self.correction_checker,
+            (0, 1, 9, 10, 11, 12, 13, 14, 15),
+        )
         if len(services) > 0:
-            assert(len(PlatformServicesTableWidget.LABELS) + len(properties_keys) == len(list(services[0]))), \
-                    'size of a service table is not equal to a predefined table'
+            assert len(PlatformServicesTableWidget.LABELS) + len(properties_keys) == len(
+                list(services[0])
+            ), "size of a service table is not equal to a predefined table"
         self._labels = PlatformServicesTableWidget.LABELS + properties_keys
         self._db_properties = db_properties
         self._changed_callback = changed_callback
         self._is_service_building = is_service_building
-        self._is_callback_endbled = True
+        self._is_callback_enabled = True
         self.setColumnWidth(2, 200)
         self.setColumnWidth(3, 120)
         self.setColumnWidth(4, 190)
@@ -46,18 +92,22 @@ class PlatformServicesTableWidget(ColoringTableWidget):
             res = False
         elif column == 6 and (not new_data.isnumeric() or int(new_data) < 0):
             res = False
-        elif column == 7 and new_data.lower() not in ('true', 'false', '0', '1'):
+        elif column == 7 and new_data.lower() not in ("true", "false", "0", "1"):
             res = False
         elif column == 8 and not new_data.isnumeric():
             res = False
         elif column == 8:
             with self._db_properties.conn.cursor() as cur:
-                cur.execute('SELECT EXISTS (SELECT 1 FROM physical_objects WHERE id = %(new_data)s),'
-                        ' EXISTS (SELECT 1 FROM buildings WHERE physical_object_id = %(new_data)s)',
-                        ({'new_data': new_data}))
+                cur.execute(
+                    "SELECT EXISTS (SELECT 1 FROM physical_objects WHERE id = %(new_data)s),"
+                    " EXISTS (SELECT 1 FROM buildings WHERE physical_object_id = %(new_data)s)",
+                    ({"new_data": new_data}),
+                )
                 if cur.fetchone() != (True, self._is_service_building):
                     res = False
-        if self._is_callback_endbled and (column > len(PlatformServicesTableWidget.LABELS_DB) or PlatformServicesTableWidget.LABELS_DB[column] != '-'):
+        if self._is_callback_endbled and (
+            column > len(PlatformServicesTableWidget.LABELS_DB) or PlatformServicesTableWidget.LABELS_DB[column] != "-"
+        ):
             self._changed_callback(row, self._labels[column], old_data, new_data, res)
         return res
 
@@ -73,53 +123,60 @@ class PlatformServicesTableWidget(ColoringTableWidget):
 class GeometryShow(QtWidgets.QDialog):
     def __init__(self, geometry: str, parent: Optional[QtWidgets.QWidget] = None):
         super().__init__(parent=parent)
-        self.window().setWindowTitle('Просмотр геометрии')
+        self.window().setWindowTitle("Просмотр геометрии")
         layout = QtWidgets.QVBoxLayout()
         geometry_field = QtWidgets.QTextEdit()
         geometry_field.setPlainText(geometry)
         geometry_field.setMinimumSize(300, 300)
         geometry_field.setReadOnly(True)
         layout.addWidget(geometry_field)
-        copy_btn = QtWidgets.QPushButton('Скопировать в буфер обмена')
+        copy_btn = QtWidgets.QPushButton("Скопировать в буфер обмена")
+
         def copy_and_close():
             QtWidgets.QApplication.clipboard().setText(geometry_field.toPlainText())
             self.accept()
+
         copy_btn.clicked.connect(copy_and_close)
         layout.addWidget(copy_btn)
         self.setLayout(layout)
 
 
-def _str_or_none(s: str) -> Optional[str]:
-    if len(s) == 0:
+def _str_or_none(string: str) -> Optional[str]:
+    if len(string) == 0:
         return None
-    return s
+    return string
 
-def _int_or_none(s: str) -> Optional[int]:
-    if len(s) == 0:
+
+def _int_or_none(string: str) -> Optional[int]:
+    if len(string) == 0:
         return None
-    assert s.isnumeric(), f'{s} cannot be converted to integer'
-    return int(s)
+    assert string.isnumeric(), f"{string} cannot be converted to integer"
+    return int(string)
+
 
 def _to_str(i: Optional[Union[int, float, str]]) -> str:
-    return str(i) if i is not None else ''
+    return str(i) if i is not None else ""
 
-def _float_or_none(s: str) -> Optional[float]:
-    if len(s) == 0:
+
+def _float_or_none(string: str) -> Optional[float]:
+    if len(string) == 0:
         return None
-    assert s.replace('.', '').isnumeric() and s.count('.') < 2, f'{s} cannot be convected to float'
-    return float(s)
+    assert string.replace(".", "").isnumeric() and string.count(".") < 2, f"{string} cannot be convected to float"
+    return float(string)
+
 
 def _bool_or_none(state: QtCore.Qt.CheckState) -> Optional[bool]:
     if state == QtCore.Qt.CheckState.PartiallyChecked:
         return None
-    elif state == QtCore.Qt.CheckState.Checked:
+    if state == QtCore.Qt.CheckState.Checked:
         return True
     return False
 
-def _bool_to_checkstate(b: Optional[bool]) -> QtCore.Qt.CheckState:
-    if b is None:
+
+def _bool_to_checkstate(bool_value: Optional[bool]) -> QtCore.Qt.CheckState:
+    if bool_value is None:
         return QtCore.Qt.CheckState.PartiallyChecked
-    if b:
+    if bool_value:
         return QtCore.Qt.CheckState.Checked
     return QtCore.Qt.CheckState.Unchecked
 
@@ -127,7 +184,7 @@ def _bool_to_checkstate(b: Optional[bool]) -> QtCore.Qt.CheckState:
 class GeometryUpdate(QtWidgets.QDialog):
     def __init__(self, text: str, parent: Optional[QtWidgets.QWidget] = None):
         super().__init__(parent=parent)
-        self.window().setWindowTitle('Изменение геометрии')
+        self.window().setWindowTitle("Изменение геометрии")
         layout = QtWidgets.QVBoxLayout()
         layout.addWidget(QtWidgets.QLabel(text))
         self._geometry_field = QtWidgets.QTextEdit()
@@ -135,9 +192,9 @@ class GeometryUpdate(QtWidgets.QDialog):
         self._geometry_field.setAcceptRichText(False)
         layout.addWidget(self._geometry_field)
         buttons_layout = QtWidgets.QHBoxLayout()
-        ok_btn = QtWidgets.QPushButton('Ок')
+        ok_btn = QtWidgets.QPushButton("Ок")
         ok_btn.clicked.connect(self.accept)
-        cancel_btn = QtWidgets.QPushButton('Отмена')
+        cancel_btn = QtWidgets.QPushButton("Отмена")
         cancel_btn.clicked.connect(self.reject)
         buttons_layout.addWidget(ok_btn)
         buttons_layout.addWidget(cancel_btn)
@@ -149,26 +206,32 @@ class GeometryUpdate(QtWidgets.QDialog):
 
 
 class PhysicalObjectCreation(QtWidgets.QDialog):
-    def __init__(self, text: str, geometry: Optional[str] = None,
-            osm_id: Optional[str] = None, is_adding: bool = False, parent: Optional[QtWidgets.QWidget] = None):
+    def __init__(
+        self,
+        text: str,
+        geometry: Optional[str] = None,
+        osm_id: Optional[str] = None,
+        is_adding: bool = False,
+        parent: Optional[QtWidgets.QWidget] = None,
+    ):
         super().__init__(parent=parent)
-        self.window().setWindowTitle('Добавление физического объекта' if is_adding else 'Изменение физического объекта')
+        self.window().setWindowTitle("Добавление физического объекта" if is_adding else "Изменение физического объекта")
         layout = QtWidgets.QVBoxLayout()
         layout.addWidget(QtWidgets.QLabel(text))
         self._geometry_field = QtWidgets.QTextEdit()
-        self._geometry_field.setPlainText(geometry or '')
+        self._geometry_field.setPlainText(geometry or "")
         self._geometry_field.setPlaceholderText('{\n  "type": "...",\n  "coordinates": [...]\n}')
         self._geometry_field.setAcceptRichText(False)
         layout.addWidget(self._geometry_field)
         self._options_layout = QtWidgets.QFormLayout()
-        self._osm_id = QtWidgets.QLineEdit(osm_id or '')
-        self._osm_id.setPlaceholderText('5255196821')
-        self._options_layout.addRow('OpenStreetMap id:', self._osm_id)
+        self._osm_id = QtWidgets.QLineEdit(osm_id or "")
+        self._osm_id.setPlaceholderText("5255196821")
+        self._options_layout.addRow("OpenStreetMap id:", self._osm_id)
         layout.addLayout(self._options_layout)
         buttons_layout = QtWidgets.QHBoxLayout()
-        ok_btn = QtWidgets.QPushButton('Ок')
+        ok_btn = QtWidgets.QPushButton("Ок")
         ok_btn.clicked.connect(self.accept)
-        cancel_btn = QtWidgets.QPushButton('Отмена')
+        cancel_btn = QtWidgets.QPushButton("Отмена")
         cancel_btn.clicked.connect(self.reject)
         buttons_layout.addWidget(ok_btn)
         buttons_layout.addWidget(cancel_btn)
@@ -181,99 +244,115 @@ class PhysicalObjectCreation(QtWidgets.QDialog):
     def get_geometry(self) -> Optional[str]:
         return _str_or_none(self._geometry_field.toPlainText())
 
+
 class BuildingCreation(QtWidgets.QDialog):
-    def __init__(self, text: str, geometry: Optional[str] = None, osm_id: Optional[str] = None,
-            address: Optional[str] = None, building_date: Optional[str] = None,
-            repair_years: Optional[str] = None, building_area: Optional[float] = None,
-            living_area: Optional[float] = None, storeys: Optional[int] = None, lift_count: Optional[int] = None,
-            population: Optional[int] = None, project_type: Optional[str] = None, ukname: Optional[str] = None,
-            central_heating: Optional[bool] = None, central_hotwater: Optional[bool] = None,
-            central_electricity: Optional[bool] = None, central_gas: Optional[bool] = None,
-            refusechute: Optional[bool] = None, is_failfing: Optional[bool] = None,
-            is_living: Optional[bool] = None, is_adding: bool = False,
-            parent: Optional[QtWidgets.QWidget] = None):
+    def __init__(
+        self,
+        text: str,
+        geometry: Optional[str] = None,
+        osm_id: Optional[str] = None,
+        address: Optional[str] = None,
+        building_date: Optional[str] = None,
+        repair_years: Optional[str] = None,
+        building_area: Optional[float] = None,
+        living_area: Optional[float] = None,
+        storeys: Optional[int] = None,
+        lift_count: Optional[int] = None,
+        population: Optional[int] = None,
+        project_type: Optional[str] = None,
+        ukname: Optional[str] = None,
+        central_heating: Optional[bool] = None,
+        central_hotwater: Optional[bool] = None,
+        central_electricity: Optional[bool] = None,
+        central_gas: Optional[bool] = None,
+        refusechute: Optional[bool] = None,
+        is_failfing: Optional[bool] = None,
+        is_living: Optional[bool] = None,
+        is_adding: bool = False,
+        parent: Optional[QtWidgets.QWidget] = None,
+    ):
         super().__init__(parent=parent)
-        self.window().setWindowTitle('Добавление здания' if is_adding else 'Изменение здания')
+        self.window().setWindowTitle("Добавление здания" if is_adding else "Изменение здания")
 
         double_validator = QtGui.QDoubleValidator(0.0, 1000000.0, 4)
         double_validator.setLocale(QtCore.QLocale.English)
         layout = QtWidgets.QVBoxLayout()
         layout.addWidget(QtWidgets.QLabel(text))
         self._geometry_field = QtWidgets.QTextEdit()
-        self._geometry_field.setPlainText(geometry or '')
+        self._geometry_field.setPlainText(geometry or "")
         self._geometry_field.setPlaceholderText('{\n  "type": "...",\n  "coordinates": [...]\n}')
         self._geometry_field.setAcceptRichText(False)
         layout.addWidget(self._geometry_field)
         self._options_layout = QtWidgets.QFormLayout()
-        self._osm_id = QtWidgets.QLineEdit(osm_id or '')
-        self._osm_id.setPlaceholderText('5255196821')
-        self._options_layout.addRow('OpenStreetMap id:', self._osm_id)
-        self._address = QtWidgets.QLineEdit(address or '')
-        self._address.setPlaceholderText('Город, улица, номер дома')
-        self._options_layout.addRow('Адрес', self._address)
-        self._building_date = QtWidgets.QLineEdit(building_date or '')
-        self._building_date.setPlaceholderText('2001-2002')
-        self._options_layout.addRow('Дата постройки', self._building_date)
-        self._repair_years = QtWidgets.QLineEdit(repair_years or '')
-        self._repair_years.setPlaceholderText('2003; 2007')
-        self._options_layout.addRow('Года ремонта', self._repair_years)
+        self._osm_id = QtWidgets.QLineEdit(osm_id or "")
+        self._osm_id.setPlaceholderText("5255196821")
+        self._options_layout.addRow("OpenStreetMap id:", self._osm_id)
+        self._address = QtWidgets.QLineEdit(address or "")
+        self._address.setPlaceholderText("Город, улица, номер дома")
+        self._options_layout.addRow("Адрес", self._address)
+        self._building_date = QtWidgets.QLineEdit(building_date or "")
+        self._building_date.setPlaceholderText("2001-2002")
+        self._options_layout.addRow("Дата постройки", self._building_date)
+        self._repair_years = QtWidgets.QLineEdit(repair_years or "")
+        self._repair_years.setPlaceholderText("2003; 2007")
+        self._options_layout.addRow("Года ремонта", self._repair_years)
         self._building_area = QtWidgets.QLineEdit(_to_str(building_area))
-        self._building_area.setPlaceholderText('123.45')
+        self._building_area.setPlaceholderText("123.45")
         self._building_area.setValidator(double_validator)
-        self._options_layout.addRow('Площадь дома', self._building_area)
+        self._options_layout.addRow("Площадь дома", self._building_area)
         self._building_area_living = QtWidgets.QLineEdit(_to_str(living_area))
-        self._building_area_living.setPlaceholderText('1234.5')
+        self._building_area_living.setPlaceholderText("1234.5")
         self._building_area_living.setValidator(double_validator)
-        self._options_layout.addRow('Общая жилая площадь', self._building_area_living)
+        self._options_layout.addRow("Общая жилая площадь", self._building_area_living)
         self._storeys = QtWidgets.QLineEdit(_to_str(storeys))
-        self._storeys.setPlaceholderText('8')
+        self._storeys.setPlaceholderText("8")
         self._storeys.setValidator(QtGui.QIntValidator(1, 100))
-        self._options_layout.addRow('Этажность', self._storeys)
+        self._options_layout.addRow("Этажность", self._storeys)
         self._lift_count = QtWidgets.QLineEdit(_to_str(lift_count))
-        self._lift_count.setPlaceholderText('4')
-        self._options_layout.addRow('Количество лифтов', self._lift_count)
+        self._lift_count.setPlaceholderText("4")
+        self._options_layout.addRow("Количество лифтов", self._lift_count)
         self._population = QtWidgets.QLineEdit(_to_str(population))
-        self._population.setPlaceholderText('250')
+        self._population.setPlaceholderText("250")
         self._population.setValidator(QtGui.QIntValidator(0, 20000))
-        self._options_layout.addRow('Население', self._population)
-        self._project_type = QtWidgets.QLineEdit(project_type or '')
-        self._project_type.setPlaceholderText('1ЛГ-602В-8')
-        self._ukname = QtWidgets.QLineEdit(ukname or '')
-        self._ukname.setPlaceholderText('ЖСК № 355')
-        self._options_layout.addRow('Застройщик', self._ukname)
+        self._options_layout.addRow("Население", self._population)
+        self._project_type = QtWidgets.QLineEdit(project_type or "")
+        self._project_type.setPlaceholderText("1ЛГ-602В-8")
+        self._ukname = QtWidgets.QLineEdit(ukname or "")
+        self._ukname.setPlaceholderText("ЖСК № 355")
+        self._options_layout.addRow("Застройщик", self._ukname)
         self._central_heating = QtWidgets.QCheckBox()
         self._central_heating.setTristate(True)
         self._central_heating.setCheckState(_bool_to_checkstate(central_heating))
-        self._options_layout.addRow('Централизованное отопление', self._central_heating)
+        self._options_layout.addRow("Централизованное отопление", self._central_heating)
         self._central_hotwater = QtWidgets.QCheckBox()
         self._central_hotwater.setTristate(True)
         self._central_hotwater.setCheckState(_bool_to_checkstate(central_hotwater))
-        self._options_layout.addRow('Централизованная горячая вода', self._central_hotwater)
+        self._options_layout.addRow("Централизованная горячая вода", self._central_hotwater)
         self._central_electricity = QtWidgets.QCheckBox()
         self._central_electricity.setTristate(True)
         self._central_electricity.setCheckState(_bool_to_checkstate(central_electricity))
-        self._options_layout.addRow('Централизованное электричество', self._central_electricity)
+        self._options_layout.addRow("Централизованное электричество", self._central_electricity)
         self._central_gas = QtWidgets.QCheckBox()
         self._central_gas.setTristate(True)
         self._central_gas.setCheckState(_bool_to_checkstate(central_gas))
-        self._options_layout.addRow('Централизованный газ', self._central_gas)
+        self._options_layout.addRow("Централизованный газ", self._central_gas)
         self._refusechute = QtWidgets.QCheckBox()
         self._refusechute.setTristate(True)
         self._refusechute.setCheckState(_bool_to_checkstate(refusechute))
-        self._options_layout.addRow('Наличие мусоропровода', self._refusechute)
+        self._options_layout.addRow("Наличие мусоропровода", self._refusechute)
         self._is_failing = QtWidgets.QCheckBox()
         self._is_failing.setTristate(True)
         self._is_failing.setCheckState(_bool_to_checkstate(is_failfing))
-        self._options_layout.addRow('Аварийное состояние', self._is_failing)
+        self._options_layout.addRow("Аварийное состояние", self._is_failing)
         self._is_living = QtWidgets.QCheckBox()
         self._is_living.setTristate(True)
         self._is_living.setCheckState(_bool_to_checkstate(is_living))
-        self._options_layout.addRow('Жилой дом', self._is_living)
+        self._options_layout.addRow("Жилой дом", self._is_living)
         layout.addLayout(self._options_layout)
         buttons_layout = QtWidgets.QHBoxLayout()
-        ok_btn = QtWidgets.QPushButton('Ок')
+        ok_btn = QtWidgets.QPushButton("Ок")
         ok_btn.clicked.connect(self.accept)
-        cancel_btn = QtWidgets.QPushButton('Отмена')
+        cancel_btn = QtWidgets.QPushButton("Отмена")
         cancel_btn.clicked.connect(self.reject)
         buttons_layout.addWidget(ok_btn)
         buttons_layout.addWidget(cancel_btn)
@@ -340,29 +419,36 @@ class BuildingCreation(QtWidgets.QDialog):
 
 class UpdatingWindow(QtWidgets.QWidget):
 
-    EditButtons = NamedTuple('EditButtons', [
-            ('load', QtWidgets.QPushButton),
-            ('delete', QtWidgets.QPushButton),
-            ('showGeometry', QtWidgets.QPushButton),
-            ('addPhysicalObject', QtWidgets.QPushButton),
-            ('updatePhysicalObject', QtWidgets.QPushButton),
-            ('addBuilding', QtWidgets.QPushButton),
-            ('updateBuilding', QtWidgets.QPushButton),
-            ('export', QtWidgets.QPushButton),
-            ('commit', QtWidgets.QPushButton),
-            ('rollback', QtWidgets.QPushButton)
-        ]
+    EditButtons = NamedTuple(
+        "EditButtons",
+        [
+            ("load", QtWidgets.QPushButton),
+            ("delete", QtWidgets.QPushButton),
+            ("showGeometry", QtWidgets.QPushButton),
+            ("addPhysicalObject", QtWidgets.QPushButton),
+            ("updatePhysicalObject", QtWidgets.QPushButton),
+            ("addBuilding", QtWidgets.QPushButton),
+            ("updateBuilding", QtWidgets.QPushButton),
+            ("export", QtWidgets.QPushButton),
+            ("commit", QtWidgets.QPushButton),
+            ("rollback", QtWidgets.QPushButton),
+        ],
     )
 
-    def __init__(self, db_properties: Properties, on_close: Optional[Callable[[], None]] = None, parent: Optional[QtWidgets.QWidget] = None):
+    def __init__(
+        self,
+        db_properties: Properties,
+        on_close: Optional[Callable[[], None]] = None,
+        parent: Optional[QtWidgets.QWidget] = None,
+    ):
         super().__init__(parent)
 
         self._db_properties = db_properties
         try:
             self._db_properties.connect_timeout = 1
             self._additional_conn = self._db_properties.copy().conn
-        except Exception:
-            self._additional_conn = None # type: ignore
+        except RuntimeError:
+            self._additional_conn = None  # type: ignore
         finally:
             self._db_properties.connect_timeout = 10
         self._on_close = on_close
@@ -383,7 +469,7 @@ class UpdatingWindow(QtWidgets.QWidget):
         self._right_scroll_widget.setSizePolicy(QtWidgets.QSizePolicy.Maximum, QtWidgets.QSizePolicy.Preferred)
         self._layout.addWidget(self._right_scroll)
 
-        left_placeholder = QtWidgets.QLabel('(Здесь будут отображены объекты)')
+        left_placeholder = QtWidgets.QLabel("(Здесь будут отображены объекты)")
         left_placeholder.setMinimumSize(300, 300)
         left_placeholder.setAlignment(QtCore.Qt.AlignCenter)
         self._left.addWidget(left_placeholder)
@@ -393,24 +479,29 @@ class UpdatingWindow(QtWidgets.QWidget):
         self._left.setAlignment(QtCore.Qt.AlignCenter)
         self._table: QtWidgets.QTableWidget
 
-        self._options_group_box = QtWidgets.QGroupBox('Опции выбора')
+        self._options_group_box = QtWidgets.QGroupBox("Опции выбора")
         self._options_group = QtWidgets.QFormLayout()
         self._city_choose = ColorizingComboBox(self._on_city_change)
-        self._options_group.addRow('Город:', self._city_choose)
+        self._options_group.addRow("Город:", self._city_choose)
         self._right.addWidget(self._options_group_box)
         self._options_group_box.setLayout(self._options_group)
         self._service_type = QtWidgets.QComboBox()
-        self._options_group.addRow('Тип сервиса:', self._service_type)
+        self._options_group.addRow("Тип сервиса:", self._service_type)
 
-        self._editing_group_box = QtWidgets.QGroupBox('Изменение списка')
+        self._editing_group_box = QtWidgets.QGroupBox("Изменение списка")
         self._editing_group = QtWidgets.QFormLayout()
         self._editing_group_box.setLayout(self._editing_group)
-        self._edit_buttons = UpdatingWindow.EditButtons(QtWidgets.QPushButton('Отобразить сервисы'),
-                QtWidgets.QPushButton('Удалить сервис'), QtWidgets.QPushButton('Посмотреть геометрию'),
-                QtWidgets.QPushButton('Добавить физический объект'), QtWidgets.QPushButton('Изменить физический объект'),
-                QtWidgets.QPushButton('Добавить здание'), QtWidgets.QPushButton('Изменить здание'),
-                QtWidgets.QPushButton('Экспортировать таблицу'), QtWidgets.QPushButton('Сохранить изменения в БД'),
-                QtWidgets.QPushButton('Отмена внесенных изменений')
+        self._edit_buttons = UpdatingWindow.EditButtons(
+            QtWidgets.QPushButton("Отобразить сервисы"),
+            QtWidgets.QPushButton("Удалить сервис"),
+            QtWidgets.QPushButton("Посмотреть геометрию"),
+            QtWidgets.QPushButton("Добавить физический объект"),
+            QtWidgets.QPushButton("Изменить физический объект"),
+            QtWidgets.QPushButton("Добавить здание"),
+            QtWidgets.QPushButton("Изменить здание"),
+            QtWidgets.QPushButton("Экспортировать таблицу"),
+            QtWidgets.QPushButton("Сохранить изменения в БД"),
+            QtWidgets.QPushButton("Отмена внесенных изменений"),
         )
         self._edit_buttons.load.clicked.connect(self._on_objects_load)
         self._edit_buttons.delete.clicked.connect(self._on_object_delete)
@@ -421,9 +512,9 @@ class UpdatingWindow(QtWidgets.QWidget):
         self._edit_buttons.updateBuilding.clicked.connect(self._on_update_building)
         self._edit_buttons.export.clicked.connect(self._on_export)
         self._edit_buttons.commit.clicked.connect(self._on_commit_changes)
-        self._edit_buttons.commit.setStyleSheet('background-color: green; color: black')
+        self._edit_buttons.commit.setStyleSheet("background-color: green; color: black")
         self._edit_buttons.rollback.clicked.connect(self._on_rollback)
-        self._edit_buttons.rollback.setStyleSheet('background-color: red; color: black')
+        self._edit_buttons.rollback.setStyleSheet("background-color: red; color: black")
         self._editing_group.addWidget(self._edit_buttons.load)
         self._right.addWidget(self._editing_group_box)
 
@@ -434,18 +525,21 @@ class UpdatingWindow(QtWidgets.QWidget):
         self._right.setAlignment(QtCore.Qt.AlignTop)
         self._city_choose.setMinimumWidth(200)
         right_width = max(map(lambda box: box.sizeHint().width(), (self._options_group_box, self._editing_group_box)))
-        
+
         self._right_scroll.setFixedWidth(int(right_width * 1.1))
         self._options_group_box.setFixedWidth(right_width)
         self._editing_group_box.setFixedWidth(right_width)
 
     def _on_city_change(self, _changed: Optional[QtWidgets.QComboBox] = None, _old_state: Optional[int] = None) -> None:
         with self._db_properties.conn.cursor() as cur:
-            cur.execute('SELECT DISTINCT st.name FROM functional_objects f'
-                    '   JOIN physical_objects p ON f.physical_object_id = p.id'
-                    '   JOIN city_service_types st ON f.city_service_type_id = st.id'
-                    ' WHERE p.city_id = (SELECT id FROM cities WHERE name = %s)'
-                    ' ORDER BY 1', (self._city_choose.currentText(),))
+            cur.execute(
+                "SELECT DISTINCT st.name FROM functional_objects f"
+                "   JOIN physical_objects p ON f.physical_object_id = p.id"
+                "   JOIN city_service_types st ON f.city_service_type_id = st.id"
+                " WHERE p.city_id = (SELECT id FROM cities WHERE name = %s)"
+                " ORDER BY 1",
+                (self._city_choose.currentText(),),
+            )
             service_types = list(itertools.chain.from_iterable(cur.fetchall()))
         self._set_service_types(service_types)
 
@@ -454,27 +548,31 @@ class UpdatingWindow(QtWidgets.QWidget):
         self._db_properties.conn.rollback()
         properties_keys = get_properties_keys(self._db_properties.conn, self._service_type.currentText())
         with self._db_properties.conn.cursor() as cur:
-            cur.execute('SELECT is_building FROM city_service_types WHERE name = %s', (self._service_type.currentText(),))
-            is_building = cur.fetchone()[0] # type: ignore
-            cur.execute('SELECT f.id as functional_object_id, b.address, f.name AS service_name, f.opening_hours, f.website, f.phone,'
-                    '   f.capacity, f.is_capacity_real, p.id as physical_object_id, ST_Y(p.center), ST_X(p.center),'
-                    '   ST_GeometryType(p.geometry), au.name as administrative_unit, m.name as municipality,'
-                    "   date_trunc('second', f.created_at)::timestamp, date_trunc('second', f.updated_at)::timestamp,"
-                    '   b.modeled building_modeled, f.modeled functional_object_modeled, f.properties'
-                    ' FROM physical_objects p'
-                    '   JOIN functional_objects f ON f.physical_object_id = p.id'
-                    '   LEFT JOIN buildings b ON b.physical_object_id = p.id'
-                    '   LEFT JOIN administrative_units au ON p.administrative_unit_id = au.id'
-                    '   LEFT JOIN municipalities m ON p.municipality_id = m.id'
-                    ' WHERE f.city_service_type_id = (SELECT id from city_service_types WHERE name = %s)'
-                    '   AND p.city_id = (SELECT id FROM cities WHERE name = %s)'
-                    ' ORDER BY 1',
-                    (self._service_type.currentText(), self._city_choose.currentText())
+            cur.execute(
+                "SELECT is_building FROM city_service_types WHERE name = %s", (self._service_type.currentText(),)
             )
-            services_list, buildings_modeled, functional_objects_modeled, functional_object_properties = zip(*[
-                (row[:-3] + ('',) * len(properties_keys), row[-3], row[-2], row[-1]) for row in cur.fetchall()
-            ])
-        if '_table' not in dir(self):
+            is_building = cur.fetchone()[0]  # type: ignore
+            cur.execute(
+                "SELECT f.id as functional_object_id, b.address, f.name AS service_name,"
+                "   f.opening_hours, f.website, f.phone,"
+                "   f.capacity, f.is_capacity_real, p.id as physical_object_id, ST_Y(p.center), ST_X(p.center),"
+                "   ST_GeometryType(p.geometry), au.name as administrative_unit, m.name as municipality,"
+                "   date_trunc('second', f.created_at)::timestamp, date_trunc('second', f.updated_at)::timestamp,"
+                "   b.modeled building_modeled, f.modeled functional_object_modeled, f.properties"
+                " FROM physical_objects p"
+                "   JOIN functional_objects f ON f.physical_object_id = p.id"
+                "   LEFT JOIN buildings b ON b.physical_object_id = p.id"
+                "   LEFT JOIN administrative_units au ON p.administrative_unit_id = au.id"
+                "   LEFT JOIN municipalities m ON p.municipality_id = m.id"
+                " WHERE f.city_service_type_id = (SELECT id from city_service_types WHERE name = %s)"
+                "   AND p.city_id = (SELECT id FROM cities WHERE name = %s)"
+                " ORDER BY 1",
+                (self._service_type.currentText(), self._city_choose.currentText()),
+            )
+            services_list, buildings_modeled, functional_objects_modeled, functional_object_properties = zip(
+                *[(row[:-3] + ("",) * len(properties_keys), row[-3], row[-2], row[-1]) for row in cur.fetchall()]
+            )
+        if "_table" not in dir(self):
             self._editing_group.addWidget(self._edit_buttons.load)
             self._editing_group.addWidget(self._edit_buttons.delete)
             self._editing_group.addWidget(self._edit_buttons.showGeometry)
@@ -489,12 +587,17 @@ class UpdatingWindow(QtWidgets.QWidget):
             self._editing_group.addWidget(self._edit_buttons.rollback)
         left_placeholder = self._left.itemAt(0).widget()
         left_placeholder.setVisible(False)
-        self._table = PlatformServicesTableWidget(services_list, properties_keys, self._on_cell_change, self._db_properties, is_building)
+        self._table = PlatformServicesTableWidget(
+            services_list, properties_keys, self._on_cell_change, self._db_properties, is_building
+        )
         self._table.disable_callback()
-        for i, (building_modeled, functional_object_modeled, properties) in \
-                enumerate(zip(buildings_modeled, functional_objects_modeled, functional_object_properties)):
-            for property, value in properties.items():
-                self._table.item(i, len(PlatformServicesTableWidget.LABELS) + properties_keys.index(property)).setText(str(value))
+        for i, (_building_modeled, _functional_object_modeled, properties) in enumerate(
+            zip(buildings_modeled, functional_objects_modeled, functional_object_properties)
+        ):
+            for functional_object_property, value in properties.items():
+                self._table.item(
+                    i, len(PlatformServicesTableWidget.LABELS) + properties_keys.index(functional_object_property)
+                ).setText(str(value))
         self._table.enable_callback()
         self._left.replaceWidget(left_placeholder, self._table)
         if not is_building:
@@ -504,7 +607,9 @@ class UpdatingWindow(QtWidgets.QWidget):
             self._edit_buttons.addPhysicalObject.setVisible(True)
             self._edit_buttons.updatePhysicalObject.setVisible(True)
             self._editing_group.replaceWidget(self._edit_buttons.addBuilding, self._edit_buttons.addPhysicalObject)
-            self._editing_group.replaceWidget(self._edit_buttons.updateBuilding, self._edit_buttons.updatePhysicalObject)
+            self._editing_group.replaceWidget(
+                self._edit_buttons.updateBuilding, self._edit_buttons.updatePhysicalObject
+            )
         else:
             self._table.setColumnWidth(1, 400)
             self._edit_buttons.addBuilding.setVisible(True)
@@ -512,72 +617,104 @@ class UpdatingWindow(QtWidgets.QWidget):
             self._edit_buttons.addPhysicalObject.setVisible(False)
             self._edit_buttons.updatePhysicalObject.setVisible(False)
             self._editing_group.replaceWidget(self._edit_buttons.addPhysicalObject, self._edit_buttons.addBuilding)
-            self._editing_group.replaceWidget(self._edit_buttons.updatePhysicalObject, self._edit_buttons.updateBuilding)
-        
+            self._editing_group.replaceWidget(
+                self._edit_buttons.updatePhysicalObject, self._edit_buttons.updateBuilding
+            )
+
         self._log_window.insertHtml(f'<font color=blue>Работа с городом "{self._city_choose.currentText()}"</font><br>')
-        self._log_window.insertHtml(f'<font color=blue>Загружены {len(services_list)} сервисов типа "{self._service_type.currentText()}"</font><br>')
+        self._log_window.insertHtml(
+            "<font color=blue>Загружены {len(services_list)} сервисов"
+            f' типа "{self._service_type.currentText()}"</font><br>'
+        )
 
     def _on_cell_change(self, row: int, column_name: str, old_value: Any, new_value: Any, is_valid: bool) -> None:
         func_id = self._table.item(row, 0).text()
         if is_valid:
-            if column_name == 'Мощность' and self._table.item(row, PlatformServicesTableWidget.LABELS_DB.index('is_capacity_real')).text() == 'False':
+            if (
+                column_name == "Мощность"
+                and self._table.item(row, PlatformServicesTableWidget.LABELS_DB.index("is_capacity_real")).text()
+                == "False"
+            ):
                 with self._db_properties.conn.cursor() as cur:
-                    cur.execute('UPDATE functional_objects SET is_capacity_real = true WHERE id = %s', (func_id,))
-                self._table.item(row, PlatformServicesTableWidget.LABELS_DB.index('is_capacity_real')).setText('true')
-            self._log_window.insertHtml(f'<font color=yellowgreen>Изменен объект с func_id={func_id}. {column_name}:'
-                    f' "{_to_str(old_value)}"->"{_to_str(new_value)}"</font><br>')
+                    cur.execute("UPDATE functional_objects SET is_capacity_real = true WHERE id = %s", (func_id,))
+                self._table.item(row, PlatformServicesTableWidget.LABELS_DB.index("is_capacity_real")).setText("true")
+            self._log_window.insertHtml(
+                f"<font color=yellowgreen>Изменен объект с func_id={func_id}. {column_name}:"
+                f' "{_to_str(old_value)}"->"{_to_str(new_value)}"</font><br>'
+            )
         else:
-            self._log_window.insertHtml(f'<font color=#e6783c>Не изменен объект с func_id='
-                    f'{func_id}. {column_name}: "{_to_str(old_value)}"->"{_to_str(new_value)}" (некорректное значение)</font><br>')
+            self._log_window.insertHtml(
+                f"<font color=#e6783c>Не изменен объект с func_id="
+                f'{func_id}. {column_name}: "{_to_str(old_value)}"->"{_to_str(new_value)}"'
+                " (некорректное значение)</font><br>"
+            )
             return
         with self._db_properties.conn.cursor() as cur:
             if column_name in PlatformServicesTableWidget.LABELS:
                 column = PlatformServicesTableWidget.LABELS.index(column_name)
                 db_column = PlatformServicesTableWidget.LABELS_DB[column]
-                cur.execute(f"UPDATE functional_objects SET {db_column} = %s, updated_at = date_trunc('second', now()) WHERE id = %s",
-                        (new_value, func_id))
+                cur.execute(
+                    f"UPDATE functional_objects SET {db_column} = %s,"
+                    " updated_at = date_trunc('second', now()) WHERE id = %s",
+                    (new_value, func_id),
+                )
             else:
-                cur.execute('UPDATE functional_objects SET properties = properties || %s::jsonb WHERE id = %s',
-                        (json.dumps({column_name: new_value}), func_id))
+                cur.execute(
+                    "UPDATE functional_objects SET properties = properties || %s::jsonb WHERE id = %s",
+                    (json.dumps({column_name: new_value}), func_id),
+                )
 
     def _on_object_delete(self) -> None:
-        rows = sorted(set(map(lambda index: index.row() + 1, self._table.selectedIndexes()))) # type: ignore
+        rows = sorted(set(map(lambda index: index.row() + 1, self._table.selectedIndexes())))  # type: ignore
         if len(rows) == 0:
             return
         if len(rows) > 1:
-            is_deleting = QtWidgets.QMessageBox.question(self, 'Удаление объектов',
-                    f'Вы уверены, что хотите удалить объекты в строках под номерами: {", ".join(map(str, rows))}?')
+            is_deleting = QtWidgets.QMessageBox.question(
+                self,
+                "Удаление объектов",
+                f'Вы уверены, что хотите удалить объекты в строках под номерами: {", ".join(map(str, rows))}?',
+            )
         else:
             object_row = next(iter(rows))
-            is_deleting = QtWidgets.QMessageBox.question(self, 'Удаление объекта', f'Вы уверены, что хотите удалить объект в строке под номером {object_row}?')
+            is_deleting = QtWidgets.QMessageBox.question(
+                self, "Удаление объекта", f"Вы уверены, что хотите удалить объект в строке под номером {object_row}?"
+            )
         if is_deleting == QtWidgets.QMessageBox.StandardButton.Yes:
             if len(rows) == 1:
-                self._log_window.insertHtml('<font color=red>Удаление объекта с func_id=</font>')
+                self._log_window.insertHtml("<font color=red>Удаление объекта с func_id=</font>")
             else:
-                self._log_window.insertHtml('<font color=red>Удаление объектов с func_id=</font>')
+                self._log_window.insertHtml("<font color=red>Удаление объектов с func_id=</font>")
             with self._db_properties.conn.cursor() as cur:
                 for i, row in enumerate(rows[::-1]):
                     func_id = self._table.item(row - 1, 0).text()
                     self._log_window.insertHtml(f'<font color=red>{func_id}{", " if i != len(rows) - 1 else ""}</font>')
                     self._log_window.repaint()
-                    cur.execute('DELETE FROM provision.houses_services WHERE house_id = %s OR service_id = %s', (func_id,) * 2)
-                    cur.execute('DELETE FROM provision.services WHERE service_id = %s', (func_id,))
-                    cur.execute('DELETE FROM provision.houses WHERE house_id = %s', (func_id,))
-                    cur.execute('SELECT physical_object_id FROM functional_objects WHERE id = %s', (func_id,))
-                    phys_id = cur.fetchone()[0] # type: ignore
-                    cur.execute('DELETE FROM functional_objects WHERE id = %s', (func_id,))
-                    cur.execute('SELECT count(*) FROM functional_objects WHERE physical_object_id = %s', (phys_id,))
-                    phys_count = cur.fetchone()[0] # type: ignore
+                    cur.execute(
+                        "DELETE FROM provision.houses_services WHERE house_id = %s OR service_id = %s", (func_id,) * 2
+                    )
+                    cur.execute("DELETE FROM provision.services WHERE service_id = %s", (func_id,))
+                    cur.execute("DELETE FROM provision.houses WHERE house_id = %s", (func_id,))
+                    cur.execute("SELECT physical_object_id FROM functional_objects WHERE id = %s", (func_id,))
+                    phys_id = cur.fetchone()[0]  # type: ignore
+                    cur.execute("DELETE FROM functional_objects WHERE id = %s", (func_id,))
+                    cur.execute("SELECT count(*) FROM functional_objects WHERE physical_object_id = %s", (phys_id,))
+                    phys_count = cur.fetchone()[0]  # type: ignore
                     if phys_count == 0:
-                        cur.execute('DELETE FROM buildings WHERE physical_object_id = %s', (phys_id,))
-                        cur.execute('DELETE FROM physical_objects WHERE id = %s', (phys_id,))
+                        cur.execute("DELETE FROM buildings WHERE physical_object_id = %s", (phys_id,))
+                        cur.execute("DELETE FROM physical_objects WHERE id = %s", (phys_id,))
                     self._table.removeRow(row - 1)
-                self._log_window.insertHtml('</font><br>')
+                self._log_window.insertHtml("</font><br>")
 
     def _on_geometry_show(self) -> None:
         with self._db_properties.conn.cursor() as cur:
-            cur.execute('SELECT ST_AsGeoJSON(geometry, 6) FROM physical_objects WHERE id = %s', (self._table.item(self._table.currentRow(),
-                    PlatformServicesTableWidget.LABELS_DB.index('physical_object_id')).text(),))
+            cur.execute(
+                "SELECT ST_AsGeoJSON(geometry, 6) FROM physical_objects WHERE id = %s",
+                (
+                    self._table.item(
+                        self._table.currentRow(), PlatformServicesTableWidget.LABELS_DB.index("physical_object_id")
+                    ).text(),
+                ),
+            )
             res = cur.fetchone()
             if res is None:
                 return
@@ -586,43 +723,60 @@ class UpdatingWindow(QtWidgets.QWidget):
 
     def _on_add_physical_object(self) -> None:
         row = self._table.currentRow()
-        func_id, phys_id = self._table.item(row, 0).text(), self._table.item(row, 8).text()
-        dialog = PhysicalObjectCreation(f'Введите информацию о физическом объекте для сервиса в строке {row + 1} в поля ниже', is_adding=True)
+        func_id, _phys_id = self._table.item(row, 0).text(), self._table.item(row, 8).text()
+        dialog = PhysicalObjectCreation(
+            f"Введите информацию о физическом объекте для сервиса в строке {row + 1} в поля ниже", is_adding=True
+        )
         if dialog.exec() != QtWidgets.QDialog.Accepted or self._additional_conn is None:
             return
         try:
-            newGeometry = json.loads(dialog.get_geometry()) # type: ignore
+            new_geometry = json.loads(dialog.get_geometry())  # type: ignore
             with self._additional_conn.cursor() as cur:
-                cur.execute('SELECT ST_AsGeoJSON(ST_Centroid(ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326)), 6),'
-                        ' ST_GeometryType(ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326))', (json.dumps(newGeometry),) * 2)
-                new_center, geom_type = cur.fetchone() # type: ignore
+                cur.execute(
+                    "SELECT ST_AsGeoJSON(ST_Centroid(ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326)), 6),"
+                    " ST_GeometryType(ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326))",
+                    (json.dumps(new_geometry),) * 2,
+                )
+                new_center, geom_type = cur.fetchone()  # type: ignore
                 new_center = json.loads(new_center)
-                new_longitude, new_latitude = new_center['coordinates']
-        except Exception:
+                new_longitude, new_latitude = new_center["coordinates"]
+        except RuntimeError:
             self._additional_conn.rollback()
-            self._log_window.insertHtml(f'<font color=#e6783c>Ошибка при добавлении физического объекта сервису с id={func_id}</font><br>')
+            self._log_window.insertHtml(
+                f"<font color=#e6783c>Ошибка при добавлении физического объекта сервису с id={func_id}</font><br>"
+            )
         else:
             with self._db_properties.conn.cursor() as cur:
-                cur.execute('INSERT INTO physical_objects (osm_id, geometry, center, city_id)'
-                        ' VALUES (%s, ST_SnapToGrid(ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326), 0.000001),'
-                        '   ST_SnapToGrid(ST_Centroid(ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326)), 0.000001), (SELECT id FROM cities WHERE name = %s))'
-                        ' RETURNING id',
-                        (dialog.osm_id(),) + (json.dumps(newGeometry),) * 2 + (self._city_choose.currentText(),)
+                cur.execute(
+                    "INSERT INTO physical_objects (osm_id, geometry, center, city_id)"
+                    " VALUES (%s, ST_SnapToGrid(ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326), 0.000001),"
+                    "   ST_SnapToGrid(ST_Centroid(ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326)), 0.000001),"
+                    "   (SELECT id FROM cities WHERE name = %s))"
+                    " RETURNING id",
+                    (dialog.osm_id(),) + (json.dumps(new_geometry),) * 2 + (self._city_choose.currentText(),),
                 )
-                new_phys_id = cur.fetchone()[0] # type: ignore
-                cur.execute('UPDATE physical_objects SET'
-                        ' administrative_unit_id = (SELECT id from administrative_units WHERE ST_CoveredBy('
-                                ' (SELECT center FROM physical_objects WHERE id = %s), geometry) ORDER BY population DESC LIMIT 1),'
-                        ' municipality_id = (SELECT id from municipalities WHERE ST_CoveredBy('
-                                ' (SELECT center FROM physical_objects WHERE id = %s), geometry) ORDER BY population DESC LIMIT 1)'
-                        ' WHERE id = %s',
-                        (new_phys_id,) * 3
+                new_phys_id = cur.fetchone()[0]  # type: ignore
+                cur.execute(
+                    "UPDATE physical_objects SET"
+                    " administrative_unit_id = (SELECT id from administrative_units WHERE ST_CoveredBy("
+                    " (SELECT center FROM physical_objects WHERE id = %s), geometry) ORDER BY population DESC LIMIT 1),"
+                    " municipality_id = (SELECT id from municipalities WHERE ST_CoveredBy("
+                    " (SELECT center FROM physical_objects WHERE id = %s), geometry) ORDER BY population DESC LIMIT 1)"
+                    " WHERE id = %s",
+                    (new_phys_id,) * 3,
                 )
-                cur.execute("UPDATE functional_objects SET physical_object_id = %s, updated_at = date_trunc('second', now()) WHERE id = %s",
-                        (new_phys_id, func_id))
-            self._log_window.insertHtml(f'<font color=yellowgreen>Добавлен физический объект для сервиса с id={func_id}: {phys_id}->{new_phys_id}'
-                    f' ({self._table.item(row, 11).text()}({self._table.item(row, 9).text()}, {self._table.item(row, 10).text()})'
-                    f'->{geom_type}({new_latitude, new_longitude}))</font><br>')
+                cur.execute(
+                    "UPDATE functional_objects SET physical_object_id = %s, updated_at = date_trunc('second', now())"
+                    " WHERE id = %s",
+                    (new_phys_id, func_id),
+                )
+            self._log_window.insertHtml(
+                f"<font color=yellowgreen>Добавлен физический объект для сервиса с"
+                " id={func_id}: {phys_id}->{new_phys_id}"
+                f" ({self._table.item(row, 11).text()}({self._table.item(row, 9).text()},"
+                f" {self._table.item(row, 10).text()})"
+                f"->{geom_type}({new_latitude, new_longitude}))</font><br>"
+            )
             self._table.item(row, 8).setText(str(new_phys_id))
             self._table.item(row, 8).setBackground(QtCore.Qt.GlobalColor.yellow)
             self._table.item(row, 9).setText(str(new_latitude))
@@ -636,37 +790,55 @@ class UpdatingWindow(QtWidgets.QWidget):
         row = self._table.currentRow()
         func_id, phys_id = self._table.item(row, 0).text(), self._table.item(row, 8).text()
         with self._db_properties.conn.cursor() as cur:
-            cur.execute('SELECT ST_AsGeoJSON(geometry), osm_id FROM physical_objects WHERE id = %s', (phys_id,))
-            geometry, osm_id = cur.fetchone() # type: ignore
+            cur.execute("SELECT ST_AsGeoJSON(geometry), osm_id FROM physical_objects WHERE id = %s", (phys_id,))
+            geometry, osm_id = cur.fetchone()  # type: ignore
         geometry = json.loads(geometry)
-        dialog = PhysicalObjectCreation(f'Если необходимо, измените параметры физического объекта для сервиса на строке {row + 1}',
-                json.dumps(geometry, indent=2), osm_id)
+        dialog = PhysicalObjectCreation(
+            f"Если необходимо, измените параметры физического объекта для сервиса на строке {row + 1}",
+            json.dumps(geometry, indent=2),
+            osm_id,
+        )
         if dialog.exec() != QtWidgets.QDialog.Accepted or self._additional_conn is None:
             return
         new_geom_tuple = check_geometry_correctness(dialog.get_geometry(), self._additional_conn)
         if new_geom_tuple is None:
-            self._log_window.insertHtml(f'<font color=#e6783c>Физический объект для сервиса с id={func_id}'
-                    f' (phys_id)={phys_id}) не обновлен, ошибка в геометрии</font><br>')
+            self._log_window.insertHtml(
+                f"<font color=#e6783c>Физический объект для сервиса с id={func_id}"
+                f" (phys_id)={phys_id}) не обновлен, ошибка в геометрии</font><br>"
+            )
             return
-        new_geometry = json.loads(dialog.get_geometry()) # type: ignore
+        new_geometry = json.loads(dialog.get_geometry())  # type: ignore
         if geometry != new_geometry:
             new_latitude, new_longitude, geom_type = new_geom_tuple
             with self._db_properties.conn.cursor() as cur:
-                cur.execute('UPDATE physical_objects SET geometry = ST_SnapToGrid(ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326), 0.000001),'
-                        ' center = ST_SnapToGrid(ST_Centroid(ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326)), 0.000001),'
-                        " updated_at = date_trunc('second', now()) WHERE id = %s",
-                        (dialog.get_geometry(),) * 2 + (phys_id,))
-                cur.execute('UPDATE physical_objects SET'
-                    ' administrative_unit_id = (SELECT id from administrative_units WHERE ST_CoveredBy('
-                            ' (SELECT center FROM physical_objects WHERE id = %s), geometry) ORDER BY population DESC LIMIT 1),'
-                    ' municipality_id = (SELECT id from municipalities WHERE ST_CoveredBy('
-                            ' (SELECT center FROM physical_objects WHERE id = %s), geometry) ORDER BY population DESC LIMIT 1)'
-                    ' WHERE id = %s',
-                    (phys_id,) * 3
+                cur.execute(
+                    "UPDATE physical_objects"
+                    " SET geometry = ST_SnapToGrid(ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326), 0.000001),"
+                    "   center = ST_SnapToGrid(ST_Centroid(ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326)), 0.000001),"
+                    "   updated_at = date_trunc('second', now())"
+                    " WHERE id = %s",
+                    (dialog.get_geometry(),) * 2 + (phys_id,),
+                )
+                cur.execute(
+                    "UPDATE physical_objects SET"
+                    " administrative_unit_id = (SELECT id from administrative_units"
+                    "   WHERE ST_CoveredBy("
+                    "       (SELECT center FROM physical_objects WHERE id = %s), geometry)"
+                    "       ORDER BY population DESC LIMIT 1),"
+                    " municipality_id = (SELECT id from municipalities"
+                    "   WHERE ST_CoveredBy("
+                    "       (SELECT center FROM physical_objects WHERE id = %s), geometry)"
+                    "   ORDER BY population DESC LIMIT 1)"
+                    " WHERE id = %s",
+                    (phys_id,) * 3,
+                )
+            self._log_window.insertHtml(
+                "<font color=yellowgreen>Геометрия физического объекта сервиса"
+                f" с id={func_id} (phys_id={phys_id}) изменена:"
+                f" {self._table.item(row, 11).text()}({self._table.item(row, 9).text()},"
+                f" {self._table.item(row, 10).text()})"
+                f"->{geom_type}({new_latitude, new_longitude})</font><br>"
             )
-            self._log_window.insertHtml(f'<font color=yellowgreen>Геометрия физического объекта сервиса с id={func_id} (phys_id={phys_id}) изменена:'
-                    f' {self._table.item(row, 11).text()}({self._table.item(row, 9).text()}, {self._table.item(row, 10).text()})'
-                    f'->{geom_type}({new_latitude, new_longitude})</font><br>')
             self._table.item(row, 9).setText(str(new_latitude))
             self._table.item(row, 9).setBackground(QtCore.Qt.GlobalColor.yellow)
             self._table.item(row, 10).setText(str(new_longitude))
@@ -675,47 +847,112 @@ class UpdatingWindow(QtWidgets.QWidget):
             self._table.item(row, 11).setBackground(QtCore.Qt.GlobalColor.yellow)
         if osm_id != dialog.osm_id():
             with self._db_properties.conn.cursor() as cur:
-                cur.execute("UPDATE physical_objects SET osm_id = %s, updated_at = date_trunc('second', now()) WHERE id = %s", (osm_id, phys_id))
-            self._log_window.insertHtml(f'<font color=yellowgreen>OpenStreetMapID для phys_id={phys_id} изменен: {osm_id}->{dialog.osm_id()}</font><br>')
+                cur.execute(
+                    "UPDATE physical_objects SET osm_id = %s, updated_at = date_trunc('second', now()) WHERE id = %s",
+                    (osm_id, phys_id),
+                )
+            self._log_window.insertHtml(
+                f"<font color=yellowgreen>OpenStreetMapID для phys_id={phys_id} изменен:"
+                f" {osm_id}->{dialog.osm_id()}</font><br>"
+            )
 
     def _on_add_building(self) -> None:
         row = self._table.currentRow()
         func_id = self._table.item(row, 0).text()
-        dialog = BuildingCreation(f'Введите информацию о здании для добавления для сервиса на строке {row + 1} в поля ниже', is_adding=True)
+        dialog = BuildingCreation(
+            f"Введите информацию о здании для добавления для сервиса на строке {row + 1} в поля ниже", is_adding=True
+        )
         if dialog.exec() != QtWidgets.QDialog.Accepted or self._additional_conn is None:
             return
-        osm_id, address, building_date, building_area, repair_years, building_area_living, storeys, lift_count, population, project_type, ukname = \
-                dialog.osm_id(), dialog.address(), dialog.building_date(), dialog.repair_years(), dialog.building_area(), \
-                dialog.building_area_living(), dialog.storeys(), dialog.lift_count(), dialog.population(), dialog.project_type(), dialog.ukname()
-        heating, hotwater, electricity, gas, refusechute, is_failing, is_living = dialog.central_heating(), dialog.central_hotwater(), dialog.central_electricity(), \
-                dialog.central_gas(), dialog.refusechute(), dialog.is_failing(), dialog.is_living()
+        (
+            osm_id,
+            address,
+            building_date,
+            building_area,
+            repair_years,
+            building_area_living,
+            storeys,
+            lift_count,
+            population,
+            project_type,
+            ukname,
+        ) = (
+            dialog.osm_id(),
+            dialog.address(),
+            dialog.building_date(),
+            dialog.repair_years(),
+            dialog.building_area(),
+            dialog.building_area_living(),
+            dialog.storeys(),
+            dialog.lift_count(),
+            dialog.population(),
+            dialog.project_type(),
+            dialog.ukname(),
+        )
+        heating, hotwater, electricity, gas, refusechute, is_failing, is_living = (
+            dialog.central_heating(),
+            dialog.central_hotwater(),
+            dialog.central_electricity(),
+            dialog.central_gas(),
+            dialog.refusechute(),
+            dialog.is_failing(),
+            dialog.is_living(),
+        )
         res = check_geometry_correctness(dialog.get_geometry(), self._additional_conn)
         if res is None or address is None:
-            self._log_window.insertHtml(f'<font color=#e6783c>Ошибка при добавлении здания сервису с id={func_id}</font><br>')
+            self._log_window.insertHtml(
+                f"<font color=#e6783c>Ошибка при добавлении здания сервису с id={func_id}</font><br>"
+            )
             return
         new_latitude, new_longitude, geom_type = res
         with self._db_properties.conn.cursor() as cur:
-            cur.execute('INSERT INTO physical_objects (osm_id, geometry, center, city_id)'
-                    ' VALUES (%s, ST_SnapToGrid(ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326), 0.000001),'
-                    '   ST_SnapToGrid(ST_Centroid(ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326)), 0.000001), (SELECT id FROM cities WHERE name = %s))'
-                    ' RETURNING id',
-                    (osm_id,) + (dialog.get_geometry(),) * 2 + (self._city_choose.currentText(),)
+            cur.execute(
+                "INSERT INTO physical_objects (osm_id, geometry, center, city_id)"
+                " VALUES (%s, ST_SnapToGrid(ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326), 0.000001),"
+                "   ST_SnapToGrid(ST_Centroid(ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326)), 0.000001),"
+                "   (SELECT id FROM cities WHERE name = %s))"
+                " RETURNING id",
+                (osm_id,) + (dialog.get_geometry(),) * 2 + (self._city_choose.currentText(),),
             )
-            new_phys_id = cur.fetchone()[0] # type: ignore
-            cur.execute('UPDATE physical_objects SET'
-                    ' administrative_unit_id = (SELECT id from administrative_units WHERE ST_CoveredBy('
-                            ' (SELECT center FROM physical_objects WHERE id = %s), geometry) ORDER BY population DESC LIMIT 1),'
-                    ' municipality_id = (SELECT id from municipalities WHERE ST_CoveredBy('
-                            ' (SELECT center FROM physical_objects WHERE id = %s), geometry) ORDER BY population DESC LIMIT 1)'
-                    ' WHERE id = %s',
-                    (new_phys_id,) * 3
+            new_phys_id = cur.fetchone()[0]  # type: ignore
+            cur.execute(
+                "UPDATE physical_objects SET"
+                " administrative_unit_id = (SELECT id from administrative_units WHERE ST_CoveredBy("
+                " (SELECT center FROM physical_objects WHERE id = %s), geometry) ORDER BY population DESC LIMIT 1),"
+                " municipality_id = (SELECT id from municipalities WHERE ST_CoveredBy("
+                " (SELECT center FROM physical_objects WHERE id = %s), geometry) ORDER BY population DESC LIMIT 1)"
+                " WHERE id = %s",
+                (new_phys_id,) * 3,
             )
-            cur.execute('INSERT INTO buildings (physical_object_id, address, building_date, repair_years, building_area, living_area,'
-                    ' storeys_count, lift_count, resident_number, project_type, ukname, central_heating, central_hotwater, central_electro,'
-                    ' central_gas, refusechute, failure, is_living) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)',
-                    (new_phys_id, address, building_date, repair_years, building_area, building_area_living, storeys, lift_count, population,
-                        project_type, ukname, heating, hotwater, electricity, gas, refusechute, is_failing, is_living))
-            cur.execute('UPDATE functional_objects SET physical_object_id = %s WHERE id = %s', (new_phys_id, func_id))
+            cur.execute(
+                "INSERT INTO buildings (physical_object_id, address, building_date,"
+                "      repair_years, building_area, living_area,"
+                "   storeys_count, lift_count, resident_number, project_type, ukname,"
+                "   central_heating, central_hotwater, central_electro,"
+                "   central_gas, refusechute, failure, is_living)"
+                " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                (
+                    new_phys_id,
+                    address,
+                    building_date,
+                    repair_years,
+                    building_area,
+                    building_area_living,
+                    storeys,
+                    lift_count,
+                    population,
+                    project_type,
+                    ukname,
+                    heating,
+                    hotwater,
+                    electricity,
+                    gas,
+                    refusechute,
+                    is_failing,
+                    is_living,
+                ),
+            )
+            cur.execute("UPDATE functional_objects SET physical_object_id = %s WHERE id = %s", (new_phys_id, func_id))
         self._table.item(row, 1).setText(address)
         self._table.item(row, 1).setBackground(QtCore.Qt.GlobalColor.yellow)
         self._table.item(row, 8).setText(str(new_phys_id))
@@ -731,108 +968,208 @@ class UpdatingWindow(QtWidgets.QWidget):
         row = self._table.currentRow()
         func_id, phys_id = self._table.item(row, 0).text(), self._table.item(row, 8).text()
         with self._db_properties.conn.cursor() as cur:
-            cur.execute('SELECT ST_AsGeoJSON(p.geometry), p.osm_id, b.address, b.building_date, b.repair_years, b.building_area, b.living_area,'
-                    ' b.storeys_count, b.lift_count, b.resident_number, b.project_type, b.ukname, b.central_heating, b.central_hotwater,'
-                    ' b.central_electro, b.central_gas, b.refusechute, b.failure, b.is_living, b.id FROM buildings b'
-                    ' JOIN physical_objects p ON b.physical_object_id = p.id'
-                    ' WHERE p.id = %s', (phys_id,))
+            cur.execute(
+                "SELECT ST_AsGeoJSON(p.geometry), p.osm_id, b.address, b.building_date,"
+                "   b.repair_years, b.building_area, b.living_area,"
+                "   b.storeys_count, b.lift_count, b.resident_number, b.project_type,"
+                "   b.ukname, b.central_heating, b.central_hotwater,"
+                "   b.central_electro, b.central_gas, b.refusechute,"
+                "   b.failure, b.is_living, b.id"
+                " FROM buildings b"
+                "   JOIN physical_objects p ON b.physical_object_id = p.id"
+                " WHERE p.id = %s",
+                (phys_id,),
+            )
             try:
-                geometry, *res, b_id = cur.fetchone() # type: ignore
+                geometry, *res, b_id = cur.fetchone()  # type: ignore
             except TypeError:
-                QtWidgets.QMessageBox.critical(self, 'Ошибка изменения здания', 'Здание, соответствующее физическому объекту'
-                        f' с id={phys_id} не найдено в базе данных')
+                QtWidgets.QMessageBox.critical(
+                    self,
+                    "Ошибка изменения здания",
+                    "Здание, соответствующее физическому объекту" f" с id={phys_id} не найдено в базе данных",
+                )
                 return
         geometry = json.loads(geometry)
-        dialog = BuildingCreation(f'Если необходимо, измените параметры здания для сервиса на строке {row + 1}', json.dumps(geometry, indent=2), *res)
+        dialog = BuildingCreation(
+            f"Если необходимо, измените параметры здания для сервиса на строке {row + 1}",
+            json.dumps(geometry, indent=2),
+            *res,
+        )
         if dialog.exec() != QtWidgets.QDialog.Accepted or self._additional_conn is None:
             return
         new_geom_tuple = check_geometry_correctness(dialog.get_geometry(), self._additional_conn)
         if new_geom_tuple is None:
-            self._log_window.insertHtml(f'<font color=#e6783c>Здание для сервиса с id={func_id}'
-                    f' (build_id={b_id}) не обновлено, ошибка в геометрии</font><br>')
+            self._log_window.insertHtml(
+                f"<font color=#e6783c>Здание для сервиса с id={func_id}"
+                f" (build_id={b_id}) не обновлено, ошибка в геометрии</font><br>"
+            )
             return
         if dialog.address() is None:
-            self._log_window.insertHtml(f'<font color=#e6783c>Здание для сервиса с id={func_id}'
-                    f' (build_id={b_id}) не обновлено, адрес не задан</font><br>')
+            self._log_window.insertHtml(
+                f"<font color=#e6783c>Здание для сервиса с id={func_id}"
+                f" (build_id={b_id}) не обновлено, адрес не задан</font><br>"
+            )
             return
-        new_geometry = json.loads(dialog.get_geometry()) # type: ignore
+        new_geometry = json.loads(dialog.get_geometry())  # type: ignore
         if geometry != new_geometry:
             new_latitude, new_longitude, geom_type = new_geom_tuple
             with self._db_properties.conn.cursor() as cur:
-                cur.execute('UPDATE physical_objects SET geometry = ST_SnapToGrid(ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326), 0.000001),'
-                        ' center = ST_SnapToGrid(ST_Centroid(ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326)), 0.000001),'
-                        " updated_at = date_trunc('second', now()) WHERE id = %s",
-                        (dialog.get_geometry(),) * 2 + (phys_id,))
-                cur.execute('UPDATE physical_objects SET'
-                    ' administrative_unit_id = (SELECT id from administrative_units WHERE ST_CoveredBy('
-                            ' (SELECT center FROM physical_objects WHERE id = %s), geometry) ORDER BY population DESC LIMIT 1),'
-                    ' municipality_id = (SELECT id from municipalities WHERE ST_CoveredBy('
-                            ' (SELECT center FROM physical_objects WHERE id = %s), geometry) ORDER BY population DESC LIMIT 1)'
-                    ' WHERE id = %s',
-                    (phys_id,) * 3
+                cur.execute(
+                    "UPDATE physical_objects"
+                    " SET geometry = ST_SnapToGrid(ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326), 0.000001),"
+                    "   center = ST_SnapToGrid(ST_Centroid(ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326)), 0.000001),"
+                    "   updated_at = date_trunc('second', now())"
+                    " WHERE id = %s",
+                    (dialog.get_geometry(),) * 2 + (phys_id,),
+                )
+                cur.execute(
+                    "UPDATE physical_objects SET"
+                    " administrative_unit_id = (SELECT id from administrative_units"
+                    "   WHERE ST_CoveredBy("
+                    "       (SELECT center FROM physical_objects WHERE id = %s), geometry)"
+                    "   ORDER BY population DESC LIMIT 1),"
+                    " municipality_id = (SELECT id from municipalities"
+                    "   WHERE ST_CoveredBy("
+                    "       (SELECT center FROM physical_objects WHERE id = %s), geometry)"
+                    "   ORDER BY population DESC LIMIT 1)"
+                    " WHERE id = %s",
+                    (phys_id,) * 3,
+                )
+            self._log_window.insertHtml(
+                f"<font color=yellowgreen>Геометрия сервиса с id={func_id} (phys_id={phys_id}) изменена:"
+                f" {self._table.item(row, 11).text()}({self._table.item(row, 9).text()},"
+                f" {self._table.item(row, 10).text()})"
+                f"->{geom_type}({new_latitude, new_longitude})</font><br>"
             )
-            self._log_window.insertHtml(f'<font color=yellowgreen>Геометрия сервиса с id={func_id} (phys_id={phys_id}) изменена:'
-                    f' {self._table.item(row, 11).text()}({self._table.item(row, 9).text()}, {self._table.item(row, 10).text()})'
-                    f'->{geom_type}({new_latitude, new_longitude})</font><br>')
             self._table.item(row, 9).setText(str(new_latitude))
             self._table.item(row, 10).setText(str(new_longitude))
             self._table.item(row, 11).setText(geom_type)
-            for c in (9, 10, 11):
-                self._table.item(row, c).setBackground(QtCore.Qt.GlobalColor.yellow)
+            for column in (9, 10, 11):
+                self._table.item(row, column).setBackground(QtCore.Qt.GlobalColor.yellow)
         if res[0] != dialog.osm_id():
             with self._db_properties.conn.cursor() as cur:
-                cur.execute("UPDATE physical_objects SET osm_id = %s, updated_at = date_trunc('second', now()) WHERE id = %s", (res[0], phys_id))
-            self._log_window.insertHtml(f'<font color=yellowgreen>Изменен параметр OpenStreetMapID для phys_id={phys_id}:'
-                    f' "{res[0]}"->"{dialog.osm_id()}"</font><br>')
+                cur.execute(
+                    "UPDATE physical_objects SET osm_id = %s, updated_at = date_trunc('second', now()) WHERE id = %s",
+                    (res[0], phys_id),
+                )
+            self._log_window.insertHtml(
+                f"<font color=yellowgreen>Изменен параметр OpenStreetMapID для phys_id={phys_id}:"
+                f' "{res[0]}"->"{dialog.osm_id()}"</font><br>'
+            )
         with self._db_properties.conn.cursor() as cur:
             if res[1] != dialog.address():
-                self._table.item(row, 1).setText(dialog.address()) # type: ignore
+                self._table.item(row, 1).setText(dialog.address())  # type: ignore
                 self._table.item(row, 1).setBackground(QtCore.Qt.GlobalColor.yellow)
             for name_interface, column, old_value, new_value in zip(
-                ('адрес', 'дата постройки', 'годы ремонта', 'площадь здания', 'жилая площадь', 'этажность', 'количество лифтов',
-                        'население', 'тип проекта', 'название застройщика', 'централизованное отопление', 'централизованная горячая вода',
-                        'централизованное электричество', 'централизованный газ', 'мусоропровод', 'аварийность', 'жилой'),
-                ('address', 'building_date', 'repair_years', 'building_area', 'living_area', 'storeys_count', 'lift_count', 'resident_number',
-                        'project_type', 'ukname', 'central_heating', 'central_hotwater', 'central_electro', 'central_gas', 'refusechute', 'failure', 'is_living'),
+                (
+                    "адрес",
+                    "дата постройки",
+                    "годы ремонта",
+                    "площадь здания",
+                    "жилая площадь",
+                    "этажность",
+                    "количество лифтов",
+                    "население",
+                    "тип проекта",
+                    "название застройщика",
+                    "централизованное отопление",
+                    "централизованная горячая вода",
+                    "централизованное электричество",
+                    "централизованный газ",
+                    "мусоропровод",
+                    "аварийность",
+                    "жилой",
+                ),
+                (
+                    "address",
+                    "building_date",
+                    "repair_years",
+                    "building_area",
+                    "living_area",
+                    "storeys_count",
+                    "lift_count",
+                    "resident_number",
+                    "project_type",
+                    "ukname",
+                    "central_heating",
+                    "central_hotwater",
+                    "central_electro",
+                    "central_gas",
+                    "refusechute",
+                    "failure",
+                    "is_living",
+                ),
                 res[1:],
-                (dialog.address(), dialog.building_date(), dialog.repair_years(), dialog.building_area(), dialog.building_area_living(),
-                        dialog.storeys(), dialog.lift_count(), dialog.population(), dialog.project_type(), dialog.ukname(), dialog.central_heating(),
-                        dialog.central_hotwater(), dialog.central_electricity(), dialog.central_gas(), dialog.refusechute(), dialog.is_failing(), dialog.is_living())
+                (
+                    dialog.address(),
+                    dialog.building_date(),
+                    dialog.repair_years(),
+                    dialog.building_area(),
+                    dialog.building_area_living(),
+                    dialog.storeys(),
+                    dialog.lift_count(),
+                    dialog.population(),
+                    dialog.project_type(),
+                    dialog.ukname(),
+                    dialog.central_heating(),
+                    dialog.central_hotwater(),
+                    dialog.central_electricity(),
+                    dialog.central_gas(),
+                    dialog.refusechute(),
+                    dialog.is_failing(),
+                    dialog.is_living(),
+                ),
             ):
-                    if old_value != new_value:
-                        self._log_window.insertHtml(f'<font color=yellowgreen>Изменен параметр дома ({name_interface}) для build_id={b_id} (phys_id={phys_id}):'
-                                f' "{_to_str(old_value)}"->"{_to_str(new_value)}"</font><br>')
-                    cur.execute(f'UPDATE buildings SET {column} = %s WHERE id = %s', (new_value, b_id))
+                if old_value != new_value:
+                    self._log_window.insertHtml(
+                        f"<font color=yellowgreen>Изменен параметр дома ({name_interface})"
+                        f" для build_id={b_id} (phys_id={phys_id}):"
+                        f' "{_to_str(old_value)}"->"{_to_str(new_value)}"</font><br>'
+                    )
+                cur.execute(f"UPDATE buildings SET {column} = %s WHERE id = %s", (new_value, b_id))
 
     def _on_export(self) -> None:
         lines: List[List[Any]] = []
         for row in range(self._table.rowCount()):
             lines.append([self._table.item(row, col).text() for col in range(self._table.columnCount())])
-        df = pd.DataFrame(lines, columns=[self._table.horizontalHeaderItem(i).text() for i in range(self._table.columnCount())])
+        dataframe = pd.DataFrame(
+            lines, columns=[self._table.horizontalHeaderItem(i).text() for i in range(self._table.columnCount())]
+        )
 
-        fileDialog = QtWidgets.QFileDialog(self)
-        fileDialog.setAcceptMode(QtWidgets.QFileDialog.AcceptSave)
-        fileDialog.setNameFilters(('Modern Excel files (*.xlsx)', 'Excel files (*.xls)', 'OpedDocumentTable files (*.ods)', 'CSV files (*.csv)'))
-        t = time.localtime()
-        filename: str = f'{self._service_type.currentText()} {t.tm_year}-{t.tm_mon:02}-{t.tm_mday:02} ' \
-                f'{t.tm_hour:02}-{t.tm_min:02}-{t.tm_sec:02}.csv'
-        fileDialog.selectNameFilter('CSV files (*.csv)')
-        fileDialog.selectFile(filename)
-        if fileDialog.exec() != QtWidgets.QDialog.Accepted:
+        file_dialog = QtWidgets.QFileDialog(self)
+        file_dialog.setAcceptMode(QtWidgets.QFileDialog.AcceptSave)
+        file_dialog.setNameFilters(
+            (
+                "Modern Excel files (*.xlsx)",
+                "Excel files (*.xls)",
+                "OpedDocumentTable files (*.ods)",
+                "CSV files (*.csv)",
+            )
+        )
+        t = time.localtime()  # pylint: disable=invalid-name
+        filename: str = (
+            f"{self._service_type.currentText()} {t.tm_year}-{t.tm_mon:02}-{t.tm_mday:02} "
+            f"{t.tm_hour:02}-{t.tm_min:02}-{t.tm_sec:02}.csv"
+        )
+        file_dialog.selectNameFilter("CSV files (*.csv)")
+        file_dialog.selectFile(filename)
+        if file_dialog.exec() != QtWidgets.QDialog.Accepted:
             return
-        filename = fileDialog.selectedFiles()[0]
-        format = fileDialog.selectedNameFilter()[fileDialog.selectedNameFilter().rfind('.'):-1]
-        if not filename.endswith(format):
-            filename += format
-        save_func = pd.DataFrame.to_csv if filename.endswith('csv') else pd.DataFrame.to_excel
-        save_func(df, filename, index=False)
+        filename = file_dialog.selectedFiles()[0]
+        file_format = file_dialog.selectedNameFilter()[file_dialog.selectedNameFilter().rfind(".") : -1]
+        if not filename.endswith(file_format):
+            filename += file_format
+        save_func = pd.DataFrame.to_csv if filename.endswith("csv") else pd.DataFrame.to_excel
+        save_func(dataframe, filename, index=False)
 
     def _on_commit_changes(self) -> None:
-        self._log_window.insertHtml('<font color=green>Запись изменений в базу данных</font><br>')
-        logger.opt(colors=True).info(f'<green>Коммит следующих изменений сервисов в базу данных</green>:\n{self._log_window.toPlainText()[:-1]}')
+        self._log_window.insertHtml("<font color=green>Запись изменений в базу данных</font><br>")
+        logger.opt(colors=True).info(
+            f"<green>Коммит следующих изменений сервисов в базу данных</green>:\n{self._log_window.toPlainText()[:-1]}"
+        )
         self._db_properties.conn.commit()
         self._edit_buttons.load.click()
-        self._log_window.insertHtml('<font color=green>Изменения записаны, обновленная информация загружена</font><br>')
+        self._log_window.insertHtml("<font color=green>Изменения записаны, обновленная информация загружена</font><br>")
 
     def _on_rollback(self) -> None:
         self._db_properties.conn.rollback()
@@ -843,7 +1180,7 @@ class UpdatingWindow(QtWidgets.QWidget):
         current_service_type = self._service_type.currentText()
         self._service_type.clear()
         if len(service_types) == 0:
-            self._service_type.addItem('(Нет типов сервисов)')
+            self._service_type.addItem("(Нет типов сервисов)")
             self._service_type.view().setMinimumWidth(len(self._service_type.currentText()) * 8)
             self._edit_buttons.load.setEnabled(False)
         else:
@@ -858,7 +1195,7 @@ class UpdatingWindow(QtWidgets.QWidget):
         current_city = self._city_choose.currentText()
         self._city_choose.clear()
         if len(cities) == 0:
-            self._city_choose.addItem('(Нет городов)')
+            self._city_choose.addItem("(Нет городов)")
         else:
             self._city_choose.addItems(cities)
             if current_city in cities:
@@ -873,13 +1210,13 @@ class UpdatingWindow(QtWidgets.QWidget):
             self._additional_conn.close()
         self._additional_conn = self._db_properties.copy().conn
         self._on_city_change()
-    
-    def showEvent(self, event: QtGui.QShowEvent) -> None:
-        logger.info('Открыто окно изменения сервисов')
+
+    def showEvent(self, event: QtGui.QShowEvent) -> None:  # pylint: disable=invalid-name
+        logger.info("Открыто окно изменения сервисов")
         return super().showEvent(event)
 
-    def closeEvent(self, event: QtGui.QCloseEvent) -> None:
-        logger.info('Закрыто окно изменения сервисов')
+    def closeEvent(self, event: QtGui.QCloseEvent) -> None:  # pylint: disable=invalid-name
+        logger.info("Закрыто окно изменения сервисов")
         if self._on_close is not None:
             self._on_close()
         return super().closeEvent(event)
