@@ -447,7 +447,8 @@ class UpdatingWindow(QtWidgets.QWidget):
         try:
             self._db_properties.connect_timeout = 1
             self._additional_conn = self._db_properties.copy().conn
-        except RuntimeError:
+        except Exception as exc:  # pylint: disable=broad-except
+            logger.warning("could not create an additional connection: {!r}", exc)
             self._additional_conn = None  # type: ignore
         finally:
             self._db_properties.connect_timeout = 10
@@ -740,7 +741,8 @@ class UpdatingWindow(QtWidgets.QWidget):
                 new_center, geom_type = cur.fetchone()  # type: ignore
                 new_center = json.loads(new_center)
                 new_longitude, new_latitude = new_center["coordinates"]
-        except RuntimeError:
+        except Exception as exc:  # pylint: disable=broad-except
+            logger.trace("error on an physical_object insertion for a functional_object with id={}: {!r}", func_id, exc)
             self._additional_conn.rollback()
             self._log_window.insertHtml(
                 f"<font color=#e6783c>Ошибка при добавлении физического объекта сервису с id={func_id}</font><br>"

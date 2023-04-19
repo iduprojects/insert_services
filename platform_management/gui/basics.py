@@ -9,6 +9,10 @@ from frozenlist import FrozenList
 import psycopg2  # pylint: disable=unused-import
 from PySide6 import QtCore, QtGui, QtWidgets
 
+from loguru import logger
+
+logger = logger.bind(name="basics")
+
 
 def check_geometry_correctness(
     geometry_geojson: Optional[str], conn: "psycopg2.connection"
@@ -26,7 +30,8 @@ def check_geometry_correctness(
             new_center = json.loads(new_center)
             new_longitude, new_latitude = new_center["coordinates"]
         return new_latitude, new_longitude, geom_type
-    except RuntimeError:
+    except Exception as exc:  # pylint: disable=broad-except
+        logger.debug("Exception on geometry correctness check: {!r}", exc)
         conn.rollback()
         return None
 

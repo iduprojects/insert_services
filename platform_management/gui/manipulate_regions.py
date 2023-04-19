@@ -138,7 +138,8 @@ class RegionsWindow(QtWidgets.QWidget):
         try:
             self._db_properties.connect_timeout = 1
             self._additional_conn = self._db_properties.copy().conn
-        except RuntimeError:
+        except Exception as exc:  # pylint: disable=broad-except
+            logger.warning("could not create an additional connection: {!r}", exc)
             self._additional_conn = None  # type: ignore
         finally:
             self._db_properties.connect_timeout = 10

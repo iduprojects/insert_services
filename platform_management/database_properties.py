@@ -3,6 +3,7 @@
 Database connection wrapper class `Properties` is defined here.
 """
 import psycopg2
+from loguru import logger
 
 
 class Properties:
@@ -84,10 +85,13 @@ class Properties:
         if self._conn is not None and not self._conn.closed:
             try:
                 self._conn.close()
-            except RuntimeError:
-                pass
+            except Exception as exc:  # pylint: disable=broad-except
+                logger.warning("couldn't close database connection: {!r}", exc)
         self._conn = None
 
     @property
-    def connected(self):
+    def connected(self) -> bool:
+        """
+        True if the connection was established
+        """
         return self.conn is not None

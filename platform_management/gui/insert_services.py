@@ -14,7 +14,7 @@ import psycopg2
 from loguru import logger
 from PySide6 import QtCore, QtGui, QtWidgets
 
-import platform_management.cli.insert_services as insert_services_cli
+import platform_management.cli as insert_services_cli
 from platform_management.database_properties import Properties
 from platform_management.gui.basics import CheckableTableView, ColorizingComboBox, ColorizingLine, DropPushButton
 
@@ -306,9 +306,9 @@ class InsertionWindow(QtWidgets.QWidget):
             except ValueError:
                 QtWidgets.QMessageBox.critical(self, "Невозможно открыть файл", "Ошибка при открытии файла")
                 return
-            except RuntimeError as ex:
+            except Exception as exc:  # pylint: disable=broad-except
                 QtWidgets.QMessageBox.critical(
-                    self, "Невозможно открыть файл", f"Неизвестная ошибка при открытии: {ex}"
+                    self, "Невозможно открыть файл", f"Неизвестная ошибка при открытии: {exc!r}"
                 )
                 return
         else:
@@ -381,12 +381,15 @@ class InsertionWindow(QtWidgets.QWidget):
         verbose = not bool(QtWidgets.QApplication.keyboardModifiers() & QtCore.Qt.ShiftModifier)
         is_commit = not bool(QtWidgets.QApplication.keyboardModifiers() & QtCore.Qt.ControlModifier)
         try:
-            results = insert_services_cli.add_objects(
+            results = insert_services_cli.add_services(
                 self._db_properties.conn,
                 self.table_as_dataframe(False),
                 self._options_fields.city.currentText(),
                 self._options_fields.service_type.currentText(),
-                insert_services_cli.init_insertion_mapping(
+                insert_services_cli.ServiceInsertionMapping.init(
+                    self._document_fields.latitude.currentText(),
+                    self._document_fields.longitude.currentText(),
+                    self._document_fields.geometry.currentText(),
                     self._document_fields.name.currentText(),
                     self._document_fields.opening_hours.currentText(),
                     self._document_fields.website.currentText(),
@@ -394,9 +397,6 @@ class InsertionWindow(QtWidgets.QWidget):
                     self._document_fields.address.currentText(),
                     self._document_fields.osm_id.currentText(),
                     self._document_fields.capacity.currentText(),
-                    self._document_fields.latitude.currentText(),
-                    self._document_fields.longitude.currentText(),
-                    self._document_fields.geometry.currentText(),
                 ),
                 {
                     self._properties_group.itemAtPosition(i + 2, 0)
@@ -421,9 +421,9 @@ class InsertionWindow(QtWidgets.QWidget):
                 "Произошла ошибка при загрузке объектов в базу\nВозможны проблемы с подключением к базе",
             )
             return
-        except RuntimeError as exc:
+        except Exception as exc:  # pylint: disable=broad-except
             QtWidgets.QMessageBox.critical(
-                self, "Ошибка при загрузке", f"Произошла ошибка при загрузке объектов в базу\n{exc}"
+                self, "Ошибка при загрузке", f"Произошла ошибка при загрузке объектов в базу\n{exc!r}"
             )
             traceback.print_exc()
             return

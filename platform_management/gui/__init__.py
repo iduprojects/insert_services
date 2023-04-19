@@ -190,7 +190,7 @@ class InitWindow(QtWidgets.QWidget):
                 self._insertion_window.set_service_types_params(service_types_params)  # type: ignore
 
             self._launch_btn.setEnabled(True)
-        except RuntimeError as exc:
+        except Exception as exc:  # pylint: disable=broad-except
             self._db_properties.close()
             self._launch_btn.setEnabled(False)
             logger.error(f"Ошибка подключения к базе данных: {exc}")
@@ -245,7 +245,7 @@ class InitWindow(QtWidgets.QWidget):
 
 
 def run_gui(db_addr: str, db_port: int, db_name: str, db_user: str, db_pass: str, verbose: bool):
-    global app
+    global app  # pylint: disable=global-statement
 
     logger.remove(0)
     logger.add(

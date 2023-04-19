@@ -333,7 +333,7 @@ class TerritoryWindow(QtWidgets.QWidget):
         with self._conn.cursor() as cur:
             cur.execute(
                 f"SELECT id, name, population,"
-                "       (SELECT full_name FROM {self._territory_types_table} WHERE id = type_id),"
+                f"       (SELECT full_name FROM {self._territory_types_table} WHERE id = type_id),"
                 f"      (SELECT name FROM {self._other_territory_table} WHERE id = {self._parent_id_column}),"
                 "       ST_Y(center), ST_X(center), ST_GeometryType(geometry),"
                 "       date_trunc('minute', created_at)::timestamp, date_trunc('minute', updated_at)::timestamp"
@@ -435,7 +435,7 @@ class TerritoryWindow(QtWidgets.QWidget):
         territory_id = self._table.item(row, 0).text()
         with self._conn.cursor() as cur:
             cur.execute(
-                f"SELECT ST_AsGeoJSON(geometry), name, population,"
+                "SELECT ST_AsGeoJSON(geometry), name, population,"
                 f"   (SELECT name FROM {self._other_territory_table} WHERE id = {self._parent_id_column}),"
                 f"   (SELECT full_name FROM {self._territory_types_table} WHERE id = type_id)"
                 f" FROM {self._territory_table} WHERE id = %s",
@@ -533,9 +533,7 @@ class TerritoryWindow(QtWidgets.QWidget):
                     (dialog.parent_territory(), territory_id),
                 )
             if changed:
-                cur.execute(
-                    f"UPDATE {self._territory_types_table} SET updated_at = now() WHERE id = %s", (territory_id,)
-                )
+                cur.execute(f"UPDATE {self._territory_table} SET updated_at = now() WHERE id = %s", (territory_id,))
         self._on_territory_edit_callback(int(territory_id), self._table.item(row, 2).text(), changes, self._city_name)
 
     def _on_territory_delete(self) -> None:
@@ -614,7 +612,8 @@ class CitiesWindow(QtWidgets.QWidget):
         try:
             self._db_properties.connect_timeout = 1
             self._additional_conn = self._db_properties.copy().conn
-        except Exception:
+        except Exception as exc:  # pylint: disable=broad-except
+            logger.warning("could not create an additional connection: {!r}", exc)
             self._additional_conn = None  # type: ignore
         finally:
             self._db_properties.connect_timeout = 10
@@ -772,12 +771,13 @@ class CitiesWindow(QtWidgets.QWidget):
         self._table.setItem(row, 2, QtWidgets.QTableWidgetItem(_to_str(dialog.code())))
         self._table.setItem(row, 3, QtWidgets.QTableWidgetItem(_to_str(dialog.population())))
         self._table.setItem(row, 4, QtWidgets.QTableWidgetItem(_to_str(dialog.division_type())))
-        self._table.setItem(row, 5, QtWidgets.QTableWidgetItem(str(latitude)))
-        self._table.setItem(row, 6, QtWidgets.QTableWidgetItem(str(longitude)))
-        self._table.setItem(row, 7, QtWidgets.QTableWidgetItem(geom_type))
+        self._table.setItem(row, 5, QtWidgets.QTableWidgetItem(_to_str(dialog.region())))
+        self._table.setItem(row, 6, QtWidgets.QTableWidgetItem(str(latitude)))
+        self._table.setItem(row, 7, QtWidgets.QTableWidgetItem(str(longitude)))
+        self._table.setItem(row, 8, QtWidgets.QTableWidgetItem(geom_type))
         now = time.strftime("%Y-%M-%d %H:%M:00")
-        self._table.setItem(row, 8, QtWidgets.QTableWidgetItem(now))
         self._table.setItem(row, 9, QtWidgets.QTableWidgetItem(now))
+        self._table.setItem(row, 10, QtWidgets.QTableWidgetItem(now))
         for column in range(self._table.columnCount()):
             self._table.item(row, column).setBackground(QtGui.QBrush(QtCore.Qt.GlobalColor.yellow))
 
