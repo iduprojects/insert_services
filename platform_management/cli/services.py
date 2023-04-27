@@ -1,6 +1,6 @@
 # pylint: disable=too-many-arguments,too-many-locals,
 """
-Insert services logic is defined here.
+Services insertion logic is defined here.
 """
 import json
 import os
@@ -8,16 +8,16 @@ import random
 import time
 import traceback
 import warnings
-from typing import Callable, Dict, List, Literal, Optional, Tuple
-from numpy import nan
+from typing import Callable, Dict, List, Literal, Optional, Tuple, Union
 
 import pandas as pd
 import psycopg2
 from frozenlist import FrozenList
 from loguru import logger
+from numpy import nan
 from tqdm import tqdm
 
-from .mappings import ServiceInsertionMapping
+from platform_management.dto import ServiceInsertionMapping
 
 warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
 
@@ -25,7 +25,7 @@ logger = logger.bind(name="insert_services")
 
 
 def insert_object(
-    conn: "psycopg2.connection",
+    cur: "psycopg2.cursor",
     row: pd.Series,
     phys_id: int,
     name: str,
@@ -39,55 +39,54 @@ def insert_object(
 
     `service_type_id` must be vaild.
     """
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT st.capacity_min, st.capacity_max, st.id, cf.id, it.id"
-            " FROM city_infrastructure_types it"
-            "   JOIN city_functions cf ON cf.city_infrastructure_type_id = it.id"
-            "   JOIN city_service_types st ON st.city_function_id = cf.id"
-            " WHERE st.id = %s",
-            (service_type_id,),
-        )
-        capacity_min, capacity_max, *ids = cur.fetchone()  # type: ignore
-        assert (
-            ids[0] is not None and ids[1] is not None and ids[2] is not None
-        ), "Service type, city function or infrastructure are not found in the database"
-        if mapping.capacity in row and isinstance(row[mapping.capacity], int):
-            capacity = row[mapping.capacity]
-            is_capacity_real = True
-        else:
-            capacity = random.randint(capacity_min, capacity_max)
-            is_capacity_real = False
-        functional_object_properties = {
-            db_name: row[row_name]
-            for db_name, row_name in properties_mapping.items()
-            if row_name in row and row[row_name] is not None and row[row_name] != ""
-        }
-        cur.execute(
-            "INSERT INTO functional_objects (name, opening_hours, website, phone,"
-            "       city_service_type_id, city_function_id, city_infrastructure_type_id,"
-            "       capacity, is_capacity_real, physical_object_id, properties)"
-            " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
-            (
-                name,
-                row.get(mapping.opening_hours),
-                row.get(mapping.website),
-                row.get(mapping.phone),
-                *ids,
-                capacity,
-                is_capacity_real,
-                phys_id,
-                json.dumps(functional_object_properties),
-            ),
-        )
-        functional_object_id = cur.fetchone()[0]  # type: ignore
-        if commit:
-            cur.execute("SAVEPOINT previous_object")
-        return functional_object_id
+    cur.execute(
+        "SELECT st.capacity_min, st.capacity_max, st.id, cf.id, it.id"
+        " FROM city_infrastructure_types it"
+        "   JOIN city_functions cf ON cf.city_infrastructure_type_id = it.id"
+        "   JOIN city_service_types st ON st.city_function_id = cf.id"
+        " WHERE st.id = %s",
+        (service_type_id,),
+    )
+    capacity_min, capacity_max, *ids = cur.fetchone()  # type: ignore
+    assert (
+        ids[0] is not None and ids[1] is not None and ids[2] is not None
+    ), "Service type, city function or infrastructure are not found in the database"
+    if mapping.capacity in row and isinstance(row[mapping.capacity], int):
+        capacity = row[mapping.capacity]
+        is_capacity_real = True
+    else:
+        capacity = random.randint(capacity_min, capacity_max)
+        is_capacity_real = False
+    functional_object_properties = {
+        db_name: row[row_name]
+        for db_name, row_name in properties_mapping.items()
+        if row_name in row and row[row_name] is not None and row[row_name] != ""
+    }
+    cur.execute(
+        "INSERT INTO functional_objects (name, opening_hours, website, phone,"
+        "       city_service_type_id, city_function_id, city_infrastructure_type_id,"
+        "       capacity, is_capacity_real, physical_object_id, properties)"
+        " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
+        (
+            name,
+            row.get(mapping.opening_hours),
+            row.get(mapping.website),
+            row.get(mapping.phone),
+            *ids,
+            capacity,
+            is_capacity_real,
+            phys_id,
+            json.dumps(functional_object_properties),
+        ),
+    )
+    functional_object_id = cur.fetchone()[0]  # type: ignore
+    if commit:
+        cur.execute("SAVEPOINT previous_object")
+    return functional_object_id
 
 
 def update_object(
-    conn: "psycopg2.connection",
+    cur: "psycopg2.cursor",
     row: pd.Series,
     functional_object_id: int,
     name: str,
@@ -100,56 +99,61 @@ def update_object(
 
     Returns True if service was updated (some properties were different), False otherwise.
     """
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT name, opening_hours, website, phone, capacity, is_capacity_real, properties"
-            " FROM functional_objects WHERE id = %s",
-            (functional_object_id,),
-        )
-        res: Tuple[str, str, str, str, int]
-        *res, db_properties = cur.fetchone()  # type: ignore
-        change = list(
-            filter(
-                lambda c_v_nw: c_v_nw[1] != c_v_nw[2] and c_v_nw[2] is not None and c_v_nw[2] != "",
-                zip(
-                    ("name", "opening_hours", "website", "phone", "capacity", "is_capacity_real"),
-                    res,
-                    (
-                        name,
-                        row.get(mapping.opening_hours),
-                        row.get(mapping.website),
-                        row.get(mapping.phone),
-                        row.get(mapping.capacity),
-                        mapping.capacity in row,
-                    ),
+    cur.execute(
+        "SELECT name, opening_hours, website, phone, capacity, is_capacity_real, properties"
+        " FROM functional_objects WHERE id = %s",
+        (functional_object_id,),
+    )
+    res: Tuple[str, str, str, str, int]
+    *res, db_properties = cur.fetchone()  # type: ignore
+    change = list(
+        filter(
+            lambda c_v_nw: c_v_nw[1] != c_v_nw[2] and c_v_nw[2] is not None and c_v_nw[2] != "",
+            zip(
+                ("name", "opening_hours", "website", "phone", "capacity", "is_capacity_real"),
+                res,
+                (
+                    name,
+                    row.get(mapping.opening_hours),
+                    row.get(mapping.website),
+                    row.get(mapping.phone),
+                    row.get(mapping.capacity),
+                    mapping.capacity in row,
                 ),
-            )
+            ),
         )
-        if res[-1] and not mapping.capacity in row:
-            change = change[:-2]
-        if len(change) > 0:
-            cur.execute(
-                f'UPDATE functional_objects SET {", ".join(list(map(lambda x: x[0] + "=%s", change)))} WHERE id = %s',
-                list(map(lambda x: x[2], change)) + [functional_object_id],
-            )
-        functional_object_properties = {
-            db_name: row[row_name]
-            for db_name, row_name in properties_mapping.items()
-            if row_name in row and row[row_name] is not None and row[row_name] != ""
-        }
-        if db_properties != functional_object_properties:
-            cur.execute(
-                "UPDATE functional_objects SET properties = properties || %s::jsonb WHERE id = %s",
-                (json.dumps(functional_object_properties), functional_object_id),
-            )
-        if commit:
-            cur.execute("SAVEPOINT previous_object")
-        return len(change) != 0 or db_properties != functional_object_properties
+    )
+    if res[-1] and not mapping.capacity in row:
+        change = change[:-2]
+    if len(change) > 0:
+        cur.execute(
+            f'UPDATE functional_objects SET {", ".join(list(map(lambda x: x[0] + "=%s", change)))} WHERE id = %s',
+            list(map(lambda x: x[2], change)) + [functional_object_id],
+        )
+    functional_object_properties = {
+        db_name: row[row_name]
+        for db_name, row_name in properties_mapping.items()
+        if row_name in row and row[row_name] is not None and row[row_name] != ""
+    }
+    if db_properties != functional_object_properties:
+        cur.execute(
+            "UPDATE functional_objects SET properties = properties || %s::jsonb WHERE id = %s",
+            (json.dumps(functional_object_properties), functional_object_id),
+        )
+    if commit:
+        cur.execute("SAVEPOINT previous_object")
+    return len(change) != 0 or db_properties != functional_object_properties
 
 
-def get_properties_keys(conn: "psycopg2.connection", city_service_type: str) -> List[int]:
+def get_properties_keys(
+    cur_or_conn: Union["psycopg2.connection", "psycopg2.cursor"], city_service_type: str
+) -> List[int]:
     """Return a list of properties keys of a given city_service_type by name or id."""
-    with conn.cursor() as cur:
+    if isinstance(cur_or_conn, psycopg2.extensions.connection):
+        cur = cur_or_conn.cursor()
+    else:
+        cur = cur_or_conn
+    try:
         cur.execute(
             "WITH st AS (SELECT id FROM city_service_types"
             "   WHERE name = %(city_service_type)s or code = %(city_service_type)s)"
@@ -160,9 +164,12 @@ def get_properties_keys(conn: "psycopg2.connection", city_service_type: str) -> 
             {"city_service_type": city_service_type},
         )
         return [r[0] for r in cur.fetchall()]
+    finally:
+        if isinstance(cur_or_conn, psycopg2.extensions.connection):
+            cur.close()
 
 
-def add_services(  # pylint: disable=too-many-branches,too-many-statements
+def add_services(  # pylint: disable=too-many-branches,too-many-statements,too-many-nested-blocks
     conn: "psycopg2.connection",
     services_df: pd.DataFrame,
     city_name: str,
@@ -302,7 +309,6 @@ def add_services(  # pylint: disable=too-many-branches,too-many-statements
                         f" <yellow>{updated} обновлены</yellow>, <red>{skipped} пропущены</red>"
                     )
                     if commit:
-                        conn.commit()
                         cur.execute("SAVEPOINT previous_object")
                 try:
                     if mapping.geometry not in row and (mapping.latitude not in row or mapping.longitude not in row):
@@ -408,7 +414,7 @@ def add_services(  # pylint: disable=too-many-branches,too-many-statements
                             res = cur.fetchone()
                             if res is not None:  # if service is already present in this building
                                 functional_ids[i] = res[0]
-                                if update_object(conn, row, res[0], name, mapping, properties_mapping, commit):
+                                if update_object(cur, row, res[0], name, mapping, properties_mapping, commit):
                                     updated += 1
                                     results[i] = (
                                         f"Обновлен существующий сервис (build_id = {build_id},"
@@ -487,7 +493,7 @@ def add_services(  # pylint: disable=too-many-branches,too-many-statements
                                 res = cur.fetchone()
                                 if res is not None:  # if service is already present in this building
                                     functional_ids[i] = res[0]
-                                    if update_object(conn, row, res[0], name, mapping, properties_mapping, commit):
+                                    if update_object(cur, row, res[0], name, mapping, properties_mapping, commit):
                                         updated += 1
                                         if address is not None:
                                             results[i] = (
@@ -588,7 +594,7 @@ def add_services(  # pylint: disable=too-many-branches,too-many-statements
                             res = cur.fetchone()
                             if res is not None:  # if service is already present in this pysical_object
                                 functional_ids[i] = res[0]
-                                if update_object(conn, row, res[0], name, mapping, properties_mapping, commit):
+                                if update_object(cur, row, res[0], name, mapping, properties_mapping, commit):
                                     updated += 1
                                 else:
                                     unchanged += 1
@@ -688,14 +694,7 @@ def add_services(  # pylint: disable=too-many-branches,too-many-statements
                                 )
                         added_as_points += 1
                     functional_ids[i] = insert_object(
-                        conn,
-                        row,
-                        phys_id,
-                        name,
-                        service_type_id,
-                        mapping,
-                        properties_mapping,
-                        commit,
+                        cur, row, phys_id, name, service_type_id, mapping, properties_mapping, commit
                     )  # type: ignore
                 except Exception as exc:  # pylint: disable=broad-except
                     logger.error("Произошла ошибка: {!r}", exc, traceback=True)
@@ -704,7 +703,7 @@ def add_services(  # pylint: disable=too-many-branches,too-many-statements
                     if commit:
                         cur.execute("ROLLBACK TO previous_object")
                     else:
-                        conn.rollback()
+                        cur.rollback()
                     results[i] = f"Пропущен, вызывает ошибку: {exc}"
                     skipped += 1
         except KeyboardInterrupt:

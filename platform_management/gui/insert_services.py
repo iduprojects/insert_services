@@ -16,6 +16,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 
 import platform_management.cli as insert_services_cli
 from platform_management.database_properties import Properties
+from platform_management.dto import ServiceInsertionMapping
 from platform_management.gui.basics import CheckableTableView, ColorizingComboBox, ColorizingLine, DropPushButton
 
 logger = logger.bind(name="gui_insert_services")
@@ -39,24 +40,39 @@ InsertionWindowDefaultValues = NamedTuple(
 
 
 def get_main_window_default_values() -> InsertionWindowDefaultValues:
+    """
+    Return default city address options values.
+    """
     return InsertionWindowDefaultValues(
         "", "", "x", "y", "geometry", "yand_adr", "name", "opening_hours", "contact:website", "contact:phone", "id"
     )
 
 
 def get_main_window_default_address_prefixes() -> List[str]:
+    """
+    Return default city address prefixes.
+    """
     return ["Россия, Санкт-Петербург"]
 
 
 def get_default_city_functions() -> List[str]:
+    """
+    Return default city functions.
+    """
     return ["(необходимо соединение с базой)"]
 
 
 def get_default_service_types() -> List[str]:
+    """
+    Return default service types.
+    """
     return ["(необходимо соединение с базой)"]
 
 
 class InsertionWindow(QtWidgets.QWidget):
+    """
+    Services insertion window.
+    """
 
     InsertionOptionsFields = NamedTuple(
         "InsertionOptionsFields",
@@ -114,6 +130,9 @@ class InsertionWindow(QtWidgets.QWidget):
         on_close: Optional[Callable[[], None]] = None,
         parent: Optional[QtWidgets.QWidget] = None,
     ):
+        """
+        Initialize service insertion window.
+        """
         super().__init__(parent)
 
         self._db_properties = db_properties
@@ -287,6 +306,9 @@ class InsertionWindow(QtWidgets.QWidget):
         self.on_options_change()
 
     def on_open_file(self, filepath: Optional[str] = None) -> None:
+        """
+        Load table from file.
+        """
         if not filepath:
             try:
                 file_dialog = QtWidgets.QFileDialog(self)
@@ -386,7 +408,7 @@ class InsertionWindow(QtWidgets.QWidget):
                 self.table_as_dataframe(False),
                 self._options_fields.city.currentText(),
                 self._options_fields.service_type.currentText(),
-                insert_services_cli.ServiceInsertionMapping.init(
+                ServiceInsertionMapping.init(
                     self._document_fields.latitude.currentText(),
                     self._document_fields.longitude.currentText(),
                     self._document_fields.geometry.currentText(),
@@ -429,7 +451,7 @@ class InsertionWindow(QtWidgets.QWidget):
             return
         finally:
             self._load_objects_btn.setEnabled(True)
-            QtWidgets.QApplication.restoreOverrideCursor()  # TODO ?
+            QtWidgets.QApplication.restoreOverrideCursor()
         dataframe = self.table_as_dataframe().join(results[["result", "functional_obj_id"]]).fillna("")
         self._table_axes += ["Результат", "id Функционального объекта"]
         self._table_model.appendColumn(list(map(QtGui.QStandardItem, dataframe["result"])))
@@ -454,6 +476,9 @@ class InsertionWindow(QtWidgets.QWidget):
         self._save_results_btn.setVisible(True)
 
     def on_export_results(self) -> None:
+        """
+        Open file dialog to get filename and export table content to it.
+        """
         file_dialog = QtWidgets.QFileDialog(self)
         file_dialog.setAcceptMode(QtWidgets.QFileDialog.AcceptSave)
         file_dialog.setNameFilters(
@@ -483,6 +508,9 @@ class InsertionWindow(QtWidgets.QWidget):
         save_func(dataframe, filename, index=False)
 
     def on_prefix_add(self) -> None:
+        """
+        Append document address prefixes and call check.
+        """
         self._document_address_prefixes.append(ColorizingLine(self.on_prefix_check))
         self._prefixes_group.insertWidget(self._prefixes_group.count() - 4, self._document_address_prefixes[-1])
         if len(self._document_address_prefixes) == 2:
@@ -490,6 +518,9 @@ class InsertionWindow(QtWidgets.QWidget):
         self.on_prefix_check()
 
     def on_prefix_remove(self) -> None:
+        """
+        Remove element from address prefixes and call check.
+        """
         self._document_address_prefixes.pop()
         widget = self._prefixes_group.itemAt(self._prefixes_group.count() - 5).widget()
         widget.setVisible(False)
@@ -499,6 +530,9 @@ class InsertionWindow(QtWidgets.QWidget):
         self.on_prefix_check()
 
     def on_prefix_check(self, _: Optional[Any] = None, __: Optional[Any] = None) -> None:
+        """
+        Colorize address column by prefix.
+        """
         res = 0
         if self._document_fields.address.currentIndex() != 0:
             col = self._document_fields.address.currentIndex()
@@ -517,14 +551,17 @@ class InsertionWindow(QtWidgets.QWidget):
                     self._table_model.item(row, col).setForeground(QtGui.QColor.fromRgb(0, 0, 0))
         if self._table is not None:
             self._prefixes_group_box.setTitle(
-                f"Префиксы адреса ({res} / {self._table_model.rowCount()}))"
-            )  # )) = ) , magic
+                f"Префиксы адреса ({res} / {self._table_model.rowCount()}))"  # )) = ) , magic
+            )
 
     def on_options_change(
         self,
         what_changed: Optional[Union[QtWidgets.QLineEdit, QtWidgets.QComboBox]] = None,
         _previous_value: Optional[Union[int, str]] = None,
     ):
+        """
+        Hook to be run on options change, can disable load button.
+        """
         allowed_chars = set((chr(i) for i in range(ord("a"), ord("z") + 1))) | {"_"}
         self._is_options_ok = True
 
@@ -605,9 +642,12 @@ class InsertionWindow(QtWidgets.QWidget):
         else:
             self._load_objects_btn.setEnabled(False)
 
-    def on_document_change(
+    def on_document_change(  # pylint: disable=too-many-branches,too-many-statements
         self, what_changed: Optional[QtWidgets.QComboBox] = None, previous_value: Optional[int] = None
     ) -> None:
+        """
+        Hook to be called on document change, can disable load button.
+        """
         logger.debug(
             "on_document_changed called with what_changed argument ({}), previous_value ({})",
             what_changed,
@@ -704,6 +744,9 @@ class InsertionWindow(QtWidgets.QWidget):
             self._load_objects_btn.setEnabled(False)
 
     def on_property_add(self, db_name: Optional[str] = None) -> None:
+        """
+        Add additional property area and call on_options_change.
+        """
         self._properties_group.addWidget(ColorizingLine(self.on_options_change), self._properties_cnt + 2, 0)
         property_box = ColorizingComboBox(self.on_document_change)
         property_box.addItem("-")
@@ -721,12 +764,15 @@ class InsertionWindow(QtWidgets.QWidget):
         self.on_options_change()
 
     def on_property_delete(self) -> None:
+        """
+        Remove additional property area and call on_options_change.
+        """
         self._properties_cnt -= 1
         widget: ColorizingComboBox = self._properties_group.itemAtPosition(self._properties_cnt + 2, 1).widget()
         if self._table is not None:
-            old_text = widget.currentText()
+            old_value = widget.currentIndex()
             widget.setCurrentIndex(0)
-            self.on_document_change(widget, old_text)
+            self.on_document_change(widget, old_value)
         widget.setVisible(False)
         self._properties_group.removeWidget(widget)
 
@@ -741,6 +787,9 @@ class InsertionWindow(QtWidgets.QWidget):
         self.on_options_change()
 
     def set_cities(self, cities: Iterable[str]):
+        """
+        Set available cities list.
+        """
         cities = list(cities)
         current_city = self._options_fields.city.currentText()
         self._options_fields.city.clear()
@@ -753,6 +802,9 @@ class InsertionWindow(QtWidgets.QWidget):
             self._options_fields.city.view().setMinimumWidth(len(max(cities, key=len)) * 8)
 
     def set_city_functions(self, city_functions_list: List[str]) -> None:
+        """
+        Set alailable city functions list.
+        """
         current_city_function = self._options_fields.city_function.currentText()
         self._options_fields.city_function.clear()
         self._options_fields.city_function.addItem("(не выбрано)")
@@ -762,6 +814,9 @@ class InsertionWindow(QtWidgets.QWidget):
         self._options_fields.city_function.view().setMinimumWidth(len(max(city_functions_list, key=len)) * 8)
 
     def set_service_types_params(self, service_types_params: Dict[str, Tuple[str, int, int, bool, str]]):
+        """
+        Set available city service types parameters.
+        """
         self._service_type_params = service_types_params
         current_service_type = self._options_fields.service_type.currentText()
         self._options_fields.service_type.clear()
@@ -774,13 +829,22 @@ class InsertionWindow(QtWidgets.QWidget):
         )
 
     def change_db(self, db_addr: str, db_port: int, db_name: str, db_user: str, db_pass: str) -> None:
+        """
+        Reopen the connection to database
+        """
         self._db_properties.reopen(db_addr, db_port, db_name, db_user, db_pass)
 
     def showEvent(self, event: QtGui.QShowEvent) -> None:  # pylint: disable=invalid-name
+        """
+        Log event on window open.
+        """
         logger.info("Открыто окно вставки сервисов")
         return super().showEvent(event)
 
     def closeEvent(self, event: QtGui.QCloseEvent) -> None:  # pylint: disable=invalid-name
+        """
+        Log event on window close.
+        """
         logger.info("Закрыто окно вставки сервисов")
         if self._on_close is not None:
             self._on_close()

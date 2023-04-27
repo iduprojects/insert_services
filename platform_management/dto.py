@@ -2,7 +2,51 @@
 Document-database mappings are defined here.
 """
 from dataclasses import dataclass
-from typing import Optional
+from typing import Dict, Optional, Union
+
+
+@dataclass(frozen=True)
+class DatabaseCredentials:
+    """
+    Dataclass to store database credentials.
+    """
+
+    address: str
+    port: int
+    name: str
+    user: str
+    password: str
+
+    def get_connection_params(
+        self, additional_params: Optional[Dict[str, str | int]] = ...
+    ) -> Dict[str, Union[str, int]]:
+        """
+        Return connection parameters dictionady.
+
+        If `additional_params` are not set, defaults are used. None value equals to {}.
+        """
+        params = {
+            "host": self.address,
+            "port": self.port,
+            "dbname": self.name,
+            "user": self.user,
+            "password": self.password,
+            "application_name": "platform_management_app",
+        }
+        if additional_params is not ...:
+            if additional_params is not None:
+                params.update(additional_params)
+        else:
+            params.update(
+                {
+                    "connect_timeout": 10,
+                    "keepalives": 1,
+                    "keepalives_idle": 5,
+                    "keepalives_interval": 2,
+                    "keepalives_count": 2,
+                }
+            )
+        return params
 
 
 @dataclass(frozen=True)
@@ -92,7 +136,7 @@ class BuildingInsertionMapping:  # pylint: disable=too-many-instance-attributes
     building_year: Optional[str] = None
 
     @classmethod
-    def init(
+    def init(  # pylint: disable=too-many-arguments,too-many-locals
         cls,
         geometry: str = "geometry",
         address: Optional[str] = "address",
@@ -143,3 +187,47 @@ class BuildingInsertionMapping:  # pylint: disable=too-many-instance-attributes
                 ),
             )
         )
+
+
+@dataclass(frozen=True)
+class AdmDivisionInsertionMapping:  # pylint: disable=too-many-instance-attributes
+    """
+    Class to store the mapping between input document administrative division unit properties and database columns.
+
+    Should be initialized with `init()`.
+    """
+
+    geometry: str
+    type_name: str
+    name: str
+    parent_same_type: Optional[str] = None
+    parent_other_type: Optional[str] = None
+    population: Optional[str] = None
+
+    @classmethod
+    def init(  # pylint: disable=too-many-arguments
+        cls,
+        geometry: str = "geometry",
+        type_name: str = "type",
+        name: Optional[str] = "name",
+        parent_same_type: Optional[str] = "parent_same_type",
+        parent_other_type: Optional[str] = "parent",
+        population: Optional[str] = "population",
+    ) -> "ServiceInsertionMapping":
+        """
+        Initialize `ServiceInsertionMapping` instance with given values (except empty values and "-")
+        """
+        assert geometry is not None, "Administrative division unit geometry column must be set"
+        assert type_name is not None, "Administrative division unit type column must be set"
+        return cls(
+            *map(
+                lambda s: None if s in ("", "-") else s,
+                (
+                    geometry,
+                    name,
+                    parent_same_type,
+                    parent_other_type,
+                    population,
+                ),
+            )
+        )  # type: ignore

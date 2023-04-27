@@ -1,24 +1,24 @@
 # pylint: disable=too-many-arguments,too-many-locals,
 """
-Insert services logic is defined here.
+Buildings insertion logic is defined here.
 """
 import json
-from numbers import Number
 import os
 import time
 import traceback
 import warnings
 from dataclasses import fields as dc_fields
+from numbers import Number
 from typing import Callable, Dict, List, Literal, Optional, Tuple
-from numpy import nan
 
 import pandas as pd
 import psycopg2
 from frozenlist import FrozenList
 from loguru import logger
+from numpy import nan
 from tqdm import tqdm
 
-from .mappings import BuildingInsertionMapping
+from platform_management.dto import BuildingInsertionMapping
 
 warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
 
@@ -117,7 +117,7 @@ def update_building(
     }
     if db_properties != building_properties:
         cur.execute(
-            "UPDATE functional_objects SET properties = properties || %s::jsonb WHERE id = %s",
+            "UPDATE buildings SET properties = properties || %s::jsonb WHERE id = %s",
             (json.dumps(building_properties), building_id),
         )
     if commit:
@@ -144,12 +144,11 @@ def add_buildings(  # pylint: disable=too-many-branches,too-many-statements
     Input:
 
         - `conn` - connection for the database
-        - `services_df` - DataFrame containing objects
+        - `buildings_df` - DataFrame containing buildings
         - `city_name` - name of the city to add objects to. Must be created in the database
-        - `service_type` - name of service_type for logging and services names fillment if they are missing
         - `mapping` - BuildingInsertionMapping of namings in the database and namings in the DataFrame columns
         - `properties_mapping` - dict[str, str] of additional properties namings in the
-        functional_objects.properties and namings in the DataFrame columns
+        buildings.properties and namings in the DataFrame columns
         - `address_prefix` - list of possible prefixes (will be sorted by length)
         - `new_prefix` - unified prefix for all of the inserted objects
         - `commit` - True to commit changes, False for dry run, only resulting DataFrame is returned
@@ -160,31 +159,6 @@ def add_buildings(  # pylint: disable=too-many-branches,too-many-statements
     Return:
 
         - dataframe of objects with "result" and "building_id" columns added
-
-    Algorithm steps:
-
-        1. If latitude or longitude is invaild, or address does not start with any of prefixes
-        (if `is_service_building` == True), skip
-
-        2. Check if building with given address is present in the database (if `is_service_building` == True)
-
-        3. If found:
-            3.1. If functional object with the same name and service_type_id is already
-            connected to the physical object, update by calling `update_object`
-
-            3.2. Else get building id and physical_object id
-
-        4. Else:
-
-            4.1. If there is physical object (building if only `is_service_building` == True)
-            which geometry contains current object's coordinates,
-            get its physical_object id and building id if needed
-
-            4.2. Else insert physical_object/building with geometry type Point
-
-            4.3. Else include inserted ids in the result
-
-        5. Insert functional_object connected to physical_object by calling `insert_building`
     """
 
     def call_callback(status: str) -> None:
@@ -256,7 +230,7 @@ def add_buildings(  # pylint: disable=too-many-branches,too-many-statements
             buildings_df["result"] = pd.Series(
                 [f'Город "{city_name}" отсутсвует в базе данных'] * buildings_df.shape[0], index=buildings_df.index
             )
-            buildings_df["functional_obj_id"] = pd.Series([-1] * buildings_df.shape[0], index=buildings_df.index)
+            buildings_df["building_id"] = pd.Series([-1] * buildings_df.shape[0], index=buildings_df.index)
             return buildings_df
         city_id: int = city_id[0]
 
@@ -446,7 +420,7 @@ def add_buildings(  # pylint: disable=too-many-branches,too-many-statements
     call_callback(results[-1])
 
     buildings_df["result"] = pd.Series(results, index=buildings_df.index)
-    buildings_df["functional_obj_id"] = pd.Series(building_ids, index=buildings_df.index)
+    buildings_df["building_id"] = pd.Series(building_ids, index=buildings_df.index)
     logger.success(f'Вставка зданий в город "{city_name}" завершена')
     logger.opt(colors=True).info(
         "Обработано {:4} зданий из {}: <green>{} добавлены</green>, <yellow>{} обновлены</yellow>,"
