@@ -5,6 +5,7 @@ import json
 from typing import Any, Dict, Iterable, Optional
 
 import pandas as pd
+from numpy import nan
 
 
 def replace_with_default(dataframe: pd.DataFrame, default_values: Dict[str, Any]) -> pd.DataFrame:
@@ -47,7 +48,7 @@ def load_objects_geojson(
             res = replace_with_default(res, default_values)
         if needed_columns is not None:
             res = res[needed_columns]
-        return res.dropna(how="all").reset_index(drop=True).where(pd.DataFrame.notnull(res), None)
+        return res.dropna(how="all").reset_index(drop=True).replace({nan: None})
 
 
 def load_objects_json(
@@ -62,7 +63,7 @@ def load_objects_json(
         res = replace_with_default(res, default_values)
     if needed_columns is not None:
         res = res[needed_columns]
-    return res.dropna(how="all").reset_index(drop=True).where(pd.DataFrame.notnull(res), None)
+    return res.dropna(how="all").reset_index(drop=True).replace({nan: None})
 
 
 def load_objects_csv(
@@ -78,7 +79,7 @@ def load_objects_csv(
         res = replace_with_default(res, default_values)
     if needed_columns is not None:
         res = res[needed_columns]
-    return res.dropna(how="all").reset_index(drop=True).where(pd.DataFrame.notnull(res), None)
+    return res.dropna(how="all").reset_index(drop=True).replace({nan: None})
 
 
 def load_objects_xlsx(
@@ -95,7 +96,7 @@ def load_objects_xlsx(
         res = replace_with_default(res, default_values)
     if needed_columns is not None:
         res = res[needed_columns]
-    return res.dropna(how="all").reset_index(drop=True).where(pd.DataFrame.notnull(res), None)
+    return res.dropna(how="all").reset_index(drop=True).replace({nan: None})
 
 
 def load_objects_excel(
@@ -112,7 +113,7 @@ def load_objects_excel(
         res = replace_with_default(res, default_values)
     if needed_columns is not None:
         res = res[needed_columns]
-    return res.dropna(how="all").reset_index(drop=True).where(pd.DataFrame.notnull(res), None)
+    return res.dropna(how="all").reset_index(drop=True).replace({nan: None})
 
 
 def load_objects(

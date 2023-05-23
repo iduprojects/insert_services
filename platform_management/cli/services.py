@@ -51,9 +51,18 @@ def insert_object(
     assert (
         ids[0] is not None and ids[1] is not None and ids[2] is not None
     ), "Service type, city function or infrastructure are not found in the database"
-    if mapping.capacity in row and isinstance(row[mapping.capacity], int):
-        capacity = row[mapping.capacity]
-        is_capacity_real = True
+    if mapping.capacity in row and row[mapping.capacity] is not None:
+        try:
+            capacity = int(float(row[mapping.capacity]))
+            is_capacity_real = True
+        except ValueError:
+            logger.warning(
+                "Capacity '{}' is not an integer value, setting false capacity for object {}",
+                row[mapping.capacity],
+                name,
+            )
+            capacity = random.randint(capacity_min, capacity_max)
+            is_capacity_real = False
     else:
         capacity = random.randint(capacity_min, capacity_max)
         is_capacity_real = False
@@ -106,6 +115,17 @@ def update_object(
     )
     res: Tuple[str, str, str, str, int]
     *res, db_properties = cur.fetchone()  # type: ignore
+    try:
+        capacity = int(float(row[mapping.capacity])) if row.get(mapping.capacity, None) is not None else None
+        is_capacity_real = capacity is not None
+    except ValueError:
+        capacity = None
+        is_capacity_real = False
+        logger.warning(
+            "Capacity value '{}' is invalid, skipping for functional object with id={}",
+            row[mapping.capacity],
+            functional_object_id,
+        )
     change = list(
         filter(
             lambda c_v_nw: c_v_nw[1] != c_v_nw[2] and c_v_nw[2] is not None and c_v_nw[2] != "",
@@ -117,8 +137,8 @@ def update_object(
                     row.get(mapping.opening_hours),
                     row.get(mapping.website),
                     row.get(mapping.phone),
-                    row.get(mapping.capacity),
-                    mapping.capacity in row,
+                    capacity,
+                    is_capacity_real,
                 ),
             ),
         )
@@ -147,7 +167,7 @@ def update_object(
 
 def get_properties_keys(
     cur_or_conn: Union["psycopg2.connection", "psycopg2.cursor"], city_service_type: str
-) -> List[int]:
+) -> List[str]:
     """Return a list of properties keys of a given city_service_type by name or id."""
     if isinstance(cur_or_conn, psycopg2.extensions.connection):
         cur = cur_or_conn.cursor()
@@ -255,7 +275,7 @@ def add_services(  # pylint: disable=too-many-branches,too-many-statements,too-m
     logger.info(f'Вставка сервисов типа "{service_type}", всего {services_df.shape[0]} объектов')
     logger.info(f'Город вставки - "{city_name}". Список префиксов: {address_prefixes}, новый префикс: "{new_prefix}"')
 
-    services_df = services_df.copy().replace({nan: None})
+    services_df = services_df.copy().replace({nan: None, "": None})
     if mapping.address in services_df.columns:
         services_df[mapping.address] = services_df[mapping.address].apply(
             lambda x: x.replace("?", "").strip() if isinstance(x, str) else None
@@ -355,7 +375,7 @@ def add_services(  # pylint: disable=too-many-branches,too-many-statements,too-m
                     if is_service_building:
                         if mapping.address in row:
                             for address_prefix in address_prefixes:
-                                if row.get(mapping.address, "").startswith(address_prefixes):
+                                if row.get(mapping.address, "").startswith(address_prefix):
                                     address = row.get(mapping.address)[len(address_prefix) :].strip(", ")
                                     break
                             else:
@@ -395,7 +415,7 @@ def add_services(  # pylint: disable=too-many-branches,too-many-statements,too-m
                                 "   JOIN buildings build ON build.physical_object_id = phys.id"
                                 " WHERE phys.city_id = %s AND build.address LIKE %s AND"
                                 "   ST_Distance(phys.center::geography,"
-                                "       ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography) < 100"
+                                "       ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography) < 200"
                                 " LIMIT 1",
                                 (city_id, f"%{address}", longitude, latitude),
                             )
@@ -430,7 +450,7 @@ def add_services(  # pylint: disable=too-many-branches,too-many-statements,too-m
                             added_to_address += 1
                             results[i] = (
                                 "Сервис вставлен в здание, найденное по совпадению адреса"
-                                f"(build_id = {build_id}, phys_id = {phys_id})."
+                                f" (build_id = {build_id}, phys_id = {phys_id})."
                             )
                         else:
                             # if no building with the same address found or distance is
@@ -454,7 +474,7 @@ def add_services(  # pylint: disable=too-many-branches,too-many-statements,too-m
                                 )
                             else:
                                 cur.execute(
-                                    "SELECT ST_GeometryType(geometry), phys.id, build.id, build.addres"
+                                    "SELECT ST_GeometryType(geometry), phys.id, build.id, build.address"
                                     " FROM physical_objects phys"
                                     "   JOIN buildings build ON build.physical_object_id = phys.id"
                                     " WHERE city_id = %(city_id)s"
@@ -468,17 +488,20 @@ def add_services(  # pylint: disable=too-many-branches,too-many-statements,too-m
                                         if administrative_unit_id is not None
                                         else ""
                                     )
-                                    + " AND (ST_GeometryType(geometry) = 'ST_Point'"
-                                    "   AND abs(ST_X(geometry) - %(lng)s) < 0.0001"
-                                    "   AND abs(ST_Y(geometry) - %(lat)s) < 0.0001"
-                                    "   OR ST_Intersects(ST_SetSRID(ST_MakePoint(%(lng)s, %(lat)s), 4326), geometry))"
+                                    + " AND ("
+                                    "       ST_GeometryType(geometry) = 'ST_Point'"
+                                    "           AND abs(ST_X(geometry) - %(lng)s) < 0.0001"
+                                    "           AND abs(ST_Y(geometry) - %(lat)s) < 0.0001"
+                                    "       OR ST_Intersects(ST_SetSRID(ST_MakePoint(%(lng)s, %(lat)s), 4326),"
+                                    "           geometry)"
+                                    "   )"
                                     " LIMIT 1",
                                     {"city_id": city_id, "lng": longitude, "lat": latitude}
-                                    | ({"municipality_id": municipality_id} if municipality_id is not None else set())
+                                    | ({"municipality_id": municipality_id} if municipality_id is not None else {})
                                     | (
                                         {"administrative_unit_id": administrative_unit_id}
                                         if administrative_unit_id is not None
-                                        else set()
+                                        else {}
                                     ),
                                 )
                             res = cur.fetchone()
