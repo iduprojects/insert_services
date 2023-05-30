@@ -562,7 +562,7 @@ class TerritoryWindow(QtWidgets.QWidget):
                     deleting.append((int(self._table.item(row - 1, 0).text()), self._table.item(row - 1, 1).text()))
                     cur.execute(
                         f"UPDATE {self._other_territory_table} SET {self._other_parent_id_column} = null"
-                        " WHERE {self._other_parent_id_column} = %s",
+                        f" WHERE {self._other_parent_id_column} = %s",
                         (territory_id,),
                     )
                     cur.execute(f"DELETE FROM {self._territory_table} WHERE id = %s", (territory_id,))

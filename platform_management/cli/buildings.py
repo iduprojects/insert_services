@@ -327,20 +327,28 @@ def add_buildings(  # pylint: disable=too-many-branches,too-many-statements
                     # if no building with the same address found or distance is
                     # too high (address is wrong or it's not a concrete house)
                     cur.execute(
-                        "SELECT build.id, build.address"
+                        "WITH geom_table AS (SELECT ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326) AS geom)"
+                        " SELECT build.id, build.address"
                         " FROM (SELECT id, geometry, administrative_unit_id, municipality_id"
-                        # "       FROM physical_objects WHERE city_id = %s AND address IS NOT NULL) phys"
                         "       FROM physical_objects WHERE city_id = %s) phys"
                         "   JOIN buildings build ON build.physical_object_id = phys.id"
                         " WHERE"
                         + (" municipality_id = %s" if municipality_id is not None else "")
-                        + (" AND administrative_unit_id = %s" if administrative_unit_id is not None else "")
-                        + " AND ST_Intersects(ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326), geometry)"
+                        + (" AND " if municipality_id is not None else "")
+                        + (" administrative_unit_id = %s" if administrative_unit_id is not None else "")
+                        + (" AND " if municipality_id is not None or administrative_unit_id is not None else "")
+                        + " ST_Intersects((SELECT geom FROM geom_table), geometry)"
+                        "   AND ("
+                        "       ST_GeometryType(geometry) = 'ST_Point'"
+                        "       OR"
+                        "       ST_Area(ST_Intersection((SELECT geom from geom_table), geometry)::geography) /"
+                        "           LEAST(ST_Area((SELECT geom FROM geom_table)), ST_Area(geometry)) > 0.3"
+                        "   )"
                         " LIMIT 1",
                         list(
                             filter(
                                 lambda x: x is not None,
-                                (city_id, municipality_id, administrative_unit_id, row[mapping.geometry]),
+                                (row[mapping.geometry], city_id, municipality_id, administrative_unit_id),
                             )
                         ),
                     )
@@ -385,6 +393,7 @@ def add_buildings(  # pylint: disable=too-many-branches,too-many-statements
                         properties_mapping,
                         commit,
                     )  # type: ignore
+                    results[i] = f"Здание добавлено, id={building_ids[i]} (physical_object_id={phys_id})"
                     added += 1
                 except Exception as exc:  # pylint: disable=broad-except
                     logger.error("Произошла ошибка: {!r}", exc, traceback=True)
@@ -399,14 +408,19 @@ def add_buildings(  # pylint: disable=too-many-branches,too-many-statements
 
         except KeyboardInterrupt:
             logger.warning("Прерывание процесса пользователем")
-            logger.opt(colors=True).warning(
-                f"Обработано {i+1:4} зданий из {buildings_df.shape[0]}:"
-                f" <green>{added} добавлены</green>,"
-                f" <yellow>{updated} обновлены</yellow>, <red>{skipped} пропущены</red>"
+            logger.opt(colors=True).info(
+                "Обработано {:4} зданий из {}: <green>{} добавлены</green>, <yellow>{} обновлены</yellow>,"
+                " <blue>{} оставлены без изменений</blue>, <red>{} пропущены</red>",
+                i + 1,
+                buildings_df.shape[0],
+                added,
+                updated,
+                unchanged,
+                skipped,
             )
             if commit:
                 choice = input("Сохранить внесенные на данный момент изменения? (y/д/1 / n/н/0): ")
-                if choice.startswith(("y", "д", "1")):
+                if choice.lower().strip().startswith(("y", "д", "1")):
                     conn.commit()
                     logger.success("Сохранение внесенных изменений")
                 else:

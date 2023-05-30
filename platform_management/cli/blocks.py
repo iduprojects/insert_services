@@ -60,12 +60,12 @@ def update_block(
     """
     cur.execute(
         "WITH center_t AS (SELECT ST_Centroid(%(geometry)s) center)"
-        " UPDATE blocks SET"
+        " UPDATE blocks b SET"
         "   geometry = %(geometry)s,"
         "   center = (SELECT center from center_t),"
-        "   municipality_id = (SELECT id FROM municipalities WHERE city_id = %(city_id)s"
+        "   municipality_id = (SELECT id FROM municipalities WHERE city_id = b.city_id"
         "       AND ST_Within((SELECT center FROM center_t), geometry)),"
-        "   administrative_unit_id = (SELECT id FROM administrative_units WHERE city_id = %(city_id)s"
+        "   administrative_unit_id = (SELECT id FROM administrative_units WHERE city_id = b.city_id"
         "       AND ST_Within((SELECT center FROM center_t), geometry)),"
         "   area = (SELECT ST_Area(%(geometry)s::geography))",
         {"geometry": geometry, "block_id": block_id},
