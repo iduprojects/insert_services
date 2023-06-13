@@ -177,7 +177,12 @@ def add_blocks(  # pylint: disable=too-many-branches,too-many-statements
                     cur.execute(
                         "SELECT id, geometry FROM blocks"
                         " WHERE city_id = %(city_id)s"
-                        "   AND (ST_Overlaps(geometry, %(geom)s) OR ST_Equals(geometry, %(geom)s))",
+                        "   AND ("
+                        "       ST_Contains(geometry, %(geom)s)"
+                        "       OR ST_Contains(%(geom)s, geometry)"
+                        "       OR ST_Overlaps(geometry, %(geom)s)"
+                        "       OR ST_Equals(geometry, %(geom)s)"
+                        "   )",
                         {"city_id": city_id, "geom": geom_str},
                     )
 

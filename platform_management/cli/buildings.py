@@ -19,6 +19,7 @@ from numpy import nan
 from tqdm import tqdm
 
 from platform_management.dto import BuildingInsertionMapping
+from platform_management.utils import simplify_data
 
 warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
 
@@ -89,21 +90,35 @@ def update_building(
     Returns True if building was updated (some properties were different), False otherwise.
     """
     cur.execute(
-        "SELECT " + ", ".join(_buildings_columns_used) + ", properties FROM buildings WHERE id = %s",
+        "SELECT "
+        + ", ".join(_buildings_columns_used)
+        + ", physical_object_id, properties FROM buildings WHERE id = %s",
         (building_id,),
     )
-    res: Tuple
-    *res, db_properties = cur.fetchone()  # type: ignore
+    res: tuple
+    *res, physical_object_id, db_properties = cur.fetchone()  # type: ignore
+    if row[mapping.geometry].startswith("{"):
+        cur.execute(
+            "SELECT geometry, (SELECT ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326)) FROM physical_objects WHERE id = %s",
+            (row[mapping.geometry], physical_object_id),
+        )
+        geom, geom_new = cur.fetchone()
+    else:
+        cur.execute("SELECT geometry FROM physical_objects WHERE id = %s", (physical_object_id,))
+        geom = cur.fetchone()[0]
+        geom_new = row[mapping.geometry]
     change = list(
         filter(
             lambda c_v_nw: c_v_nw[1] != c_v_nw[2] and c_v_nw[2] is not None and c_v_nw[2] != "",
             zip(
                 _buildings_columns_used,
-                res,
-                (row.get(getattr(mapping, f)) for f in _buildings_mappings_used),
+                (simplify_data(value) for value in res),
+                (simplify_data(row.get(getattr(mapping, f))) for f in _buildings_mappings_used),
             ),
         )
     )
+    if len(change) > 0:
+        logger.trace("Building id={} changes: {}", building_id, change)
     if len(change) > 0:
         cur.execute(
             f'UPDATE buildings SET {", ".join(list(map(lambda x: x[0] + "=%s", change)))} WHERE id = %s',
@@ -122,6 +137,11 @@ def update_building(
         )
     if commit:
         cur.execute("SAVEPOINT previous_object")
+
+    if geom != geom_new:
+        logger.trace("Updating geometry: {} -> {}", geom_new, geom)
+        cur.execute("UPDATE physical_objects SET geometry = %s WHERE id = %s", (geom_new, physical_object_id))
+        return True
     return len(change) != 0 or db_properties != building_properties
 
 
@@ -219,6 +239,7 @@ def add_buildings(  # pylint: disable=too-many-branches,too-many-statements
     updated = 0  # number of updated buildings which were already present
     unchanged = 0  # number of buildings already present in the database with the same properties
     added, skipped = 0, 0
+    skip_logs = False
     results: List[str] = list(("",) * buildings_df.shape[0])
     building_ids: List[int] = [-1 for _ in range(buildings_df.shape[0])]
     address_prefixes = sorted(address_prefixes, key=lambda s: -len(s))
@@ -243,9 +264,14 @@ def add_buildings(  # pylint: disable=too-many-branches,too-many-statements
                     call_callback(results[i - 1])
                 if i % log_n == 0:
                     logger.opt(colors=True).info(
-                        f"Обработано {i:4} зданий из {buildings_df.shape[0]}:"
-                        f" <green>{added} добавлены</green>,"
-                        f" <yellow>{updated} обновлены</yellow>, <red>{skipped} пропущены</red>"
+                        "Обработано {:4} зданий из {}: <green>{} добавлены</green>, <yellow>{} обновлены</yellow>,"
+                        " <blue>{} оставлены без изменений</blue>, <red>{} пропущены</red>",
+                        i,
+                        buildings_df.shape[0],
+                        added,
+                        updated,
+                        unchanged,
+                        skipped,
                     )
                     if commit:
                         conn.commit()
@@ -327,8 +353,16 @@ def add_buildings(  # pylint: disable=too-many-branches,too-many-statements
                     # if no building with the same address found or distance is
                     # too high (address is wrong or it's not a concrete house)
                     cur.execute(
-                        "WITH geom_table AS (SELECT ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326) AS geom)"
-                        " SELECT build.id, build.address"
+                        "WITH geom_table AS (SELECT %s::geometry AS geom)"
+                        " SELECT"
+                        "   build.id,"
+                        "   build.address,"
+                        "   CASE"
+                        "       WHEN ST_GeometryType(geometry) = 'ST_Point'"
+                        "           THEN 1.0"
+                        "           ELSE ST_Area(ST_Intersection((SELECT geom from geom_table), geometry)) /"
+                        "               LEAST(ST_Area((SELECT geom FROM geom_table)), ST_Area(geometry))"
+                        "   END AS coverage"
                         " FROM (SELECT id, geometry, administrative_unit_id, municipality_id"
                         "       FROM physical_objects WHERE city_id = %s) phys"
                         "   JOIN buildings build ON build.physical_object_id = phys.id"
@@ -338,31 +372,74 @@ def add_buildings(  # pylint: disable=too-many-branches,too-many-statements
                         + (" administrative_unit_id = %s" if administrative_unit_id is not None else "")
                         + (" AND " if municipality_id is not None or administrative_unit_id is not None else "")
                         + " ST_Intersects((SELECT geom FROM geom_table), geometry)"
-                        "   AND ("
-                        "       ST_GeometryType(geometry) = 'ST_Point'"
-                        "       OR"
-                        "       ST_Area(ST_Intersection((SELECT geom from geom_table), geometry)::geography) /"
-                        "           LEAST(ST_Area((SELECT geom FROM geom_table)), ST_Area(geometry)) > 0.3"
-                        "   )"
-                        " LIMIT 1",
+                        " ORDER BY 3 DESC",
                         list(
                             filter(
                                 lambda x: x is not None,
-                                (row[mapping.geometry], city_id, municipality_id, administrative_unit_id),
+                                (geometry, city_id, municipality_id, administrative_unit_id),
                             )
                         ),
                     )
-                    res = cur.fetchone()
-                    if res is not None:  # if building found by geometry
-                        build_id, address = res
-                        building_ids[i] = res[0]
-                        if update_building(cur, row, build_id, mapping, properties_mapping, commit):
-                            updated += 1
-                            results[i] = f'Здание обновлено, адрес в БД: "{address}" (build_id = {build_id})'
+                    res = cur.fetchall()
+                    if len(res) > 0:  # if building geometry intersects with other building(s)
+                        # if maximum intersection area is more than 30% of smaller geometry - update existing building
+                        if res[0][2] > 0.3:
+                            build_id, address, intersection_area = res[0]
+                            building_ids[i] = build_id
+                            if len(res) > 1:
+                                if len(res) > 2:
+                                    cur.execute(
+                                        "WITH b AS (SELECT physical_object_id FROM buildings WHERE id IN %s)"
+                                        " SELECT ST_Difference(%s, ("
+                                        "   SELECT ST_Union(geometry)"
+                                        "   FROM physical_objects"
+                                        "   WHERE id IN (SELECT physical_object_id FROM b)"
+                                        "))",
+                                        (tuple(r[0] for r in res[1:]), geometry),
+                                    )
+                                else:
+                                    cur.execute(
+                                        "SELECT ST_Difference(%s, ("
+                                        "   SELECT geometry"
+                                        "   FROM physical_objects"
+                                        "   WHERE id = (SELECT physical_object_id FROM buildings WHERE id = %s)"
+                                        "))",
+                                        (geometry, res[1][0]),
+                                    )
+                                row[mapping.geometry] = cur.fetchone()[0]
+                            if update_building(cur, row, build_id, mapping, properties_mapping, commit):
+                                updated += 1
+                                results[i] = (
+                                    f"Здание обновлено, адрес в БД: '{address}' (build_id = {build_id},"
+                                    f" %_пересечения = {intersection_area * 100:.1f})"
+                                )
+                            else:
+                                unchanged += 1
+                                results[i] = (
+                                    f"Здание полностью совпадает с информацией в БД (build_id = {build_id},"
+                                    f" %_пересечения = {intersection_area * 100:.1f})"
+                                )
+                            continue
+                        if len(res) > 1:
+                            cur.execute(
+                                "WITH b AS (SELECT physical_object_id FROM buildings WHERE id IN %s)"
+                                " SELECT ST_Difference(%s, ("
+                                "   SELECT ST_Union(geometry)"
+                                "   FROM physical_objects"
+                                "   WHERE id IN (SELECT physical_object_id FROM b)"
+                                "))",
+                                (tuple(r[0] for r in res), geometry),
+                            )
                         else:
-                            unchanged += 1
-                            results[i] = f"Здание полностью совпадает с информацией в БД (build_id = {build_id})"
-                        continue
+                            cur.execute(
+                                "SELECT ST_Difference(%s, ("
+                                "   SELECT geometry"
+                                "   FROM physical_objects"
+                                "   WHERE id = (SELECT physical_object_id FROM buildings WHERE id = %s)"
+                                "))",
+                                (geometry, res[0][0]),
+                            )
+                        geometry = cur.fetchone()[0]
 
                     # building insertion
                     cur.execute(
@@ -370,7 +447,7 @@ def add_buildings(  # pylint: disable=too-many-branches,too-many-statements
                         "   municipality_id, administrative_unit_id, block_id)"
                         " VALUES"
                         " (%s, %s, %s, %s, %s, %s,"
-                        "       (SELECT id FROM blocks WHERE city_id = %s AND ST_Within(%s, geometry))"
+                        "       (SELECT id FROM blocks WHERE city_id = %s AND ST_Within(%s, geometry) LIMIT 1)"
                         " )"
                         " RETURNING id",
                         (
@@ -411,7 +488,7 @@ def add_buildings(  # pylint: disable=too-many-branches,too-many-statements
             logger.opt(colors=True).info(
                 "Обработано {:4} зданий из {}: <green>{} добавлены</green>, <yellow>{} обновлены</yellow>,"
                 " <blue>{} оставлены без изменений</blue>, <red>{} пропущены</red>",
-                i + 1,
+                i,
                 buildings_df.shape[0],
                 added,
                 updated,
@@ -419,10 +496,14 @@ def add_buildings(  # pylint: disable=too-many-branches,too-many-statements
                 skipped,
             )
             if commit:
-                choice = input("Сохранить внесенные на данный момент изменения? (y/д/1 / n/н/0): ")
+                choice = input("Сохранить внесенные на данный момент изменения? (y/д/1 | n/н/0 | s/л/-): ")
                 if choice.lower().strip().startswith(("y", "д", "1")):
                     conn.commit()
                     logger.success("Сохранение внесенных изменений")
+                elif choice.lower().strip().startswith(("s", "л", "-")):
+                    logger.info("Отмена изменений и пропуск записи лога")
+                    conn.rollback()
+                    skip_logs = True
                 else:
                     logger.warning("Отмена внесенных изменений")
                     conn.rollback()
@@ -439,35 +520,37 @@ def add_buildings(  # pylint: disable=too-many-branches,too-many-statements
     logger.opt(colors=True).info(
         "Обработано {:4} зданий из {}: <green>{} добавлены</green>, <yellow>{} обновлены</yellow>,"
         " <blue>{} оставлены без изменений</blue>, <red>{} пропущены</red>",
-        i + 1,
+        i,
         buildings_df.shape[0],
         added,
         updated,
         unchanged,
         skipped,
     )
-    filename = f"buildings_insertion_{conn.info.host}_{conn.info.port}_{conn.info.dbname}.xlsx"
-    sheet_name = f'{city_name}_{time.strftime("%Y-%m-%d %H_%M-%S")}'
-    logger.opt(colors=True).info(
-        "Сохранение лога в файл Excel (нажмите Ctrl+C для отмены, <magenta>но это может повредить файл лога</magenta>)"
-    )
-    try:
-        with pd.ExcelWriter(  # pylint: disable=abstract-class-instantiated
-            filename, mode=("a" if os.path.isfile(filename) else "w"), engine="openpyxl"
-        ) as writer:
-            buildings_df.to_excel(writer, sheet_name)
-        logger.info(f'Лог вставки сохранен в файл "{filename}", лист "{sheet_name}"')
-    except Exception as exc:  # pylint: disable=broad-except
-        newlog = f"buildings_insertion_{int(time.time())}.xlsx"
-        logger.error(
-            f'Ошибка при сохранении лога вставки в файл "{filename}",'
-            f' лист "{sheet_name}": {exc!r}. Попытка сохранения с именем {newlog}'
+    if not skip_logs:
+        filename = f"buildings_insertion_{conn.info.host}_{conn.info.port}_{conn.info.dbname}.xlsx"
+        sheet_name = f'{city_name}_{time.strftime("%Y-%m-%d %H_%M-%S")}'
+        logger.opt(colors=True).info(
+            "Сохранение лога в файл Excel (нажмите Ctrl+C для отмены,"
+            " <magenta>но это может повредить файл лога</magenta>)"
         )
         try:
-            buildings_df.to_excel(newlog, sheet_name)
-            logger.success("Сохранение прошло успешно")
-        except Exception as exc_1:  # pylint: disable=broad-except
-            logger.error(f"Ошибка сохранения лога: {exc_1!r}")
-    except KeyboardInterrupt:
-        logger.warning(f'Отмена сохранения файла лога, файл "{filename}" может быть поврежден')
+            with pd.ExcelWriter(  # pylint: disable=abstract-class-instantiated
+                filename, mode=("a" if os.path.isfile(filename) else "w"), engine="openpyxl"
+            ) as writer:
+                buildings_df.to_excel(writer, sheet_name)
+            logger.info(f'Лог вставки сохранен в файл "{filename}", лист "{sheet_name}"')
+        except Exception as exc:  # pylint: disable=broad-except
+            newlog = f"buildings_insertion_{int(time.time())}.xlsx"
+            logger.error(
+                f'Ошибка при сохранении лога вставки в файл "{filename}",'
+                f' лист "{sheet_name}": {exc!r}. Попытка сохранения с именем {newlog}'
+            )
+            try:
+                buildings_df.to_excel(newlog, sheet_name)
+                logger.success("Сохранение прошло успешно")
+            except Exception as exc_1:  # pylint: disable=broad-except
+                logger.error(f"Ошибка сохранения лога: {exc_1!r}")
+        except KeyboardInterrupt:
+            logger.warning(f'Отмена сохранения файла лога, файл "{filename}" может быть поврежден')
     return buildings_df

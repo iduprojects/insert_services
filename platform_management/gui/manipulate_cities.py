@@ -583,7 +583,6 @@ class TerritoryWindow(QtWidgets.QWidget):
 
 
 class CitiesWindow(QtWidgets.QWidget):
-
     EditButtons = NamedTuple(
         "EditButtons",
         [
@@ -853,12 +852,21 @@ class CitiesWindow(QtWidgets.QWidget):
             with self._db_properties.conn.cursor() as cur:
                 cur.execute(
                     "UPDATE cities SET region_id = %s WHERE id = %s",
-                    (int(self._regions[self._regions == dialog.region()].index[0]), city_id),
+                    (
+                        int(self._regions[self._regions == dialog.region()].index[0])
+                        if dialog.region() is not None
+                        else None,
+                        city_id,
+                    ),
                 )
         if division_type != dialog.division_type():
             self._table.item(row, 5).setText(dialog.division_type())
             self._table.item(row, 5).setBackground(QtGui.QBrush(QtCore.Qt.GlobalColor.yellow))
             changed = True
+            with self._db_properties.conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE cities SET city_division_type = %s WHERE id = %s", (dialog.division_type(), city_id)
+                )
         if changed:
             with self._db_properties.conn.cursor() as cur:
                 cur.execute("UPDATE cities SET updated_at = now() WHERE id = %s", (city_id,))
