@@ -68,11 +68,7 @@ def common(
 
     if log_filename is None:
         t = time.localtime()  # pylint: disable=invalid-name
-        fname: str
-        if os.path.sep in os.path.relpath(filename):  # type: ignore
-            fname = os.path.relpath(filename)[os.path.relpath(filename).rfind(os.path.sep) + 1 :]  # type: ignore
-        else:
-            fname = filename
+        fname = os.path.split(filename)[1]
 
         logfile = (
             f"{t.tm_year}-{t.tm_mon:02}-{t.tm_mday:02} "

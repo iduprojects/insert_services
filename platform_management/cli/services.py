@@ -8,7 +8,7 @@ import random
 import time
 import traceback
 import warnings
-from typing import Callable, Dict, List, Literal, Optional, Tuple, Union
+from typing import Callable, Dict, List, Optional, Tuple, Union
 
 import pandas as pd
 import psycopg2
@@ -16,6 +16,7 @@ from frozenlist import FrozenList
 from loguru import logger
 from numpy import nan
 from tqdm import tqdm
+from platform_management.cli.common import SingleObjectStatus
 
 from platform_management.dto import ServiceInsertionMapping
 
@@ -50,7 +51,7 @@ def insert_object(
     capacity_min, capacity_max, *ids = cur.fetchone()  # type: ignore
     assert (
         ids[0] is not None and ids[1] is not None and ids[2] is not None
-    ), "Service type, city function or infrastructure are not found in the database"
+    ), "Service type, city function or infrastructure type are not found in the database"
     if mapping.capacity in row and row[mapping.capacity] is not None:
         try:
             capacity = int(float(row[mapping.capacity]))
@@ -201,7 +202,7 @@ def add_services(  # pylint: disable=too-many-branches,too-many-statements,too-m
     commit: bool = True,
     verbose: bool = False,
     log_n: int = 200,
-    callback: Optional[Callable[[Literal["inserted", "updated", "unchanged", "skipped", "error"]], None]] = None,
+    callback: Optional[Callable[[SingleObjectStatus], None]] = None,
 ) -> pd.DataFrame:
     """
     Insert service objects to database.
@@ -259,17 +260,17 @@ def add_services(  # pylint: disable=too-many-branches,too-many-statements,too-m
         """
         if callback is not None:
             if status.startswith(("Геометрия в поле", "Пропущен (отсутствует", "Пропущен, вызывает ошибку")):
-                callback("error")
+                callback(SingleObjectStatus.ERROR)
             elif status.startswith("Пропущен"):
-                callback("skipped")
+                callback(SingleObjectStatus.SKIPPED)
             elif "вставлен" in status:
-                callback("inserted")
+                callback(SingleObjectStatus.INSERTED)
             elif status.startswith("Обновл"):
-                callback("updated")
+                callback(SingleObjectStatus.UPDATED)
             elif "совпадает" in status:
-                callback("unchanged")
+                callback(SingleObjectStatus.UNCHANGED)
             else:
-                callback("error")
+                callback(SingleObjectStatus.ERROR)
                 logger.warning("Could not get the category of result based on status: {}", results[i - 1])
 
     logger.info(f'Вставка сервисов типа "{service_type}", всего {services_df.shape[0]} объектов')

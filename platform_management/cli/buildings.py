@@ -9,7 +9,7 @@ import traceback
 import warnings
 from dataclasses import fields as dc_fields
 from numbers import Number
-from typing import Callable, Dict, List, Literal, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 import pandas as pd
 import psycopg2
@@ -17,6 +17,7 @@ from frozenlist import FrozenList
 from loguru import logger
 from numpy import nan
 from tqdm import tqdm
+from platform_management.cli.common import SingleObjectStatus
 
 from platform_management.dto import BuildingInsertionMapping
 from platform_management.utils import simplify_data
@@ -156,7 +157,7 @@ def add_buildings(  # pylint: disable=too-many-branches,too-many-statements
     commit: bool = True,
     verbose: bool = False,
     log_n: int = 200,
-    callback: Optional[Callable[[Literal["inserted", "updated", "unchanged", "skipped", "error"]], None]] = None,
+    callback: Optional[Callable[[SingleObjectStatus], None]] = None,
 ) -> pd.DataFrame:
     """
     Insert buildings to database.
@@ -187,17 +188,17 @@ def add_buildings(  # pylint: disable=too-many-branches,too-many-statements
         """
         if callback is not None:
             if status.startswith(("Геометрия в поле", "Пропущен (отсутствует", "Пропущен, вызывает ошибку")):
-                callback("error")
+                callback(SingleObjectStatus.ERROR)
             elif status.startswith("Пропущен"):
-                callback("skipped")
+                callback(SingleObjectStatus.SKIPPED)
             elif "вставлен" in status:
-                callback("inserted")
+                callback(SingleObjectStatus.INSERTED)
             elif status.startswith("Обновл"):
-                callback("updated")
+                callback(SingleObjectStatus.UPDATED)
             elif "совпадает" in status:
-                callback("unchanged")
+                callback(SingleObjectStatus.UNCHANGED)
             else:
-                callback("error")
+                callback(SingleObjectStatus.ERROR)
                 logger.warning("Could not get the category of result based on status: {}", results[i - 1])
 
     logger.info(f"Вставка зданий, всего {buildings_df.shape[0]} объектов")
@@ -208,7 +209,7 @@ def add_buildings(  # pylint: disable=too-many-branches,too-many-statements
         buildings_df.iloc[:, i] = pd.Series(
             map(
                 lambda x: float(x.replace(",", "."))
-                if isinstance(x, str) and x.count(",") == 1 and x.replace(",", "1").isnumeric()
+                if isinstance(x, str) and len(x) != 1 and x.count(",") == 1 and x.replace(",", "1").isnumeric()
                 else x,
                 buildings_df.iloc[:, i],
             ),

@@ -6,13 +6,15 @@ import os
 import time
 import traceback
 import warnings
-from typing import Callable, List, Literal, Optional
+from typing import Callable, List, Optional
 
 import pandas as pd
 import psycopg2
 from loguru import logger
 from numpy import nan
 from tqdm import tqdm
+
+from platform_management.cli.common import SingleObjectStatus
 
 warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
 
@@ -67,7 +69,8 @@ def update_block(
         "       AND ST_Within((SELECT center FROM center_t), geometry)),"
         "   administrative_unit_id = (SELECT id FROM administrative_units WHERE city_id = b.city_id"
         "       AND ST_Within((SELECT center FROM center_t), geometry)),"
-        "   area = (SELECT ST_Area(%(geometry)s::geography))",
+        "   area = (SELECT ST_Area(%(geometry)s::geography))"
+        " WHERE id = %(block_id)s",
         {"geometry": geometry, "block_id": block_id},
     )
     if commit:
@@ -82,7 +85,7 @@ def add_blocks(  # pylint: disable=too-many-branches,too-many-statements
     commit: bool = True,
     verbose: bool = False,
     log_n: int = 200,
-    callback: Optional[Callable[[Literal["inserted", "updated", "unchanged", "skipped", "error"]], None]] = None,
+    callback: Optional[Callable[[SingleObjectStatus], None]] = None,
 ) -> pd.DataFrame:
     """
     Insert service objects to database.
@@ -109,17 +112,17 @@ def add_blocks(  # pylint: disable=too-many-branches,too-many-statements
         """
         if callback is not None:
             if status.startswith(("Геометрия в поле", "Пропущен (отсутствует", "Пропущен, вызывает ошибку")):
-                callback("error")
+                callback(SingleObjectStatus.ERROR)
             elif status.startswith("Пропущен"):
-                callback("skipped")
+                callback(SingleObjectStatus.SKIPPED)
             elif status.startswith("Добавлен"):
-                callback("inserted")
+                callback(SingleObjectStatus.INSERTED)
             elif status.startswith("Обновлен"):
-                callback("updated")
+                callback(SingleObjectStatus.UPDATED)
             elif "совпадает" in status:
-                callback("unchanged")
+                callback(SingleObjectStatus.UNCHANGED)
             else:
-                callback("error")
+                callback(SingleObjectStatus.ERROR)
                 logger.warning("Could not get the category of result based on status: {}", results[i - 1])
 
     logger.info(f'Вставка кварталов в город "{city_name}," всего {blocks_df.shape[0]} объектов')

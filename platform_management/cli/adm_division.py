@@ -9,13 +9,14 @@ import traceback
 import warnings
 from enum import Enum
 from functools import reduce
-from typing import Callable, Dict, List, Literal, Optional
+from typing import Callable, Dict, List, Optional
 
 import pandas as pd
 import psycopg2
 from loguru import logger
 from numpy import nan
 from tqdm import tqdm
+from platform_management.cli.common import SingleObjectStatus
 
 from platform_management.dto import AdmDivisionInsertionMapping
 
@@ -178,8 +179,8 @@ def update_administrative_unit(
 
     if geom_str != data[3]:
         db_fields.extend(["geometry", "center"])
-        preparations.extend(["%(geometry)", "(SELECT ST_Centroid(%(geometry)s)"])
-        values.append({"geometry": row[mapping.name]})
+        preparations.extend(["%(geometry)s", "(SELECT ST_Centroid(%(geometry)s))"])
+        values.append({"geometry": row[mapping.geometry]})
 
     if row.get(mapping.population) is not None and row[mapping.population] != data[4]:
         db_fields.append("population")
@@ -246,7 +247,7 @@ def update_municipality(
 
     if row[mapping.type_name] is not None and row[mapping.type_name] != data[1]:
         db_fields.append("type_id")
-        preparations.append("%(municipality_type_id)s)")
+        preparations.append("%(municipality_type_id)s")
         values.append({"municipality_type_id": municipality_types[row[mapping.type_name]]})
 
     if row[mapping.name] is not None and row[mapping.name] != data[2]:
@@ -294,7 +295,7 @@ def add_adm_division(  # pylint: disable=too-many-branches,too-many-statements
     commit: bool = True,
     verbose: bool = False,
     log_n: int = 200,
-    callback: Optional[Callable[[Literal["inserted", "updated", "unchanged", "skipped", "error"]], None]] = None,
+    callback: Optional[Callable[[SingleObjectStatus], None]] = None,
 ) -> pd.DataFrame:
     """
     Insert administrative divition units to database.
@@ -330,17 +331,17 @@ def add_adm_division(  # pylint: disable=too-many-branches,too-many-statements
         """
         if callback is not None:
             if status.startswith(("Геометрия в поле", "Пропущен (отсутствует", "Пропущен, вызывает ошибку")):
-                callback("error")
+                callback(SingleObjectStatus.ERROR)
             elif status.startswith("Пропущен"):
-                callback("skipped")
+                callback(SingleObjectStatus.SKIPPED)
             elif status.startswith("Добавлен"):
-                callback("inserted")
+                callback(SingleObjectStatus.INSERTED)
             elif status.startswith("Обновлен"):
-                callback("updated")
+                callback(SingleObjectStatus.UPDATED)
             elif "совпадает" in status:
-                callback("unchanged")
+                callback(SingleObjectStatus.UNCHANGED)
             else:
-                callback("error")
+                callback(SingleObjectStatus.ERROR)
                 logger.warning("Could not get the category of result based on status: {}", results[i - 1])
 
     if division_type == AdmDivisionType.ADMINISTRATIVE_UNIT:

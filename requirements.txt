@@ -1,9 +1,10 @@
-PySide6
+click
+frozenlist
+loguru
+odfpy
+openpyxl
 pandas
 psycopg2
-openpyxl
-xlrd
-odfpy
+PySide6
 tqdm
-click
-loguru
+xlrd

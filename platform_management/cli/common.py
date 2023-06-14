@@ -93,3 +93,15 @@ sqltype_mapping: Dict[str, SQLType] = dict(
     )
 )
 """Mapping of possible names of SQL types to themselves"""
+
+
+class SingleObjectStatus(Enum):
+    """
+    Enumeration of possible objects status on insertion/updation process.
+    """
+
+    INSERTED = "INSERTED"
+    UPDATED = "UPDATED"
+    UNCHANGED = "UNCHANGED"
+    SKIPPED = "SKIPPED"
+    ERROR = "ERROR"
