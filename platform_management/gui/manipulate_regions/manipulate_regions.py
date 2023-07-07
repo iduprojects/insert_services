@@ -1,118 +1,25 @@
-# pylint: disable=c-extension-no-member
 """
 Regions insertion/editing module.
 """
 import json
 import time
-from typing import Any, Callable, NamedTuple, Optional, Sequence, Union
+from typing import Any, Callable, NamedTuple
 
 from loguru import logger
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from platform_management.database_properties import Properties
-from platform_management.gui.basics import ColoringTableWidget, GeometryShow, check_geometry_correctness
+from platform_management.gui.basics import GeometryShow, check_geometry_correctness
+from platform_management.utils.converters import to_str
 
-logger = logger.bind(name="gui_manipulate_regions")
-
-
-class PlatformRegionsTableWidget(ColoringTableWidget):
-    LABELS = ["id региона", "Название", "Код", "Широта", "Долгота", "Тип геометрии", "Создание", "Обновление"]
-    LABELS_DB = ["id", "name", "code", "-", "-", "-", "-", "-"]
-
-    def __init__(
-        self,
-        services: Sequence[Sequence[Any]],
-        changed_callback: Callable[[int, str, Any, Any, bool], None],
-        parent: Optional[QtWidgets.QWidget] = None,
-    ):
-        super().__init__(
-            services,
-            PlatformRegionsTableWidget.LABELS,
-            self.correction_checker,
-            list(
-                map(
-                    lambda x: x[0],
-                    filter(lambda y: y[1] in ("id", "-"), enumerate(PlatformRegionsTableWidget.LABELS_DB)),
-                )
-            ),
-            parent=parent,
-        )
-        self._changed_callback = changed_callback
-        self.setColumnWidth(1, 200)
-        self.setColumnWidth(2, 90)
-        for column in (3, 4, 5, 6, 7, 8):
-            self.resizeColumnToContents(column)
-        self.setSortingEnabled(True)
-
-    def correction_checker(self, row: int, column: int, old_data: Any, new_data: str) -> bool:
-        res = True
-        if new_data is None and column in (1, 2):
-            res = False
-        elif column == 2 and (not new_data.isnumeric() or int(new_data) < 0):
-            res = False
-        if PlatformRegionsTableWidget.LABELS_DB[column] != "-":
-            self._changed_callback(row, PlatformRegionsTableWidget.LABELS[column], old_data, new_data, res)
-        return res
+from .logging import logger
+from .region_creation import RegionCreation
+from .regions_table import PlatformRegionsTableWidget
 
 
-def _str_or_none(string: str) -> Optional[str]:
-    if len(string) == 0:
-        return None
-    return string
+class RegionsWindow(QtWidgets.QWidget):  # pylint: disable=too-many-instance-attributes
+    """Platform regions window."""
 
-
-def _to_str(i: Optional[Union[int, float, str]]) -> str:
-    return str(i) if i is not None else ""
-
-
-class RegionCreation(QtWidgets.QDialog):
-    def __init__(
-        self,
-        text: str,
-        geometry: Optional[str] = None,
-        name: Optional[str] = None,
-        code: Optional[str] = None,
-        is_adding: bool = False,
-        parent: Optional[QtWidgets.QWidget] = None,
-    ):
-        super().__init__(parent=parent)
-        self.window().setWindowTitle("Добавление региона" if is_adding else "Изменение региона")
-        layout = QtWidgets.QVBoxLayout()
-        layout.addWidget(QtWidgets.QLabel(text))
-        self._geometry_field = QtWidgets.QTextEdit()
-        self._geometry_field.setPlainText(geometry or "")
-        self._geometry_field.setPlaceholderText('{\n  "type": "...",\n  "coordinates": [...]\n}')
-        self._geometry_field.setAcceptRichText(False)
-        layout.addWidget(self._geometry_field)
-        self._options_layout = QtWidgets.QFormLayout()
-        self._name = QtWidgets.QLineEdit(name or "")
-        self._name.setPlaceholderText("Ленинградская область")
-        self._options_layout.addRow("Название:", self._name)
-        self._code = QtWidgets.QLineEdit(code or "")
-        self._code.setPlaceholderText("leningrad_oblast")
-        self._options_layout.addRow("Код в БД:", self._code)
-        layout.addLayout(self._options_layout)
-        buttons_layout = QtWidgets.QHBoxLayout()
-        ok_btn = QtWidgets.QPushButton("Ок")
-        ok_btn.clicked.connect(self.accept)
-        cancel_btn = QtWidgets.QPushButton("Отмена")
-        cancel_btn.clicked.connect(self.reject)
-        buttons_layout.addWidget(ok_btn)
-        buttons_layout.addWidget(cancel_btn)
-        layout.addLayout(buttons_layout)
-        self.setLayout(layout)
-
-    def get_geometry(self) -> Optional[str]:
-        return _str_or_none(self._geometry_field.toPlainText())
-
-    def name(self) -> Optional[str]:
-        return _str_or_none(self._name.text())
-
-    def code(self) -> Optional[str]:
-        return _str_or_none(self._code.text())
-
-
-class RegionsWindow(QtWidgets.QWidget):
     EditButtons = NamedTuple(
         "EditButtons",
         [
@@ -125,11 +32,11 @@ class RegionsWindow(QtWidgets.QWidget):
         ],
     )
 
-    def __init__(
+    def __init__(  # pylint: disable=too-many-arguments,too-many-statements
         self,
         db_properties: Properties,
-        on_close: Optional[Callable[[], None]] = None,
-        parent: Optional[QtWidgets.QWidget] = None,
+        on_close: Callable[[], None] | None = None,
+        parent: QtWidgets.QWidget | None = None,
     ):
         super().__init__(parent)
 
@@ -220,17 +127,19 @@ class RegionsWindow(QtWidgets.QWidget):
 
         self._log_window.insertHtml(f"<font color=blue>Загружены {len(cities)} регионов</font><br>")
 
-    def _on_cell_change(self, row: int, column_name: str, old_value: Any, new_value: Any, is_valid: bool) -> None:
+    def _on_cell_change(  # pylint: disable=too-many-arguments
+        self, row: int, column_name: str, old_value: Any, new_value: Any, is_valid: bool
+    ) -> None:
         city_id = self._table.item(row, 0).text()
         if is_valid:
             self._log_window.insertHtml(
                 f"<font color=yellowgreen>Изменен регион с id={city_id}. {column_name}:"
-                f' "{_to_str(old_value)}"->"{_to_str(new_value)}"</font><br>'
+                f' "{to_str(old_value)}"->"{to_str(new_value)}"</font><br>'
             )
         else:
             self._log_window.insertHtml(
                 f"<font color=#e6783c>Не изменен регион с id="
-                f'{city_id}. {column_name}: "{_to_str(old_value)}"->"{_to_str(new_value)}"'
+                f'{city_id}. {column_name}: "{to_str(old_value)}"->"{to_str(new_value)}"'
                 f" (некорректное значение)</font><br>"
             )
             return
@@ -266,8 +175,8 @@ class RegionsWindow(QtWidgets.QWidget):
         row = self._table.rowCount()
         self._table.insertRow(row)
         self._table.setItem(row, 0, QtWidgets.QTableWidgetItem(str(city_id)))
-        self._table.setItem(row, 1, QtWidgets.QTableWidgetItem(_to_str(dialog.name())))
-        self._table.setItem(row, 2, QtWidgets.QTableWidgetItem(_to_str(dialog.code())))
+        self._table.setItem(row, 1, QtWidgets.QTableWidgetItem(to_str(dialog.name())))
+        self._table.setItem(row, 2, QtWidgets.QTableWidgetItem(to_str(dialog.code())))
         self._table.setItem(row, 3, QtWidgets.QTableWidgetItem(str(latitude)))
         self._table.setItem(row, 4, QtWidgets.QTableWidgetItem(str(longitude)))
         self._table.setItem(row, 5, QtWidgets.QTableWidgetItem(geom_type))
@@ -321,10 +230,10 @@ class RegionsWindow(QtWidgets.QWidget):
             for column in (4, 5, 6):
                 self._table.item(row, column).setBackground(QtGui.QBrush(QtCore.Qt.GlobalColor.yellow))
         if name != dialog.name():
-            self._table.item(row, 1).setText(_to_str(name))
+            self._table.item(row, 1).setText(to_str(name))
             self._table.item(row, 1).setBackground(QtGui.QBrush(QtCore.Qt.GlobalColor.yellow))
         if code != dialog.code():
-            self._table.item(row, 2).setText(_to_str(code))
+            self._table.item(row, 2).setText(to_str(code))
             self._table.item(row, 2).setBackground(QtGui.QBrush(QtCore.Qt.GlobalColor.yellow))
 
     def _on_city_delete(self) -> None:
@@ -381,7 +290,10 @@ class RegionsWindow(QtWidgets.QWidget):
         self._db_properties.conn.rollback()
         self._on_regions_load()
 
-    def change_db(self, db_addr: str, db_port: int, db_name: str, db_user: str, db_pass: str) -> None:
+    def change_db(  # pylint: disable=too-many-arguments
+        self, db_addr: str, db_port: int, db_name: str, db_user: str, db_pass: str
+    ) -> None:
+        """Update database connection. Called from the outside on reconnection to the database."""
         self._db_properties.reopen(db_addr, db_port, db_name, db_user, db_pass)
         if self._additional_conn is not None and not self._additional_conn.closed:
             self._additional_conn.close()

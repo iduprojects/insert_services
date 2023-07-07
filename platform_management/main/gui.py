@@ -1,3 +1,4 @@
+"""Graphical User Interface launching point is located here."""
 import click
 
 from platform_management.gui import InitWindow, run_gui

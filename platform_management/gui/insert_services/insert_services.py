@@ -1,4 +1,3 @@
-# pylint: disable=consider-using-f-string,c-extension-no-member
 """
 Services insertion module.
 """
@@ -19,60 +18,17 @@ from platform_management.database_properties import Properties
 from platform_management.dto import ServiceInsertionMapping
 from platform_management.gui.basics import CheckableTableView, ColorizingComboBox, ColorizingLine, DropPushButton
 
-logger = logger.bind(name="gui_insert_services")
-
-InsertionWindowDefaultValues = NamedTuple(
-    "InsertionWindowDefaultValues",
-    [
-        ("service_code", str),
-        ("city_function", str),
-        ("latitude", str),
-        ("longitude", str),
-        ("geometry", str),
-        ("address", str),
-        ("name", str),
-        ("opening_hours", str),
-        ("website", str),
-        ("phone", str),
-        ("osm_id", str),
-    ],
+from .defaults import (
+    get_default_city_functions,
+    get_default_service_types,
+    get_main_window_default_address_prefixes,
+    get_main_window_default_values,
 )
+from .logging import logger
 
 
-def get_main_window_default_values() -> InsertionWindowDefaultValues:
-    """
-    Return default city address options values.
-    """
-    return InsertionWindowDefaultValues(
-        "", "", "x", "y", "geometry", "yand_adr", "name", "opening_hours", "contact:website", "contact:phone", "id"
-    )
-
-
-def get_main_window_default_address_prefixes() -> List[str]:
-    """
-    Return default city address prefixes.
-    """
-    return ["Россия, Санкт-Петербург"]
-
-
-def get_default_city_functions() -> List[str]:
-    """
-    Return default city functions.
-    """
-    return ["(необходимо соединение с базой)"]
-
-
-def get_default_service_types() -> List[str]:
-    """
-    Return default service types.
-    """
-    return ["(необходимо соединение с базой)"]
-
-
-class InsertionWindow(QtWidgets.QWidget):
-    """
-    Services insertion window.
-    """
+class ServicesInsertionWindow(QtWidgets.QWidget):  # pylint: disable=too-many-instance-attributes
+    """Services insertion window."""
 
     InsertionOptionsFields = NamedTuple(
         "InsertionOptionsFields",
@@ -124,15 +80,13 @@ class InsertionWindow(QtWidgets.QWidget):
 
     default_values = get_main_window_default_values()
 
-    def __init__(
+    def __init__(  # pylint: disable=too-many-statements,consider-using-f-string
         self,
         db_properties: Properties,
         on_close: Optional[Callable[[], None]] = None,
         parent: Optional[QtWidgets.QWidget] = None,
     ):
-        """
-        Initialize service insertion window.
-        """
+        """Initialize service insertion window."""
         super().__init__(parent)
 
         self._db_properties = db_properties
@@ -182,7 +136,7 @@ class InsertionWindow(QtWidgets.QWidget):
         self._options_group_box = QtWidgets.QGroupBox("Опции вставки")
         self._options_group = QtWidgets.QFormLayout()
         self._options_group_box.setLayout(self._options_group)
-        self._options_fields = InsertionWindow.InsertionOptionsFields(
+        self._options_fields = ServicesInsertionWindow.InsertionOptionsFields(
             QtWidgets.QComboBox(),
             ColorizingLine(self.on_options_change),
             ColorizingComboBox(self.on_options_change),
@@ -202,7 +156,7 @@ class InsertionWindow(QtWidgets.QWidget):
         self._document_group_box = QtWidgets.QGroupBox("Сопоставление документа")
         self._document_group = QtWidgets.QFormLayout()
         self._document_group_box.setLayout(self._document_group)
-        self._document_fields = InsertionWindow.DocumentFields(
+        self._document_fields = ServicesInsertionWindow.DocumentFields(
             *(ColorizingComboBox(self.on_document_change) for _ in range(10))
         )
         self._document_address_prefixes = [
@@ -283,7 +237,7 @@ class InsertionWindow(QtWidgets.QWidget):
         self._properties_group_box.setFixedWidth(right_width)
 
         self._options_fields.service_type.setCurrentIndex(0)
-        self._options_fields.service_code.setText(InsertionWindow.default_values.service_code)
+        self._options_fields.service_code.setText(ServicesInsertionWindow.default_values.service_code)
         self._options_fields.service_code.setEnabled(False)
         self._options_fields.city_function.addItems(get_default_city_functions())
         self._options_fields.city_function.view().setMinimumWidth(len(max(get_default_city_functions(), key=len)) * 8)
@@ -291,7 +245,9 @@ class InsertionWindow(QtWidgets.QWidget):
         self._options_fields.is_building.setEnabled(False)
         self._is_options_ok = False
         self._options_fields.service_type.setStyleSheet(
-            "background-color: rgb({}, {}, {});color: black".format(*InsertionWindow.colorTable.light_red.getRgb()[:3])
+            "background-color: rgb({}, {}, {});color: black".format(
+                *ServicesInsertionWindow.colorTable.light_red.getRgb()[:3]
+            )
         )
 
         for field in self._document_fields:
@@ -366,7 +322,7 @@ class InsertionWindow(QtWidgets.QWidget):
             if previous_text in self._table_axes:
                 field.setCurrentIndex(self._table_axes.index(previous_text))
             field.setEnabled(True)
-        for field, default_value in zip(self._document_fields, InsertionWindow.default_values[2:]):
+        for field, default_value in zip(self._document_fields, ServicesInsertionWindow.default_values[2:]):
             if field.currentIndex() == 0 and default_value in self._table_axes:
                 field.setCurrentIndex(self._table_axes.index(default_value))
 
@@ -385,6 +341,7 @@ class InsertionWindow(QtWidgets.QWidget):
         self._table.resizeColumnsToContents()
 
     def table_as_dataframe(self, include_all: bool = True) -> pd.DataFrame:
+        """Form a pandas DataFrame from the table data."""
         lines: List[List[Any]] = []
         index: List[int] = []
         for row in range(self._table_model.rowCount()):
@@ -398,6 +355,7 @@ class InsertionWindow(QtWidgets.QWidget):
         return dataframe
 
     def on_upload_objects(self) -> None:
+        """Insert given table objects to the database. Called on upload button click."""
         self._load_objects_btn.setEnabled(False)
         QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.BusyCursor)
         verbose = not bool(QtWidgets.QApplication.keyboardModifiers() & QtCore.Qt.ShiftModifier)
@@ -467,8 +425,12 @@ class InsertionWindow(QtWidgets.QWidget):
         self._table.resizeColumnToContents(len(self._table_axes) - 2)  # type: ignore
         self._table.resizeColumnToContents(len(self._table_axes) - 1)  # type: ignore
         for row in range(self._table_model.rowCount()):
-            self._table_model.item(row, len(self._table_axes) - 2).setBackground(InsertionWindow.colorTable.sky_blue)
-            self._table_model.item(row, len(self._table_axes) - 1).setBackground(InsertionWindow.colorTable.sky_blue)
+            self._table_model.item(row, len(self._table_axes) - 2).setBackground(
+                ServicesInsertionWindow.colorTable.sky_blue
+            )
+            self._table_model.item(row, len(self._table_axes) - 1).setBackground(
+                ServicesInsertionWindow.colorTable.sky_blue
+            )
             self._table_model.item(row, len(self._table_axes) - 2).setForeground(QtCore.Qt.black)
             self._table_model.item(row, len(self._table_axes) - 1).setForeground(QtCore.Qt.black)
             self._table_model.item(row, len(self._table_axes) - 1).setFlags(QtCore.Qt.ItemIsEnabled)
@@ -476,9 +438,7 @@ class InsertionWindow(QtWidgets.QWidget):
         self._save_results_btn.setVisible(True)
 
     def on_export_results(self) -> None:
-        """
-        Open file dialog to get filename and export table content to it.
-        """
+        """Open file dialog to get filename and export table content to it."""
         file_dialog = QtWidgets.QFileDialog(self)
         file_dialog.setAcceptMode(QtWidgets.QFileDialog.AcceptSave)
         file_dialog.setNameFilters(
@@ -508,9 +468,7 @@ class InsertionWindow(QtWidgets.QWidget):
         save_func(dataframe, filename, index=False)
 
     def on_prefix_add(self) -> None:
-        """
-        Append document address prefixes and call check.
-        """
+        """Append document address prefixes and call check."""
         self._document_address_prefixes.append(ColorizingLine(self.on_prefix_check))
         self._prefixes_group.insertWidget(self._prefixes_group.count() - 4, self._document_address_prefixes[-1])
         if len(self._document_address_prefixes) == 2:
@@ -518,9 +476,7 @@ class InsertionWindow(QtWidgets.QWidget):
         self.on_prefix_check()
 
     def on_prefix_remove(self) -> None:
-        """
-        Remove element from address prefixes and call check.
-        """
+        """Remove element from address prefixes and call check."""
         self._document_address_prefixes.pop()
         widget = self._prefixes_group.itemAt(self._prefixes_group.count() - 5).widget()
         widget.setVisible(False)
@@ -530,9 +486,7 @@ class InsertionWindow(QtWidgets.QWidget):
         self.on_prefix_check()
 
     def on_prefix_check(self, _: Optional[Any] = None, __: Optional[Any] = None) -> None:
-        """
-        Colorize address column by prefix.
-        """
+        """Colorize address column by prefix."""
         res = 0
         if self._document_fields.address.currentIndex() != 0:
             col = self._document_fields.address.currentIndex()
@@ -540,28 +494,26 @@ class InsertionWindow(QtWidgets.QWidget):
                 found = False
                 for prefix in self._document_address_prefixes:
                     if str(self._table_model.index(row, col).data()).startswith(prefix.text()):
-                        self._table_model.item(row, col).setBackground(InsertionWindow.colorTable.dark_green)
+                        self._table_model.item(row, col).setBackground(ServicesInsertionWindow.colorTable.dark_green)
                         self._table_model.item(row, col).setForeground(QtGui.QColor.fromRgb(0, 0, 0))
                         found = True
                         break
                 if found:
                     res += 1
                 else:
-                    self._table_model.item(row, col).setBackground(InsertionWindow.colorTable.dark_red)
+                    self._table_model.item(row, col).setBackground(ServicesInsertionWindow.colorTable.dark_red)
                     self._table_model.item(row, col).setForeground(QtGui.QColor.fromRgb(0, 0, 0))
         if self._table is not None:
             self._prefixes_group_box.setTitle(
                 f"Префиксы адреса ({res} / {self._table_model.rowCount()}))"  # )) = ) , magic
             )
 
-    def on_options_change(
+    def on_options_change(  # pylint: disable=consider-using-f-string
         self,
         what_changed: Optional[Union[QtWidgets.QLineEdit, QtWidgets.QComboBox]] = None,
         _previous_value: Optional[Union[int, str]] = None,
-    ):
-        """
-        Hook to be run on options change, can disable load button.
-        """
+    ):  # pylint: disable=too-many-branches
+        """Hook to be run on options change, can disable load button."""
         allowed_chars = set((chr(i) for i in range(ord("a"), ord("z") + 1))) | {"_"}
         self._is_options_ok = True
 
@@ -574,7 +526,7 @@ class InsertionWindow(QtWidgets.QWidget):
                 self._options_fields.city_function.setCurrentText(service[4])
                 self._options_fields.service_type.setStyleSheet(
                     "background-color: rgb({}, {}, {});color: black".format(
-                        *InsertionWindow.colorTable.light_green.getRgb()[:3]
+                        *ServicesInsertionWindow.colorTable.light_green.getRgb()[:3]
                     )
                 )
                 while self._properties_cnt > 0:
@@ -591,7 +543,7 @@ class InsertionWindow(QtWidgets.QWidget):
                 if what_changed is not None:
                     what_changed.setStyleSheet(
                         "background-color: rgb({}, {}, {});color: black".format(
-                            *InsertionWindow.colorTable.light_red.getRgb()[:3]
+                            *ServicesInsertionWindow.colorTable.light_red.getRgb()[:3]
                         )
                     )
             if old_is_building != self._options_fields.is_building.isChecked():
@@ -603,14 +555,14 @@ class InsertionWindow(QtWidgets.QWidget):
         ):
             self._options_fields.service_code.setStyleSheet(
                 "background-color: rgb({}, {}, {});color: black".format(
-                    *InsertionWindow.colorTable.light_green.getRgb()[:3]
+                    *ServicesInsertionWindow.colorTable.light_green.getRgb()[:3]
                 )
             )
         else:
             self._is_options_ok = False
             self._options_fields.service_code.setStyleSheet(
                 "background-color: rgb({}, {}, {});color: black".format(
-                    *InsertionWindow.colorTable.light_red.getRgb()[:3]
+                    *ServicesInsertionWindow.colorTable.light_red.getRgb()[:3]
                 )
             )
 
@@ -618,13 +570,13 @@ class InsertionWindow(QtWidgets.QWidget):
             self._is_options_ok = False
             self._options_fields.city_function.setStyleSheet(
                 "background-color: rgb({}, {}, {});color: black".format(
-                    *InsertionWindow.colorTable.light_red.getRgb()[:3]
+                    *ServicesInsertionWindow.colorTable.light_red.getRgb()[:3]
                 )
             )
         else:
             self._options_fields.city_function.setStyleSheet(
                 "background-color: rgb({}, {}, {});color: black".format(
-                    *InsertionWindow.colorTable.light_green.getRgb()[:3]
+                    *ServicesInsertionWindow.colorTable.light_green.getRgb()[:3]
                 )
             )
 
@@ -632,7 +584,9 @@ class InsertionWindow(QtWidgets.QWidget):
             if len(line.text()) == 0 or len(set(line.text()) - allowed_chars - {"-", "_"}) != 0:
                 self._is_options_ok = False
                 line.setStyleSheet(
-                    "background-color: rgb({}, {}, {})".format(*InsertionWindow.colorTable.light_red.getRgb()[:3])
+                    "background-color: rgb({}, {}, {})".format(
+                        *ServicesInsertionWindow.colorTable.light_red.getRgb()[:3]
+                    )
                 )
             else:
                 line.setStyleSheet("")
@@ -642,12 +596,10 @@ class InsertionWindow(QtWidgets.QWidget):
         else:
             self._load_objects_btn.setEnabled(False)
 
-    def on_document_change(  # pylint: disable=too-many-branches,too-many-statements
+    def on_document_change(  # pylint: disable=too-many-branches,too-many-statements,consider-using-f-string
         self, what_changed: Optional[QtWidgets.QComboBox] = None, previous_value: Optional[int] = None
     ) -> None:
-        """
-        Hook to be called on document change, can disable load button.
-        """
+        """Hook to be called on document change, can disable load button."""
         logger.debug(
             "on_document_changed called with what_changed argument ({}), previous_value ({})",
             what_changed,
@@ -664,7 +616,7 @@ class InsertionWindow(QtWidgets.QWidget):
                 col = what_changed.currentIndex()
                 if col > 0:
                     for row in range(self._table_model.rowCount()):
-                        self._table_model.item(row, col).setBackground(InsertionWindow.colorTable.light_green)
+                        self._table_model.item(row, col).setBackground(ServicesInsertionWindow.colorTable.light_green)
                         self._table_model.item(row, col).setForeground(QtCore.Qt.black)
 
         if previous_value is not None and previous_value != 0:
@@ -689,7 +641,7 @@ class InsertionWindow(QtWidgets.QWidget):
                 if field is self._document_fields.address and self._options_fields.is_building.isChecked():
                     field.setStyleSheet(
                         "background-color: rgb({}, {}, {});color: black".format(
-                            *InsertionWindow.colorTable.yellow.getRgb()[:3]
+                            *ServicesInsertionWindow.colorTable.yellow.getRgb()[:3]
                         )
                     )
                 elif not (
@@ -707,13 +659,13 @@ class InsertionWindow(QtWidgets.QWidget):
                 ):
                     field.setStyleSheet(
                         "background-color: rgb({}, {}, {});color: black".format(
-                            *InsertionWindow.colorTable.grey.getRgb()[:3]
+                            *ServicesInsertionWindow.colorTable.grey.getRgb()[:3]
                         )
                     )
                 else:
                     field.setStyleSheet(
                         "background-color: rgb({}, {}, {});color: black".format(
-                            *InsertionWindow.colorTable.light_red.getRgb()[:3]
+                            *ServicesInsertionWindow.colorTable.light_red.getRgb()[:3]
                         )
                     )
                     self._is_document_ok = False
@@ -721,10 +673,10 @@ class InsertionWindow(QtWidgets.QWidget):
                 field.setStyleSheet("")
                 col = field.currentIndex()
                 if col > 0:
-                    color = InsertionWindow.colorTable.light_green
+                    color = ServicesInsertionWindow.colorTable.light_green
                     for field_inner in self._document_fields:
                         if field_inner is not field and field_inner.currentIndex() == col:
-                            color = InsertionWindow.colorTable.grey
+                            color = ServicesInsertionWindow.colorTable.grey
                     for row in range(self._table_model.rowCount()):
                         if self._table_model.item(row, col) is None:
                             logger.debug(f"Table {row}, {col} is None")
@@ -735,7 +687,7 @@ class InsertionWindow(QtWidgets.QWidget):
             else:
                 field.setStyleSheet(
                     "background-color: rgb({}, {}, {});color: black".format(
-                        *InsertionWindow.colorTable.grey.getRgb()[:3]
+                        *ServicesInsertionWindow.colorTable.grey.getRgb()[:3]
                     )
                 )
         if self._is_options_ok and self._is_document_ok:
@@ -744,9 +696,7 @@ class InsertionWindow(QtWidgets.QWidget):
             self._load_objects_btn.setEnabled(False)
 
     def on_property_add(self, db_name: Optional[str] = None) -> None:
-        """
-        Add additional property area and call on_options_change.
-        """
+        """Add additional property area and call on_options_change."""
         self._properties_group.addWidget(ColorizingLine(self.on_options_change), self._properties_cnt + 2, 0)
         property_box = ColorizingComboBox(self.on_document_change)
         property_box.addItem("-")
@@ -764,9 +714,7 @@ class InsertionWindow(QtWidgets.QWidget):
         self.on_options_change()
 
     def on_property_delete(self) -> None:
-        """
-        Remove additional property area and call on_options_change.
-        """
+        """Remove additional property area and call on_options_change."""
         self._properties_cnt -= 1
         widget: ColorizingComboBox = self._properties_group.itemAtPosition(self._properties_cnt + 2, 1).widget()
         if self._table is not None:
@@ -787,9 +735,7 @@ class InsertionWindow(QtWidgets.QWidget):
         self.on_options_change()
 
     def set_cities(self, cities: Iterable[str]):
-        """
-        Set available cities list.
-        """
+        """Set available cities list. Called from outside on reconnection to the database."""
         cities = list(cities)
         current_city = self._options_fields.city.currentText()
         self._options_fields.city.clear()
@@ -802,9 +748,7 @@ class InsertionWindow(QtWidgets.QWidget):
             self._options_fields.city.view().setMinimumWidth(len(max(cities, key=len)) * 8)
 
     def set_city_functions(self, city_functions_list: List[str]) -> None:
-        """
-        Set alailable city functions list.
-        """
+        """Set alailable city functions list. Called from outside on reconnection to the database."""
         current_city_function = self._options_fields.city_function.currentText()
         self._options_fields.city_function.clear()
         self._options_fields.city_function.addItem("(не выбрано)")
@@ -814,9 +758,7 @@ class InsertionWindow(QtWidgets.QWidget):
         self._options_fields.city_function.view().setMinimumWidth(len(max(city_functions_list, key=len)) * 8)
 
     def set_service_types_params(self, service_types_params: Dict[str, Tuple[str, int, int, bool, str]]):
-        """
-        Set available city service types parameters.
-        """
+        """Set available city service types parameters. Called from outside on reconnection to the database."""
         self._service_type_params = service_types_params
         current_service_type = self._options_fields.service_type.currentText()
         self._options_fields.service_type.clear()
@@ -828,23 +770,19 @@ class InsertionWindow(QtWidgets.QWidget):
             len(max(self._service_type_params.keys(), key=len)) * 8
         )
 
-    def change_db(self, db_addr: str, db_port: int, db_name: str, db_user: str, db_pass: str) -> None:
-        """
-        Reopen the connection to database
-        """
+    def change_db(  # pylint: disable=too-many-arguments
+        self, db_addr: str, db_port: int, db_name: str, db_user: str, db_pass: str
+    ) -> None:
+        """Reopen the connection to database."""
         self._db_properties.reopen(db_addr, db_port, db_name, db_user, db_pass)
 
     def showEvent(self, event: QtGui.QShowEvent) -> None:  # pylint: disable=invalid-name
-        """
-        Log event on window open.
-        """
+        """Log event on window open."""
         logger.info("Открыто окно вставки сервисов")
         return super().showEvent(event)
 
     def closeEvent(self, event: QtGui.QCloseEvent) -> None:  # pylint: disable=invalid-name
-        """
-        Log event on window close.
-        """
+        """Log event on window close."""
         logger.info("Закрыто окно вставки сервисов")
         if self._on_close is not None:
             self._on_close()

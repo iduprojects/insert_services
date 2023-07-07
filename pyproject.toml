@@ -42,6 +42,7 @@ target-version = ['py38']
 max-line-length = 120
 expected-line-ending-format = "LF"
 disable = ["duplicate-code"]
+extension-pkg-allow-list = ["PySide6"]
 
 [tool.isort]
 multi_line_output = 3

@@ -1,11 +1,10 @@
-# pylint: disable=c-extension-no-member
 """
 Services data update module.
 """
 import itertools
 import json
 import time
-from typing import Any, Callable, Iterable, List, NamedTuple, Optional, Sequence, Union
+from typing import Any, Callable, Iterable, NamedTuple
 
 import pandas as pd
 from loguru import logger
@@ -13,411 +12,19 @@ from PySide6 import QtCore, QtGui, QtWidgets
 
 from platform_management import get_properties_keys
 from platform_management.database_properties import Properties
-from platform_management.gui.basics import ColoringTableWidget, ColorizingComboBox, check_geometry_correctness
+from platform_management.gui.basics import ColorizingComboBox, check_geometry_correctness
+from platform_management.utils.converters import to_str
 
-logger = logger.bind(name="gui_update_services")
-
-
-class PlatformServicesTableWidget(ColoringTableWidget):
-    LABELS = [
-        "id сервиса",
-        "Адрес",
-        "Название",
-        "Рабочие часы",
-        "Веб-сайт",
-        "Телефон",
-        "Мощность",
-        "Мощ-real",
-        "id физ. объекта",
-        "Широта",
-        "Долгота",
-        "Тип геометрии",
-        "Админ. единица",
-        "Муницип. образование",
-        "Создание",
-        "Обновление",
-    ]
-    LABELS_DB = [
-        "id",
-        "-",
-        "name",
-        "opening_hours",
-        "website",
-        "phone",
-        "capacity",
-        "is_capacity_real",
-        "physical_object_id",
-        "-",
-        "-",
-        "-",
-        "-",
-        "-",
-        "-",
-    ]
-
-    def __init__(
-        self,
-        services: List[Sequence[Any]],
-        properties_keys: List[str],
-        changed_callback: Callable[[int, str, Any, Any, bool], None],
-        db_properties: Properties,
-        is_service_building: bool,
-    ):
-        super().__init__(
-            services,
-            PlatformServicesTableWidget.LABELS + properties_keys,
-            self.correction_checker,
-            (0, 1, 9, 10, 11, 12, 13, 14, 15),
-        )
-        if len(services) > 0:
-            assert len(PlatformServicesTableWidget.LABELS) + len(properties_keys) == len(
-                list(services[0])
-            ), "size of a service table is not equal to a predefined table"
-        self._labels = PlatformServicesTableWidget.LABELS + properties_keys
-        self._db_properties = db_properties
-        self._changed_callback = changed_callback
-        self._is_service_building = is_service_building
-        self._is_callback_enabled = True
-        self.setColumnWidth(2, 200)
-        self.setColumnWidth(3, 120)
-        self.setColumnWidth(4, 190)
-        self.setColumnWidth(5, 180)
-        for column in range(8, 16):
-            self.resizeColumnToContents(column)
-        self.setSortingEnabled(True)
-
-    def correction_checker(self, row: int, column: int, old_data: Any, new_data: str) -> bool:
-        res = True
-        if new_data is None and column in (6, 7):
-            res = False
-        elif column == 6 and (not new_data.isnumeric() or int(new_data) < 0):
-            res = False
-        elif column == 7 and new_data.lower() not in ("true", "false", "0", "1"):
-            res = False
-        elif column == 8 and not new_data.isnumeric():
-            res = False
-        elif column == 8:
-            with self._db_properties.conn.cursor() as cur:
-                cur.execute(
-                    "SELECT EXISTS (SELECT 1 FROM physical_objects WHERE id = %(new_data)s),"
-                    " EXISTS (SELECT 1 FROM buildings WHERE physical_object_id = %(new_data)s)",
-                    ({"new_data": new_data}),
-                )
-                if cur.fetchone() != (True, self._is_service_building):
-                    res = False
-        if self._is_callback_endbled and (
-            column > len(PlatformServicesTableWidget.LABELS_DB) or PlatformServicesTableWidget.LABELS_DB[column] != "-"
-        ):
-            self._changed_callback(row, self._labels[column], old_data, new_data, res)
-        return res
-
-    def disable_callback(self):
-        self._is_callback_enabled = False
-        self.disable_triggers()
-
-    def enable_callback(self):
-        self._is_callback_enabled = True
-        self.enable_triggers()
+from .building_creation import BuildingCreationWidget
+from .geometry_show import GeometryShowWidget
+from .logging import logger
+from .physical_object_creation import PhysicalObjectCreationWidget
+from .platform_services_table import PlatformServicesTableWidget
 
 
-class GeometryShow(QtWidgets.QDialog):
-    def __init__(self, geometry: str, parent: Optional[QtWidgets.QWidget] = None):
-        super().__init__(parent=parent)
-        self.window().setWindowTitle("Просмотр геометрии")
-        layout = QtWidgets.QVBoxLayout()
-        geometry_field = QtWidgets.QTextEdit()
-        geometry_field.setPlainText(geometry)
-        geometry_field.setMinimumSize(300, 300)
-        geometry_field.setReadOnly(True)
-        layout.addWidget(geometry_field)
-        copy_btn = QtWidgets.QPushButton("Скопировать в буфер обмена")
+class ServicesUpdatingWindow(QtWidgets.QWidget):  # pylint: disable=too-many-instance-attributes
+    """Window to update services data."""
 
-        def copy_and_close():
-            QtWidgets.QApplication.clipboard().setText(geometry_field.toPlainText())
-            self.accept()
-
-        copy_btn.clicked.connect(copy_and_close)
-        layout.addWidget(copy_btn)
-        self.setLayout(layout)
-
-
-def _str_or_none(string: str) -> Optional[str]:
-    if len(string) == 0:
-        return None
-    return string
-
-
-def _int_or_none(string: str) -> Optional[int]:
-    if len(string) == 0:
-        return None
-    assert string.isnumeric(), f"{string} cannot be converted to integer"
-    return int(string)
-
-
-def _to_str(i: Optional[Union[int, float, str]]) -> str:
-    return str(i) if i is not None else ""
-
-
-def _float_or_none(string: str) -> Optional[float]:
-    if len(string) == 0:
-        return None
-    assert string.replace(".", "").isnumeric() and string.count(".") < 2, f"{string} cannot be convected to float"
-    return float(string)
-
-
-def _bool_or_none(state: QtCore.Qt.CheckState) -> Optional[bool]:
-    if state == QtCore.Qt.CheckState.PartiallyChecked:
-        return None
-    if state == QtCore.Qt.CheckState.Checked:
-        return True
-    return False
-
-
-def _bool_to_checkstate(bool_value: Optional[bool]) -> QtCore.Qt.CheckState:
-    if bool_value is None:
-        return QtCore.Qt.CheckState.PartiallyChecked
-    if bool_value:
-        return QtCore.Qt.CheckState.Checked
-    return QtCore.Qt.CheckState.Unchecked
-
-
-class GeometryUpdate(QtWidgets.QDialog):
-    def __init__(self, text: str, parent: Optional[QtWidgets.QWidget] = None):
-        super().__init__(parent=parent)
-        self.window().setWindowTitle("Изменение геометрии")
-        layout = QtWidgets.QVBoxLayout()
-        layout.addWidget(QtWidgets.QLabel(text))
-        self._geometry_field = QtWidgets.QTextEdit()
-        self._geometry_field.setPlaceholderText('{\n  "type": "...",\n  "geometry": [...]\n}')
-        self._geometry_field.setAcceptRichText(False)
-        layout.addWidget(self._geometry_field)
-        buttons_layout = QtWidgets.QHBoxLayout()
-        ok_btn = QtWidgets.QPushButton("Ок")
-        ok_btn.clicked.connect(self.accept)
-        cancel_btn = QtWidgets.QPushButton("Отмена")
-        cancel_btn.clicked.connect(self.reject)
-        buttons_layout.addWidget(ok_btn)
-        buttons_layout.addWidget(cancel_btn)
-        layout.addLayout(buttons_layout)
-        self.setLayout(layout)
-
-    def get_geometry(self) -> Optional[str]:
-        return _str_or_none(self._geometry_field.toPlainText())
-
-
-class PhysicalObjectCreation(QtWidgets.QDialog):
-    def __init__(
-        self,
-        text: str,
-        geometry: Optional[str] = None,
-        osm_id: Optional[str] = None,
-        is_adding: bool = False,
-        parent: Optional[QtWidgets.QWidget] = None,
-    ):
-        super().__init__(parent=parent)
-        self.window().setWindowTitle("Добавление физического объекта" if is_adding else "Изменение физического объекта")
-        layout = QtWidgets.QVBoxLayout()
-        layout.addWidget(QtWidgets.QLabel(text))
-        self._geometry_field = QtWidgets.QTextEdit()
-        self._geometry_field.setPlainText(geometry or "")
-        self._geometry_field.setPlaceholderText('{\n  "type": "...",\n  "coordinates": [...]\n}')
-        self._geometry_field.setAcceptRichText(False)
-        layout.addWidget(self._geometry_field)
-        self._options_layout = QtWidgets.QFormLayout()
-        self._osm_id = QtWidgets.QLineEdit(osm_id or "")
-        self._osm_id.setPlaceholderText("5255196821")
-        self._options_layout.addRow("OpenStreetMap id:", self._osm_id)
-        layout.addLayout(self._options_layout)
-        buttons_layout = QtWidgets.QHBoxLayout()
-        ok_btn = QtWidgets.QPushButton("Ок")
-        ok_btn.clicked.connect(self.accept)
-        cancel_btn = QtWidgets.QPushButton("Отмена")
-        cancel_btn.clicked.connect(self.reject)
-        buttons_layout.addWidget(ok_btn)
-        buttons_layout.addWidget(cancel_btn)
-        layout.addLayout(buttons_layout)
-        self.setLayout(layout)
-
-    def osm_id(self) -> Optional[str]:
-        return _str_or_none(self._osm_id.text())
-
-    def get_geometry(self) -> Optional[str]:
-        return _str_or_none(self._geometry_field.toPlainText())
-
-
-class BuildingCreation(QtWidgets.QDialog):
-    def __init__(
-        self,
-        text: str,
-        geometry: Optional[str] = None,
-        osm_id: Optional[str] = None,
-        address: Optional[str] = None,
-        building_date: Optional[str] = None,
-        repair_years: Optional[str] = None,
-        building_area: Optional[float] = None,
-        living_area: Optional[float] = None,
-        storeys: Optional[int] = None,
-        lift_count: Optional[int] = None,
-        population: Optional[int] = None,
-        project_type: Optional[str] = None,
-        ukname: Optional[str] = None,
-        central_heating: Optional[bool] = None,
-        central_hotwater: Optional[bool] = None,
-        central_electricity: Optional[bool] = None,
-        central_gas: Optional[bool] = None,
-        refusechute: Optional[bool] = None,
-        is_failfing: Optional[bool] = None,
-        is_living: Optional[bool] = None,
-        is_adding: bool = False,
-        parent: Optional[QtWidgets.QWidget] = None,
-    ):
-        super().__init__(parent=parent)
-        self.window().setWindowTitle("Добавление здания" if is_adding else "Изменение здания")
-
-        double_validator = QtGui.QDoubleValidator(0.0, 1000000.0, 4)
-        double_validator.setLocale(QtCore.QLocale.English)
-        layout = QtWidgets.QVBoxLayout()
-        layout.addWidget(QtWidgets.QLabel(text))
-        self._geometry_field = QtWidgets.QTextEdit()
-        self._geometry_field.setPlainText(geometry or "")
-        self._geometry_field.setPlaceholderText('{\n  "type": "...",\n  "coordinates": [...]\n}')
-        self._geometry_field.setAcceptRichText(False)
-        layout.addWidget(self._geometry_field)
-        self._options_layout = QtWidgets.QFormLayout()
-        self._osm_id = QtWidgets.QLineEdit(osm_id or "")
-        self._osm_id.setPlaceholderText("5255196821")
-        self._options_layout.addRow("OpenStreetMap id:", self._osm_id)
-        self._address = QtWidgets.QLineEdit(address or "")
-        self._address.setPlaceholderText("Город, улица, номер дома")
-        self._options_layout.addRow("Адрес", self._address)
-        self._building_date = QtWidgets.QLineEdit(building_date or "")
-        self._building_date.setPlaceholderText("2001-2002")
-        self._options_layout.addRow("Дата постройки", self._building_date)
-        self._repair_years = QtWidgets.QLineEdit(repair_years or "")
-        self._repair_years.setPlaceholderText("2003; 2007")
-        self._options_layout.addRow("Года ремонта", self._repair_years)
-        self._building_area = QtWidgets.QLineEdit(_to_str(building_area))
-        self._building_area.setPlaceholderText("123.45")
-        self._building_area.setValidator(double_validator)
-        self._options_layout.addRow("Площадь дома", self._building_area)
-        self._building_area_living = QtWidgets.QLineEdit(_to_str(living_area))
-        self._building_area_living.setPlaceholderText("1234.5")
-        self._building_area_living.setValidator(double_validator)
-        self._options_layout.addRow("Общая жилая площадь", self._building_area_living)
-        self._storeys = QtWidgets.QLineEdit(_to_str(storeys))
-        self._storeys.setPlaceholderText("8")
-        self._storeys.setValidator(QtGui.QIntValidator(1, 100))
-        self._options_layout.addRow("Этажность", self._storeys)
-        self._lift_count = QtWidgets.QLineEdit(_to_str(lift_count))
-        self._lift_count.setPlaceholderText("4")
-        self._options_layout.addRow("Количество лифтов", self._lift_count)
-        self._population = QtWidgets.QLineEdit(_to_str(population))
-        self._population.setPlaceholderText("250")
-        self._population.setValidator(QtGui.QIntValidator(0, 20000))
-        self._options_layout.addRow("Население", self._population)
-        self._project_type = QtWidgets.QLineEdit(project_type or "")
-        self._project_type.setPlaceholderText("1ЛГ-602В-8")
-        self._ukname = QtWidgets.QLineEdit(ukname or "")
-        self._ukname.setPlaceholderText("ЖСК № 355")
-        self._options_layout.addRow("Застройщик", self._ukname)
-        self._central_heating = QtWidgets.QCheckBox()
-        self._central_heating.setTristate(True)
-        self._central_heating.setCheckState(_bool_to_checkstate(central_heating))
-        self._options_layout.addRow("Централизованное отопление", self._central_heating)
-        self._central_hotwater = QtWidgets.QCheckBox()
-        self._central_hotwater.setTristate(True)
-        self._central_hotwater.setCheckState(_bool_to_checkstate(central_hotwater))
-        self._options_layout.addRow("Централизованная горячая вода", self._central_hotwater)
-        self._central_electricity = QtWidgets.QCheckBox()
-        self._central_electricity.setTristate(True)
-        self._central_electricity.setCheckState(_bool_to_checkstate(central_electricity))
-        self._options_layout.addRow("Централизованное электричество", self._central_electricity)
-        self._central_gas = QtWidgets.QCheckBox()
-        self._central_gas.setTristate(True)
-        self._central_gas.setCheckState(_bool_to_checkstate(central_gas))
-        self._options_layout.addRow("Централизованный газ", self._central_gas)
-        self._refusechute = QtWidgets.QCheckBox()
-        self._refusechute.setTristate(True)
-        self._refusechute.setCheckState(_bool_to_checkstate(refusechute))
-        self._options_layout.addRow("Наличие мусоропровода", self._refusechute)
-        self._is_failing = QtWidgets.QCheckBox()
-        self._is_failing.setTristate(True)
-        self._is_failing.setCheckState(_bool_to_checkstate(is_failfing))
-        self._options_layout.addRow("Аварийное состояние", self._is_failing)
-        self._is_living = QtWidgets.QCheckBox()
-        self._is_living.setTristate(True)
-        self._is_living.setCheckState(_bool_to_checkstate(is_living))
-        self._options_layout.addRow("Жилой дом", self._is_living)
-        layout.addLayout(self._options_layout)
-        buttons_layout = QtWidgets.QHBoxLayout()
-        ok_btn = QtWidgets.QPushButton("Ок")
-        ok_btn.clicked.connect(self.accept)
-        cancel_btn = QtWidgets.QPushButton("Отмена")
-        cancel_btn.clicked.connect(self.reject)
-        buttons_layout.addWidget(ok_btn)
-        buttons_layout.addWidget(cancel_btn)
-        layout.addLayout(buttons_layout)
-        self.setLayout(layout)
-
-    def osm_id(self) -> Optional[str]:
-        return _str_or_none(self._osm_id.text())
-
-    def get_geometry(self) -> Optional[str]:
-        return _str_or_none(self._geometry_field.toPlainText())
-
-    def address(self) -> Optional[str]:
-        return _str_or_none(self._address.text())
-
-    def building_date(self) -> Optional[str]:
-        return _str_or_none(self._building_date.text())
-
-    def repair_years(self) -> Optional[str]:
-        return _str_or_none(self._repair_years.text())
-
-    def building_area(self) -> Optional[float]:
-        return _float_or_none(self._building_area.text())
-
-    def building_area_living(self) -> Optional[float]:
-        return _float_or_none(self._building_area_living.text())
-
-    def storeys(self) -> Optional[int]:
-        return _int_or_none(self._storeys.text())
-
-    def lift_count(self) -> Optional[int]:
-        return _int_or_none(self._lift_count.text())
-
-    def population(self) -> Optional[int]:
-        return _int_or_none(self._population.text())
-
-    def project_type(self) -> Optional[str]:
-        return _str_or_none(self._project_type.text())
-
-    def ukname(self) -> Optional[str]:
-        return _str_or_none(self._ukname.text())
-
-    def central_heating(self) -> Optional[bool]:
-        return _bool_or_none(self._central_heating.checkState())
-
-    def central_hotwater(self) -> Optional[bool]:
-        return _bool_or_none(self._central_hotwater.checkState())
-
-    def central_electricity(self) -> Optional[bool]:
-        return _bool_or_none(self._central_electricity.checkState())
-
-    def central_gas(self) -> Optional[bool]:
-        return _bool_or_none(self._central_gas.checkState())
-
-    def refusechute(self) -> Optional[bool]:
-        return _bool_or_none(self._refusechute.checkState())
-
-    def is_failing(self) -> Optional[bool]:
-        return _bool_or_none(self._is_failing.checkState())
-
-    def is_living(self) -> Optional[bool]:
-        return _bool_or_none(self._is_living.checkState())
-
-
-class UpdatingWindow(QtWidgets.QWidget):
     EditButtons = NamedTuple(
         "EditButtons",
         [
@@ -434,11 +41,11 @@ class UpdatingWindow(QtWidgets.QWidget):
         ],
     )
 
-    def __init__(
+    def __init__(  # pylint: disable=too-many-statements
         self,
         db_properties: Properties,
-        on_close: Optional[Callable[[], None]] = None,
-        parent: Optional[QtWidgets.QWidget] = None,
+        on_close: Callable[[], None] | None = None,
+        parent: QtWidgets.QWidget | None = None,
     ):
         super().__init__(parent)
 
@@ -491,7 +98,7 @@ class UpdatingWindow(QtWidgets.QWidget):
         self._editing_group_box = QtWidgets.QGroupBox("Изменение списка")
         self._editing_group = QtWidgets.QFormLayout()
         self._editing_group_box.setLayout(self._editing_group)
-        self._edit_buttons = UpdatingWindow.EditButtons(
+        self._edit_buttons = ServicesUpdatingWindow.EditButtons(
             QtWidgets.QPushButton("Отобразить сервисы"),
             QtWidgets.QPushButton("Удалить сервис"),
             QtWidgets.QPushButton("Посмотреть геометрию"),
@@ -530,7 +137,7 @@ class UpdatingWindow(QtWidgets.QWidget):
         self._options_group_box.setFixedWidth(right_width)
         self._editing_group_box.setFixedWidth(right_width)
 
-    def _on_city_change(self, _changed: Optional[QtWidgets.QComboBox] = None, _old_state: Optional[int] = None) -> None:
+    def _on_city_change(self, _changed: QtWidgets.QComboBox | None = None, _old_state: int | None = None) -> None:
         with self._db_properties.conn.cursor() as cur:
             cur.execute(
                 "SELECT DISTINCT st.name FROM functional_objects f"
@@ -627,7 +234,9 @@ class UpdatingWindow(QtWidgets.QWidget):
             f' типа "{self._service_type.currentText()}"</font><br>'
         )
 
-    def _on_cell_change(self, row: int, column_name: str, old_value: Any, new_value: Any, is_valid: bool) -> None:
+    def _on_cell_change(  # pylint: disable=too-many-arguments
+        self, row: int, column_name: str, old_value: Any, new_value: Any, is_valid: bool
+    ) -> None:
         func_id = self._table.item(row, 0).text()
         if is_valid:
             if (
@@ -640,12 +249,12 @@ class UpdatingWindow(QtWidgets.QWidget):
                 self._table.item(row, PlatformServicesTableWidget.LABELS_DB.index("is_capacity_real")).setText("true")
             self._log_window.insertHtml(
                 f"<font color=yellowgreen>Изменен объект с func_id={func_id}. {column_name}:"
-                f' "{_to_str(old_value)}"->"{_to_str(new_value)}"</font><br>'
+                f' "{to_str(old_value)}"->"{to_str(new_value)}"</font><br>'
             )
         else:
             self._log_window.insertHtml(
                 f"<font color=#e6783c>Не изменен объект с func_id="
-                f'{func_id}. {column_name}: "{_to_str(old_value)}"->"{_to_str(new_value)}"'
+                f'{func_id}. {column_name}: "{to_str(old_value)}"->"{to_str(new_value)}"'
                 " (некорректное значение)</font><br>"
             )
             return
@@ -719,12 +328,12 @@ class UpdatingWindow(QtWidgets.QWidget):
             if res is None:
                 return
             geometry = json.loads(res[0])
-        GeometryShow(json.dumps(geometry, indent=4)).exec()
+        GeometryShowWidget(json.dumps(geometry, indent=4)).exec()
 
     def _on_add_physical_object(self) -> None:
         row = self._table.currentRow()
         func_id, _phys_id = self._table.item(row, 0).text(), self._table.item(row, 8).text()
-        dialog = PhysicalObjectCreation(
+        dialog = PhysicalObjectCreationWidget(
             f"Введите информацию о физическом объекте для сервиса в строке {row + 1} в поля ниже", is_adding=True
         )
         if dialog.exec() != QtWidgets.QDialog.Accepted or self._additional_conn is None:
@@ -794,7 +403,7 @@ class UpdatingWindow(QtWidgets.QWidget):
             cur.execute("SELECT ST_AsGeoJSON(geometry), osm_id FROM physical_objects WHERE id = %s", (phys_id,))
             geometry, osm_id = cur.fetchone()  # type: ignore
         geometry = json.loads(geometry)
-        dialog = PhysicalObjectCreation(
+        dialog = PhysicalObjectCreationWidget(
             f"Если необходимо, измените параметры физического объекта для сервиса на строке {row + 1}",
             json.dumps(geometry, indent=2),
             osm_id,
@@ -857,10 +466,10 @@ class UpdatingWindow(QtWidgets.QWidget):
                 f" {osm_id}->{dialog.osm_id()}</font><br>"
             )
 
-    def _on_add_building(self) -> None:
+    def _on_add_building(self) -> None:  # pylint: disable=too-many-locals
         row = self._table.currentRow()
         func_id = self._table.item(row, 0).text()
-        dialog = BuildingCreation(
+        dialog = BuildingCreationWidget(
             f"Введите информацию о здании для добавления для сервиса на строке {row + 1} в поля ниже", is_adding=True
         )
         if dialog.exec() != QtWidgets.QDialog.Accepted or self._additional_conn is None:
@@ -965,7 +574,7 @@ class UpdatingWindow(QtWidgets.QWidget):
         self._table.item(row, 11).setText(geom_type)
         self._table.item(row, 11).setBackground(QtCore.Qt.GlobalColor.yellow)
 
-    def _on_update_building(self) -> None:
+    def _on_update_building(self) -> None:  # pylint: disable=too-many-locals
         row = self._table.currentRow()
         func_id, phys_id = self._table.item(row, 0).text(), self._table.item(row, 8).text()
         with self._db_properties.conn.cursor() as cur:
@@ -991,7 +600,7 @@ class UpdatingWindow(QtWidgets.QWidget):
                 )
                 return
         geometry = json.loads(geometry)
-        dialog = BuildingCreation(
+        dialog = BuildingCreationWidget(
             f"Если необходимо, измените параметры здания для сервиса на строке {row + 1}",
             json.dumps(geometry, indent=2),
             *res,
@@ -1125,12 +734,12 @@ class UpdatingWindow(QtWidgets.QWidget):
                     self._log_window.insertHtml(
                         f"<font color=yellowgreen>Изменен параметр дома ({name_interface})"
                         f" для build_id={b_id} (phys_id={phys_id}):"
-                        f' "{_to_str(old_value)}"->"{_to_str(new_value)}"</font><br>'
+                        f' "{to_str(old_value)}"->"{to_str(new_value)}"</font><br>'
                     )
                 cur.execute(f"UPDATE buildings SET {column} = %s WHERE id = %s", (new_value, b_id))
 
     def _on_export(self) -> None:
-        lines: List[List[Any]] = []
+        lines: list[list[Any]] = []
         for row in range(self._table.rowCount()):
             lines.append([self._table.item(row, col).text() for col in range(self._table.columnCount())])
         dataframe = pd.DataFrame(
@@ -1192,6 +801,7 @@ class UpdatingWindow(QtWidgets.QWidget):
             self._edit_buttons.load.setEnabled(True)
 
     def set_cities(self, cities: Iterable[str]) -> None:
+        """Set cities list. Called from the outside if the connection to the database has changed."""
         cities = list(cities)
         current_city = self._city_choose.currentText()
         self._city_choose.clear()
@@ -1205,7 +815,10 @@ class UpdatingWindow(QtWidgets.QWidget):
                 self._on_city_change()
             self._city_choose.view().setMinimumWidth(len(max(cities, key=len)) * 8)
 
-    def change_db(self, db_addr: str, db_port: int, db_name: str, db_user: str, db_pass: str) -> None:
+    def change_db(  # pylint: disable=too-many-arguments
+        self, db_addr: str, db_port: int, db_name: str, db_user: str, db_pass: str
+    ) -> None:
+        """Uptdate database connection. Called from the outside if the connection to the database has changed."""
         self._db_properties.reopen(db_addr, db_port, db_name, db_user, db_pass)
         if self._additional_conn is not None and not self._additional_conn.closed:
             self._additional_conn.close()
