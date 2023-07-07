@@ -1,8 +1,6 @@
 """
 Blocks insertion command-line utility input information is defined here.
 """
-from typing import Optional
-
 import click
 
 from platform_management.cli import insert_blocks_cli
@@ -104,7 +102,7 @@ def insert_blocks(
     db_pass: str,
     dry_run: bool,
     verbose: bool,
-    log_filename: Optional[str],
+    log_filename: str | None,
     city: str,
     document_geometry: str,
     filename: str,

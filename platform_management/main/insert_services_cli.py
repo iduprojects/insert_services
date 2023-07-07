@@ -1,8 +1,6 @@
 """
 Services insertion command-line utility input information is defined here.
 """
-from typing import List, Optional
-
 import click
 
 from platform_management.cli import insert_services_cli
@@ -221,7 +219,7 @@ def insert_services(
     db_pass: str,
     dry_run: bool,
     verbose: bool,
-    log_filename: Optional[str],
+    log_filename: str | None,
     city: str,
     service_type: str,
     document_latitude: str,
@@ -234,13 +232,13 @@ def insert_services(
     document_phone: str,
     document_osm_id: str,
     document_capacity: str,
-    address_prefix: List[str],
+    address_prefix: list[str],
     new_address_prefix: str,
-    properties_mapping: List[str],
+    properties_mapping: list[str],
     filename: str,
 ):  # pylint: disable=too-many-arguments,too-many-locals,
     "Insert services from geojson via command line"
-    columns_mapping = ServiceInsertionMapping.init(
+    columns_mapping = ServiceInsertionMapping(
         document_latitude,
         document_longitude,
         document_geometry,

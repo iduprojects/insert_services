@@ -4,7 +4,6 @@ Command Line Interface launch logic is defined here.
 import os
 import sys
 import time
-from typing import List, Optional, Tuple
 
 import psycopg2
 from loguru import logger
@@ -34,10 +33,10 @@ LOG_HANDLER_ID = logger.add(
 def common(
     dry_run: bool,
     verbose: bool,
-    log_filename: Optional[str],
+    log_filename: str | None,
     database_credentials: DatabaseCredentials,
     filename: str,
-) -> Tuple[str, "psycopg2.connection"]:
+) -> tuple[str, "psycopg2.connection"]:
     """
     Perform common operations for all CLI processes.
 
@@ -109,13 +108,13 @@ def insert_services_cli(  # pylint: disable=too-many-branches,too-many-statement
     database_credentials: DatabaseCredentials,
     dry_run: bool,
     verbose: bool,
-    log_filename: Optional[str],
+    log_filename: str | None,
     city: str,
     service_type: str,
     columns_mapping: ServiceInsertionMapping,
-    address_prefix: List[str],
+    address_prefix: list[str],
     new_address_prefix: str,
-    properties_mapping: List[str],
+    properties_mapping: list[str],
     filename: str,
 ):
     """
@@ -166,12 +165,12 @@ def insert_buildings_cli(  # pylint: disable=too-many-branches,too-many-statemen
     database_credentials: DatabaseCredentials,
     dry_run: bool,
     verbose: bool,
-    log_filename: Optional[str],
+    log_filename: str | None,
     city: str,
     columns_mapping: BuildingInsertionMapping,
-    address_prefix: List[str],
+    address_prefix: list[str],
     new_address_prefix: str,
-    properties_mapping: List[str],
+    properties_mapping: list[str],
     filename: str,
 ):
     """
@@ -221,7 +220,7 @@ def insert_blocks_cli(  # pylint: disable=too-many-branches,too-many-statements,
     database_credentials: DatabaseCredentials,
     dry_run: bool,
     verbose: bool,
-    log_filename: Optional[str],
+    log_filename: str | None,
     city: str,
     geometry_column: str,
     filename: str,
@@ -256,12 +255,12 @@ def insert_adms_cli(  # pylint: disable=too-many-branches,too-many-statements,to
     database_credentials: DatabaseCredentials,
     dry_run: bool,
     verbose: bool,
-    log_filename: Optional[str],
+    log_filename: str | None,
     city: str,
     division_type: AdmDivisionType,
     mapping: AdmDivisionInsertionMapping,
     filename: str,
-    default_type_name: Optional[str] = None,
+    default_type_name: str | None = None,
 ):
     """
     Run services insertion command line interface with the given parameters.

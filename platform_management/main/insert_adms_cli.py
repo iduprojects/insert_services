@@ -1,8 +1,6 @@
 """
 Blocks insertion command-line utility input information is defined here.
 """
-from typing import Optional
-
 import click
 
 from platform_management.cli.adm_division import AdmDivisionType
@@ -169,12 +167,12 @@ def insert_adms(
     db_pass: str,
     dry_run: bool,
     verbose: bool,
-    log_filename: Optional[str],
+    log_filename: str | None,
     city: str,
     document_parent_same_type: str,
     document_name: str,
     document_type_name: str,
-    default_type_name: Optional[str],
+    default_type_name: str | None,
     document_geometry: str,
     document_population: str,
     document_parent_other_type: str,

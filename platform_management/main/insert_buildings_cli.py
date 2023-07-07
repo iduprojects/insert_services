@@ -1,8 +1,6 @@
 """
 Buildings insertion command-line utility input information is defined here.
 """
-from typing import List, Optional
-
 import click
 
 from platform_management.cli import insert_buildings_cli
@@ -294,7 +292,7 @@ def insert_buildings(
     db_pass: str,
     dry_run: bool,
     verbose: bool,
-    log_filename: Optional[str],
+    log_filename: str | None,
     city: str,
     document_geometry: str,
     document_address: str,
@@ -315,13 +313,13 @@ def insert_buildings(
     document_repair_years: str,
     document_is_living: str,
     document_building_year: str,
-    address_prefix: List[str],
+    address_prefix: list[str],
     new_address_prefix: str,
-    properties_mapping: List[str],
+    properties_mapping: list[str],
     filename: str,
 ):  # pylint: disable=too-many-arguments,too-many-locals,
     "Insert buildings from geojson via command line"
-    columns_mapping = BuildingInsertionMapping.init(
+    columns_mapping = BuildingInsertionMapping(
         document_geometry,
         document_address,
         document_project_type,

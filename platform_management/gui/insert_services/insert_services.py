@@ -6,7 +6,7 @@ import json
 import os
 import time
 import traceback
-from typing import Any, Callable, Dict, Iterable, List, NamedTuple, Optional, Tuple, Union
+from typing import Any, Callable, Iterable, NamedTuple
 
 import pandas as pd
 import psycopg2
@@ -83,8 +83,8 @@ class ServicesInsertionWindow(QtWidgets.QWidget):  # pylint: disable=too-many-in
     def __init__(  # pylint: disable=too-many-statements,consider-using-f-string
         self,
         db_properties: Properties,
-        on_close: Optional[Callable[[], None]] = None,
-        parent: Optional[QtWidgets.QWidget] = None,
+        on_close: Callable[[], None] | None = None,
+        parent: QtWidgets.QWidget | None = None,
     ):
         """Initialize service insertion window."""
         super().__init__(parent)
@@ -129,8 +129,8 @@ class ServicesInsertionWindow(QtWidgets.QWidget):  # pylint: disable=too-many-in
         left_hlayout.addWidget(self._save_results_btn)
         self._left.addLayout(left_hlayout)
         self._left.setAlignment(QtCore.Qt.AlignCenter)
-        self._table: Optional[QtWidgets.QTableView] = None
-        self._table_axes: List[str]  # type: ignore
+        self._table: QtWidgets.QTableView | None = None
+        self._table_axes: list[str]  # type: ignore
         self._table_model: QtGui.QStandardItemModel = None  # type: ignore
 
         self._options_group_box = QtWidgets.QGroupBox("Опции вставки")
@@ -209,7 +209,7 @@ class ServicesInsertionWindow(QtWidgets.QWidget):  # pylint: disable=too-many-in
         self._prefixes_group.addWidget(QtWidgets.QLineEdit())
         self._right.addWidget(self._prefixes_group_box)
 
-        types: Optional[Dict[str, Tuple[str, str]]]
+        types: dict[str, tuple[str, str]] | None
         if os.path.isfile("types.json"):
             with open("types.json", "rt", encoding="utf-8") as file:
                 types = json.load(file)
@@ -257,11 +257,11 @@ class ServicesInsertionWindow(QtWidgets.QWidget):  # pylint: disable=too-many-in
             line.setText(prefix_line)
             line.setMinimumWidth(250)
 
-        self._service_type_params: Dict[str, Tuple[str, int, int, bool, str]] = {}
+        self._service_type_params: dict[str, tuple[str, int, int, bool, str]] = {}
 
         self.on_options_change()
 
-    def on_open_file(self, filepath: Optional[str] = None) -> None:
+    def on_open_file(self, filepath: str | None = None) -> None:
         """
         Load table from file.
         """
@@ -296,7 +296,7 @@ class ServicesInsertionWindow(QtWidgets.QWidget):  # pylint: disable=too-many-in
         self.setWindowTitle(f'Загрузка объектов - "{filename[filename.rindex("/") + 1:]}"')
         logger.info(f"Открыт файл для вставки: {filename}, {dataframe.shape[0]} объектов")
 
-        self._table_axes: List[str] = ["Загрузить"] + list(dataframe.axes[1])
+        self._table_axes: list[str] = ["Загрузить"] + list(dataframe.axes[1])
         self._table_model = QtGui.QStandardItemModel(*dataframe.shape)
         self._table_model.setHorizontalHeaderLabels(list(self._table_axes))
         for i, service in dataframe.iterrows():
@@ -342,8 +342,8 @@ class ServicesInsertionWindow(QtWidgets.QWidget):  # pylint: disable=too-many-in
 
     def table_as_dataframe(self, include_all: bool = True) -> pd.DataFrame:
         """Form a pandas DataFrame from the table data."""
-        lines: List[List[Any]] = []
-        index: List[int] = []
+        lines: list[list[Any]] = []
+        index: list[int] = []
         for row in range(self._table_model.rowCount()):
             if include_all or self._table_model.index(row, 0).data() == "+":
                 lines.append([])
@@ -366,7 +366,7 @@ class ServicesInsertionWindow(QtWidgets.QWidget):  # pylint: disable=too-many-in
                 self.table_as_dataframe(False),
                 self._options_fields.city.currentText(),
                 self._options_fields.service_type.currentText(),
-                ServiceInsertionMapping.init(
+                ServiceInsertionMapping(
                     self._document_fields.latitude.currentText(),
                     self._document_fields.longitude.currentText(),
                     self._document_fields.geometry.currentText(),
@@ -485,7 +485,7 @@ class ServicesInsertionWindow(QtWidgets.QWidget):  # pylint: disable=too-many-in
             self._address_prefix_remove_btn.setEnabled(False)
         self.on_prefix_check()
 
-    def on_prefix_check(self, _: Optional[Any] = None, __: Optional[Any] = None) -> None:
+    def on_prefix_check(self, _: Any | None = None, __: Any | None = None) -> None:
         """Colorize address column by prefix."""
         res = 0
         if self._document_fields.address.currentIndex() != 0:
@@ -510,8 +510,8 @@ class ServicesInsertionWindow(QtWidgets.QWidget):  # pylint: disable=too-many-in
 
     def on_options_change(  # pylint: disable=consider-using-f-string
         self,
-        what_changed: Optional[Union[QtWidgets.QLineEdit, QtWidgets.QComboBox]] = None,
-        _previous_value: Optional[Union[int, str]] = None,
+        what_changed: QtWidgets.QLineEdit | QtWidgets.QComboBox | None = None,
+        _previous_value: int | str | None = None,
     ):  # pylint: disable=too-many-branches
         """Hook to be run on options change, can disable load button."""
         allowed_chars = set((chr(i) for i in range(ord("a"), ord("z") + 1))) | {"_"}
@@ -597,7 +597,7 @@ class ServicesInsertionWindow(QtWidgets.QWidget):  # pylint: disable=too-many-in
             self._load_objects_btn.setEnabled(False)
 
     def on_document_change(  # pylint: disable=too-many-branches,too-many-statements,consider-using-f-string
-        self, what_changed: Optional[QtWidgets.QComboBox] = None, previous_value: Optional[int] = None
+        self, what_changed: QtWidgets.QComboBox | None = None, previous_value: int | None = None
     ) -> None:
         """Hook to be called on document change, can disable load button."""
         logger.debug(
@@ -695,7 +695,7 @@ class ServicesInsertionWindow(QtWidgets.QWidget):  # pylint: disable=too-many-in
         else:
             self._load_objects_btn.setEnabled(False)
 
-    def on_property_add(self, db_name: Optional[str] = None) -> None:
+    def on_property_add(self, db_name: str | None = None) -> None:
         """Add additional property area and call on_options_change."""
         self._properties_group.addWidget(ColorizingLine(self.on_options_change), self._properties_cnt + 2, 0)
         property_box = ColorizingComboBox(self.on_document_change)
@@ -747,7 +747,7 @@ class ServicesInsertionWindow(QtWidgets.QWidget):  # pylint: disable=too-many-in
                 self._options_fields.city.setCurrentText(current_city)
             self._options_fields.city.view().setMinimumWidth(len(max(cities, key=len)) * 8)
 
-    def set_city_functions(self, city_functions_list: List[str]) -> None:
+    def set_city_functions(self, city_functions_list: list[str]) -> None:
         """Set alailable city functions list. Called from outside on reconnection to the database."""
         current_city_function = self._options_fields.city_function.currentText()
         self._options_fields.city_function.clear()
@@ -757,7 +757,7 @@ class ServicesInsertionWindow(QtWidgets.QWidget):  # pylint: disable=too-many-in
             self._options_fields.city_function.setCurrentText(current_city_function)
         self._options_fields.city_function.view().setMinimumWidth(len(max(city_functions_list, key=len)) * 8)
 
-    def set_service_types_params(self, service_types_params: Dict[str, Tuple[str, int, int, bool, str]]):
+    def set_service_types_params(self, service_types_params: dict[str, tuple[str, int, int, bool, str]]):
         """Set available city service types parameters. Called from outside on reconnection to the database."""
         self._service_type_params = service_types_params
         current_service_type = self._options_fields.service_type.currentText()

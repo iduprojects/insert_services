@@ -6,7 +6,7 @@ import os
 import time
 import traceback
 import warnings
-from typing import Callable, List, Optional
+from typing import Callable
 
 import pandas as pd
 import psycopg2
@@ -85,7 +85,7 @@ def add_blocks(  # pylint: disable=too-many-branches,too-many-statements
     commit: bool = True,
     verbose: bool = False,
     log_n: int = 200,
-    callback: Optional[Callable[[SingleObjectStatus], None]] = None,
+    callback: Callable[[SingleObjectStatus], None] | None = None,
 ) -> pd.DataFrame:
     """
     Insert service objects to database.
@@ -132,8 +132,8 @@ def add_blocks(  # pylint: disable=too-many-branches,too-many-statements
     updated = 0  # number of updated blocks which were already present in the database
     unchanged = 0  # number of blocks already present in the database with the same properties
     added, skipped = 0, 0
-    results: List[str] = list(("",) * blocks_df.shape[0])
-    block_ids: List[int] = [-1 for _ in range(blocks_df.shape[0])]
+    results: list[str] = list(("",) * blocks_df.shape[0])
+    block_ids: list[int] = [-1 for _ in range(blocks_df.shape[0])]
 
     with conn.cursor() as cur:
         cur.execute("SELECT id FROM cities WHERE name = %(city)s or code = %(city)s", {"city": city_name})

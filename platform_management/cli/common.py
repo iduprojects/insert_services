@@ -6,7 +6,7 @@ import json
 import time
 from enum import Enum
 from enum import auto as enum_auto
-from typing import Any, Dict
+from typing import Any
 
 from loguru import logger
 
@@ -78,7 +78,7 @@ class SQLType(Enum):
             return None
 
 
-sqltype_mapping: Dict[str, SQLType] = dict(
+sqltype_mapping: dict[str, SQLType] = dict(
     itertools.chain(
         map(
             lambda x: (x, SQLType.VARCHAR),

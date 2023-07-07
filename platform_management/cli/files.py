@@ -2,13 +2,13 @@
 Functions to load pandas.DataFrame from different file types are defined here.
 """
 import json
-from typing import Any, Dict, Iterable, Optional
+from typing import Any, Iterable
 
 import pandas as pd
 from numpy import nan
 
 
-def replace_with_default(dataframe: pd.DataFrame, default_values: Dict[str, Any]) -> pd.DataFrame:
+def replace_with_default(dataframe: pd.DataFrame, default_values: dict[str, Any]) -> pd.DataFrame:
     """
     Replace null items in dataframe in given columns with given values.
 
@@ -28,8 +28,8 @@ def replace_with_default(dataframe: pd.DataFrame, default_values: Dict[str, Any]
 
 def load_objects_geojson(
     filename: str,
-    default_values: Optional[Dict[str, Any]] = None,
-    needed_columns: Optional[Iterable[str]] = None,
+    default_values: dict[str, Any] | None = None,
+    needed_columns: Iterable[str] | None = None,
 ) -> pd.DataFrame:
     """
     Load objects as DataFrame from geojson. It contains only [features][properties] columns.
@@ -52,7 +52,7 @@ def load_objects_geojson(
 
 
 def load_objects_json(
-    filename: str, default_values: Optional[Dict[str, Any]] = None, needed_columns: Optional[Iterable[str]] = None
+    filename: str, default_values: dict[str, Any] | None = None, needed_columns: Iterable[str] | None = None
 ) -> pd.DataFrame:
     """
     Load objects as DataFrame from json by calling pd.read_json.
@@ -67,7 +67,7 @@ def load_objects_json(
 
 
 def load_objects_csv(
-    filename: str, default_values: Optional[Dict[str, Any]] = None, needed_columns: Optional[Iterable[str]] = None
+    filename: str, default_values: dict[str, Any] | None = None, needed_columns: Iterable[str] | None = None
 ) -> pd.DataFrame:
     """
     Load objects as DataFrame from csv by calling pd.read_csv.
@@ -83,7 +83,7 @@ def load_objects_csv(
 
 
 def load_objects_xlsx(
-    filename: str, default_values: Optional[Dict[str, Any]] = None, needed_columns: Optional[Iterable[str]] = None
+    filename: str, default_values: dict[str, Any] | None = None, needed_columns: Iterable[str] | None = None
 ) -> pd.DataFrame:
     """
     Load objects as DataFrame from xlsx by calling pd.read_excel
@@ -100,7 +100,7 @@ def load_objects_xlsx(
 
 
 def load_objects_excel(
-    filename: str, default_values: Optional[Dict[str, Any]] = None, needed_columns: Optional[Iterable[str]] = None
+    filename: str, default_values: dict[str, Any] | None = None, needed_columns: Iterable[str] | None = None
 ) -> pd.DataFrame:
     """
     Load objects as DataFrame from xls or ods by calling pd.read_excel
@@ -117,7 +117,7 @@ def load_objects_excel(
 
 
 def load_objects(
-    filename: str, default_values: Optional[Dict[str, Any]] = None, needed_columns: Optional[Iterable[str]] = None
+    filename: str, default_values: dict[str, Any] | None = None, needed_columns: Iterable[str] | None = None
 ) -> pd.DataFrame:
     """
     Load objects as DataFrame from the given fie (csv, xlsx, xls, ods, json or geojson).

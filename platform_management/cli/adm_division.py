@@ -9,7 +9,7 @@ import traceback
 import warnings
 from enum import Enum
 from functools import reduce
-from typing import Callable, Dict, List, Optional
+from typing import Callable
 
 import pandas as pd
 import psycopg2
@@ -38,7 +38,7 @@ def insert_administrative_unit(
     cur: "psycopg2.cursor",
     row: pd.Series,
     mapping: AdmDivisionInsertionMapping,
-    administrative_unit_types: Dict[str, int],
+    administrative_unit_types: dict[str, int],
     city_id: int,
     commit: bool = True,
 ) -> int:
@@ -85,7 +85,7 @@ def insert_municipality(
     cur: "psycopg2.cursor",
     row: pd.Series,
     mapping: AdmDivisionInsertionMapping,
-    municipalities_types: Dict[str, int],
+    municipalities_types: dict[str, int],
     city_id: int,
     commit: bool = True,
 ) -> int:
@@ -133,7 +133,7 @@ def update_administrative_unit(
     administrative_unit_id: int,
     row: pd.Series,
     mapping: AdmDivisionInsertionMapping,
-    administrative_unit_types: Dict[str, int],
+    administrative_unit_types: dict[str, int],
     commit: bool = True,
 ):
     """
@@ -213,7 +213,7 @@ def update_municipality(
     municipality_id: int,
     row: pd.Series,
     mapping: AdmDivisionInsertionMapping,
-    municipality_types: Dict[str, int],
+    municipality_types: dict[str, int],
     commit: bool = True,
 ):
     """
@@ -295,7 +295,7 @@ def add_adm_division(  # pylint: disable=too-many-branches,too-many-statements
     commit: bool = True,
     verbose: bool = False,
     log_n: int = 200,
-    callback: Optional[Callable[[SingleObjectStatus], None]] = None,
+    callback: Callable[[SingleObjectStatus], None] | None = None,
 ) -> pd.DataFrame:
     """
     Insert administrative divition units to database.
@@ -356,8 +356,8 @@ def add_adm_division(  # pylint: disable=too-many-branches,too-many-statements
     updated = 0  # number of updated adms which were already present in the database
     unchanged = 0  # number of amds already present in the database with the same properties
     added, skipped = 0, 0
-    results: List[str] = list(("",) * adms_df.shape[0])
-    adm_ids: List[int] = [-1 for _ in range(adms_df.shape[0])]
+    results: list[str] = list(("",) * adms_df.shape[0])
+    adm_ids: list[int] = [-1 for _ in range(adms_df.shape[0])]
 
     with conn.cursor() as cur:
         cur.execute("SELECT id FROM cities WHERE name = %(city)s or code = %(city)s", {"city": city_name})

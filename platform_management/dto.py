@@ -2,7 +2,7 @@
 Document-database mappings are defined here.
 """
 from dataclasses import dataclass
-from typing import Dict, Optional, Union
+from dataclasses import fields as get_fields
 
 
 @dataclass(frozen=True)
@@ -17,9 +17,7 @@ class DatabaseCredentials:
     user: str
     password: str
 
-    def get_connection_params(
-        self, additional_params: Optional[Dict[str, str | int]] = ...
-    ) -> Dict[str, Union[str, int]]:
+    def get_connection_params(self, additional_params: dict[str, str | int] | None = ...) -> dict[str, str | int]:
         """
         Return connection parameters dictionady.
 
@@ -51,183 +49,76 @@ class DatabaseCredentials:
 
 @dataclass(frozen=True)
 class ServiceInsertionMapping:  # pylint: disable=too-many-instance-attributes
-    """
-    Class to store the mapping between input document service properties and database columns.
+    """Class to store the mapping between input document service properties and database columns."""
 
-    Should be initialized with `init()`.
-    """
+    latitude: str | None = "x"
+    longitude: str | None = "y"
+    geometry: str | None = "geometry"
+    name: str | None = "Name"
+    opening_hours: str | None = "opening_hours"
+    website: str | None = "contact:website"
+    phone: str | None = "contact:phone"
+    address: str | None = "yand_adr"
+    capacity: str | None = "id"
+    osm_id: str | None = None
 
-    latitude: Optional[str] = None
-    longitude: Optional[str] = None
-    geometry: Optional[str] = None
-    name: Optional[str] = None
-    opening_hours: Optional[str] = None
-    website: Optional[str] = None
-    phone: Optional[str] = None
-    address: Optional[str] = None
-    capacity: Optional[str] = None
-    osm_id: Optional[str] = None
-
-    @classmethod
-    def init(  # pylint: disable=too-many-arguments
-        cls,
-        latitude: Optional[str] = "x",
-        longitude: Optional[str] = "y",
-        geometry: Optional[str] = "geometry",
-        name: Optional[str] = "Name",
-        opening_hours: Optional[str] = "opening_hours",
-        website: Optional[str] = "contact:website",
-        phone: Optional[str] = "contact:phone",
-        address: Optional[str] = "yand_adr",
-        osm_id: Optional[str] = "id",
-        capacity: Optional[str] = None,
-    ) -> "ServiceInsertionMapping":
-        """
-        Initialize `ServiceInsertionMapping` instance with given values (except empty values and "-")
-        """
-        assert not (
-            (latitude is None or longitude is None) and geometry is None
-        ), "At least one of (latitude+longitude) and (geometry) must be set"
-        return cls(
-            *map(
-                lambda s: None if s in ("", "-") else s,
-                (
-                    latitude,
-                    longitude,
-                    geometry,
-                    name,
-                    opening_hours,
-                    website,
-                    phone,
-                    address,
-                    capacity,
-                    osm_id,
-                ),
-            )
-        )  # type: ignore
+    def __post_init__(self) -> None:
+        for field in get_fields(self):
+            value = getattr(self, field.name)
+            if value in ("", "-"):
+                setattr(self, field.name, None)
+        if (self.latitude is None or self.longitude is None) and self.geometry is None:
+            raise ValueError("At least one of (latitude+longitude) and (geometry) must be set")
 
 
 @dataclass(frozen=True)
 class BuildingInsertionMapping:  # pylint: disable=too-many-instance-attributes
-    """
-    Class to store the mapping between input document building properties and database columns.
+    """Class to store the mapping between input document building properties and database columns."""
 
-    Should be initialized with `init()`.
-    """
+    geometry: str | None = "geometry"
+    address: str | None = "address"
+    project_type: str | None = "project_type"
+    living_area: str | None = "area_residential"
+    storeys_count: str | None = "building:levels"
+    resident_number: str | None = "resident_number"
+    osm_id: str | None = "osm_id"
+    central_heating: str | None = "central_heating"
+    central_water: str | None = "central_water"
+    central_hot_water: str | None = "central_hot_water"
+    central_electricity: str | None = "central_electricity"
+    central_gas: str | None = "central_gas"
+    refusechute: str | None = "refusechute"
+    ukname: str | None = "ukname"
+    is_failing: str | None = "is_failing"
+    lift_count: str | None = "lift_count"
+    repair_years: str | None = "repair_years"
+    is_living: str | None = "is_living"
+    building_year: str | None = "built_year"
 
-    geometry: Optional[str] = None
-    address: Optional[str] = None
-    project_type: Optional[str] = None
-    living_area: Optional[str] = None
-    storeys_count: Optional[str] = None
-    resident_number: Optional[str] = None
-    osm_id: Optional[str] = None
-    central_heating: Optional[str] = None
-    central_water: Optional[str] = None
-    central_hot_water: Optional[str] = None
-    central_electricity: Optional[str] = None
-    central_gas: Optional[str] = None
-    refusechute: Optional[str] = None
-    ukname: Optional[str] = None
-    is_failing: Optional[str] = None
-    lift_count: Optional[str] = None
-    repair_years: Optional[str] = None
-    is_living: Optional[str] = None
-    building_year: Optional[str] = None
-
-    @classmethod
-    def init(  # pylint: disable=too-many-arguments,too-many-locals
-        cls,
-        geometry: str = "geometry",
-        address: Optional[str] = "address",
-        project_type: Optional[str] = "project_type",
-        living_area: Optional[str] = "area_residential",
-        storeys_count: Optional[str] = "building:levels",
-        resident_number: Optional[str] = "resident_number",
-        osm_id: Optional[str] = "osm_id",
-        central_heating: Optional[str] = "central_heating",
-        central_water: Optional[str] = "central_water",
-        central_hot_water: Optional[str] = "central_hot_water",
-        central_electricity: Optional[str] = "central_electricity",
-        central_gas: Optional[str] = "central_gas",
-        refusechute: Optional[str] = "refusechute",
-        ukname: Optional[str] = "ukname",
-        is_failing: Optional[str] = "is_failing",
-        lift_count: Optional[str] = "lift_count",
-        repair_years: Optional[str] = "repair_years",
-        is_living: Optional[str] = "is_living",
-        building_year: Optional[str] = "built_year",
-    ) -> "BuildingInsertionMapping":
-        """
-        Initialize `BuildingInsertionMapping` instance with given values (except empty values and "-")
-        """
-        return cls(
-            *map(
-                lambda s: None if s in ("", "-") else s,
-                (
-                    geometry,
-                    address,
-                    project_type,
-                    living_area,
-                    storeys_count,
-                    resident_number,
-                    osm_id,
-                    central_heating,
-                    central_water,
-                    central_hot_water,
-                    central_electricity,
-                    central_gas,
-                    refusechute,
-                    ukname,
-                    is_failing,
-                    lift_count,
-                    repair_years,
-                    is_living,
-                    building_year,
-                ),
-            )
-        )
+    def __post_init__(self) -> None:
+        for field in get_fields(self):
+            value = getattr(self, field.name)
+            if value in ("", "-"):
+                setattr(self, field.name, None)
 
 
 @dataclass(frozen=True)
 class AdmDivisionInsertionMapping:  # pylint: disable=too-many-instance-attributes
-    """
-    Class to store the mapping between input document administrative division unit properties and database columns.
-
-    Should be initialized with `init()`.
+    """Class to store the mapping between input document administrative division unit
+    properties and database columns.
     """
 
-    geometry: str
-    type_name: str
-    name: str
-    parent_same_type: Optional[str] = None
-    parent_other_type: Optional[str] = None
-    population: Optional[str] = None
+    geometry: str = "geometry"
+    type_name: str = "type"
+    name: str = "name"
+    parent_same_type: str | None = "parent_same_type"
+    parent_other_type: str | None = "parent"
+    population: str | None = "population"
 
-    @classmethod
-    def init(  # pylint: disable=too-many-arguments
-        cls,
-        geometry: str = "geometry",
-        type_name: str = "type",
-        name: Optional[str] = "name",
-        parent_same_type: Optional[str] = "parent_same_type",
-        parent_other_type: Optional[str] = "parent",
-        population: Optional[str] = "population",
-    ) -> "ServiceInsertionMapping":
-        """
-        Initialize `ServiceInsertionMapping` instance with given values (except empty values and "-")
-        """
-        assert geometry is not None, "Administrative division unit geometry column must be set"
-        assert type_name is not None, "Administrative division unit type column must be set"
-        return cls(
-            *map(
-                lambda s: None if s in ("", "-") else s,
-                (
-                    geometry,
-                    name,
-                    parent_same_type,
-                    parent_other_type,
-                    population,
-                ),
-            )
-        )  # type: ignore
+    def __post_init__(self) -> None:
+        if self.geometry is None:
+            raise ValueError("Administrative division unit 'geometry' column must be set")
+        if self.type_name is None:
+            raise ValueError("Administrative division unit 'type' column must be set")
+        if self.name is None:
+            raise ValueError("Administrative division unit 'name' column must be set")

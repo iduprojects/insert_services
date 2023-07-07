@@ -9,7 +9,7 @@ import traceback
 import warnings
 from dataclasses import fields as dc_fields
 from numbers import Number
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Callable
 
 import pandas as pd
 import psycopg2
@@ -49,9 +49,9 @@ def insert_building(
     row: pd.Series,
     physical_object_id: int,
     mapping: BuildingInsertionMapping,
-    properties_mapping: Dict[str, str],
+    properties_mapping: dict[str, str],
     commit: bool = True,
-) -> Tuple[int, int]:
+) -> tuple[int, int]:
     """
     Insert building.
 
@@ -82,7 +82,7 @@ def update_building(
     row: pd.Series,
     building_id: int,
     mapping: BuildingInsertionMapping,
-    properties_mapping: Dict[str, str],
+    properties_mapping: dict[str, str],
     commit: bool = True,
 ) -> bool:
     """
@@ -151,13 +151,13 @@ def add_buildings(  # pylint: disable=too-many-branches,too-many-statements
     buildings_df: pd.DataFrame,
     city_name: str,
     mapping: BuildingInsertionMapping,
-    properties_mapping: Dict[str, str] = frozenset({}),
-    address_prefixes: List[str] = FrozenList(["Россия, Санкт-Петербург"]),
+    properties_mapping: dict[str, str] = frozenset({}),
+    address_prefixes: list[str] = FrozenList(["Россия, Санкт-Петербург"]),
     new_prefix: str = "",
     commit: bool = True,
     verbose: bool = False,
     log_n: int = 200,
-    callback: Optional[Callable[[SingleObjectStatus], None]] = None,
+    callback: Callable[[SingleObjectStatus], None] | None = None,
 ) -> pd.DataFrame:
     """
     Insert buildings to database.
@@ -241,8 +241,8 @@ def add_buildings(  # pylint: disable=too-many-branches,too-many-statements
     unchanged = 0  # number of buildings already present in the database with the same properties
     added, skipped = 0, 0
     skip_logs = False
-    results: List[str] = list(("",) * buildings_df.shape[0])
-    building_ids: List[int] = [-1 for _ in range(buildings_df.shape[0])]
+    results: list[str] = list(("",) * buildings_df.shape[0])
+    building_ids: list[int] = [-1 for _ in range(buildings_df.shape[0])]
     address_prefixes = sorted(address_prefixes, key=lambda s: -len(s))
     with conn.cursor() as cur:
         cur.execute("SELECT id FROM cities WHERE name = %(city)s or code = %(city)s", {"city": city_name})
@@ -299,7 +299,7 @@ def add_buildings(  # pylint: disable=too-many-branches,too-many-statements
                         else:
                             conn.rollback()
                         continue
-                    address: Optional[str] = None
+                    address: str | None = None
                     if mapping.address in row and row[mapping.address] is not None and row[mapping.address] != "":
                         for address_prefix in address_prefixes:
                             if row.get(mapping.address, "").startswith(address_prefixes):
@@ -322,8 +322,8 @@ def add_buildings(  # pylint: disable=too-many-branches,too-many-statements
                         "   AND ST_Within(%(center)s, geometry))",
                         {"city_id": city_id, "center": center},
                     )
-                    municipality_id: Optional[int]
-                    administrative_unit_id: Optional[int]
+                    municipality_id: int | None
+                    administrative_unit_id: int | None
                     municipality_id, administrative_unit_id = cur.fetchone()
 
                     build_id: int

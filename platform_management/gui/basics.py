@@ -2,7 +2,7 @@
 Common Qt widgets to use in GUI application.
 """
 import json
-from typing import Any, Callable, List, NamedTuple, Optional, Sequence, Tuple
+from typing import Any, Callable, NamedTuple, Sequence
 
 import psycopg2  # pylint: disable=unused-import
 from frozenlist import FrozenList
@@ -13,8 +13,8 @@ logger = logger.bind(name="basics")
 
 
 def check_geometry_correctness(
-    geometry_geojson: Optional[str], conn: "psycopg2.connection"
-) -> Optional[Tuple[float, float, str]]:
+    geometry_geojson: str | None, conn: "psycopg2.connection"
+) -> tuple[float, float, str] | None:
     """Check the correctness of the geometry by passing it to the PostGIS ST_GeomFromGeoJSON.
 
     Return centroid (latitude, longitude, geometry type) if geometry is correct, None otherwise.
@@ -43,9 +43,9 @@ class ColorizingLine(QtWidgets.QLineEdit):
 
     def __init__(
         self,
-        callback: Callable[[Optional[QtWidgets.QLineEdit], Optional[str]], None],
-        text: Optional[str] = None,
-        parent: Optional[QtWidgets.QWidget] = None,
+        callback: Callable[[QtWidgets.QLineEdit | None, str | None], None],
+        text: str | None = None,
+        parent: QtWidgets.QWidget | None = None,
     ):
         super().__init__(parent)
         self._state: str = text or ""
@@ -70,8 +70,8 @@ class ColorizingComboBox(QtWidgets.QComboBox):
 
     def __init__(
         self,
-        callback: Callable[[Optional[QtWidgets.QComboBox], Optional[int]], None],
-        parent: Optional[QtWidgets.QWidget] = None,
+        callback: Callable[[QtWidgets.QComboBox | None, int | None], None],
+        parent: QtWidgets.QWidget | None = None,
     ):
         super().__init__(parent)
         self._callback = callback
@@ -161,7 +161,7 @@ class DropPushButton(QtWidgets.QPushButton):
     """Button with a drag-and-drop interface for files."""
 
     def __init__(
-        self, text: str, formats: List[str], callback: Callable[[str], None], parent: Optional[QtWidgets.QWidget] = None
+        self, text: str, formats: list[str], callback: Callable[[str], None], parent: QtWidgets.QWidget | None = None
     ):
         self.formats = tuple((f".{format}" for format in formats))
         self._callback = callback
@@ -187,11 +187,11 @@ class ColoringTableWidget(QtWidgets.QTableWidget):
 
     def __init__(  # pylint: disable=too-many-arguments
         self,
-        data: List[Sequence[Any]],
-        labels: List[str],
+        data: list[Sequence[Any]],
+        labels: list[str],
         correction_checker: Callable[[int, int, Any, str], bool] = lambda _column, _row, _old_value, _new_value: True,
         blocked_columns: Sequence[int] = FrozenList([]),
-        parent: Optional[QtWidgets.QWidget] = None,
+        parent: QtWidgets.QWidget | None = None,
     ):
         super().__init__(parent=parent)
         self._data = []
@@ -243,7 +243,7 @@ class ColoringTableWidget(QtWidgets.QTableWidget):
 class GeometryShow(QtWidgets.QDialog):
     """Geometry display window with option to copy GeoJSON data."""
 
-    def __init__(self, geometry: str, parent: Optional[QtWidgets.QWidget] = None):
+    def __init__(self, geometry: str, parent: QtWidgets.QWidget | None = None):
         super().__init__(parent=parent)
         self.window().setWindowTitle("Просмотр геометрии")
         layout = QtWidgets.QVBoxLayout()

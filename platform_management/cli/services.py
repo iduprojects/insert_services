@@ -8,7 +8,7 @@ import random
 import time
 import traceback
 import warnings
-from typing import Callable, Dict, List, Optional, Tuple, Union
+from typing import Callable, Union
 
 import pandas as pd
 import psycopg2
@@ -32,7 +32,7 @@ def insert_object(
     name: str,
     service_type_id: int,
     mapping: ServiceInsertionMapping,
-    properties_mapping: Dict[str, str],
+    properties_mapping: dict[str, str],
     commit: bool = True,
 ) -> int:
     """
@@ -101,7 +101,7 @@ def update_object(
     functional_object_id: int,
     name: str,
     mapping: ServiceInsertionMapping,
-    properties_mapping: Dict[str, str],
+    properties_mapping: dict[str, str],
     commit: bool = True,
 ) -> bool:
     """
@@ -114,7 +114,7 @@ def update_object(
         " FROM functional_objects WHERE id = %s",
         (functional_object_id,),
     )
-    res: Tuple[str, str, str, str, int]
+    res: tuple[str, str, str, str, int]
     *res, db_properties = cur.fetchone()  # type: ignore
     try:
         capacity = int(float(row[mapping.capacity])) if row.get(mapping.capacity, None) is not None else None
@@ -168,7 +168,7 @@ def update_object(
 
 def get_properties_keys(
     cur_or_conn: Union["psycopg2.connection", "psycopg2.cursor"], city_service_type: str
-) -> List[str]:
+) -> list[str]:
     """Return a list of properties keys of a given city_service_type by name or id."""
     if isinstance(cur_or_conn, psycopg2.extensions.connection):
         cur = cur_or_conn.cursor()
@@ -196,13 +196,13 @@ def add_services(  # pylint: disable=too-many-branches,too-many-statements,too-m
     city_name: str,
     service_type: str,
     mapping: ServiceInsertionMapping,
-    properties_mapping: Dict[str, str] = frozenset({}),
-    address_prefixes: List[str] = FrozenList(["Россия, Санкт-Петербург"]),
+    properties_mapping: dict[str, str] = frozenset({}),
+    address_prefixes: list[str] = FrozenList(["Россия, Санкт-Петербург"]),
     new_prefix: str = "",
     commit: bool = True,
     verbose: bool = False,
     log_n: int = 200,
-    callback: Optional[Callable[[SingleObjectStatus], None]] = None,
+    callback: Callable[[SingleObjectStatus], None] | None = None,
 ) -> pd.DataFrame:
     """
     Insert service objects to database.
@@ -285,8 +285,8 @@ def add_services(  # pylint: disable=too-many-branches,too-many-statements,too-m
     updated = 0  # number of updated service objects which were already present in the database
     unchanged = 0  # number of service objects already present in the database with the same properties
     added_to_address, added_to_geom, added_as_points, skipped = 0, 0, 0, 0
-    results: List[str] = list(("",) * services_df.shape[0])
-    functional_ids: List[int] = [-1 for _ in range(services_df.shape[0])]
+    results: list[str] = list(("",) * services_df.shape[0])
+    functional_ids: list[int] = [-1 for _ in range(services_df.shape[0])]
     address_prefixes = sorted(address_prefixes, key=lambda s: -len(s))
     with conn.cursor() as cur:
         cur.execute("SELECT id FROM cities WHERE name = %(city)s or code = %(city)s", {"city": city_name})
@@ -372,7 +372,7 @@ def add_services(  # pylint: disable=too-many-branches,too-many-statements,too-m
                             results[i] = "Пропущен (широта или долгота некорректны)"
                             skipped += 1
                             continue
-                    address: Optional[str] = None
+                    address: str | None = None
                     if is_service_building:
                         if mapping.address in row:
                             for address_prefix in address_prefixes:
@@ -398,16 +398,16 @@ def add_services(  # pylint: disable=too-many-branches,too-many-statements,too-m
                         " WHERE ST_Within(ST_SetSRID(ST_MakePoint(%s, %s), 4326), geometry)",
                         (longitude, latitude),
                     )
-                    municipality_id: Optional[int] = cur.fetchone()[0] if cur.rowcount > 0 else None
+                    municipality_id: int | None = cur.fetchone()[0] if cur.rowcount > 0 else None
                     cur.execute(
                         "SELECT id FROM administrative_units"
                         " WHERE ST_Within(ST_SetSRID(ST_MakePoint(%s, %s), 4326), geometry)",
                         (longitude, latitude),
                     )
-                    administrative_unit_id: Optional[int] = cur.fetchone()[0] if cur.rowcount > 0 else None
+                    administrative_unit_id: int | None = cur.fetchone()[0] if cur.rowcount > 0 else None
 
                     phys_id: int
-                    build_id: Optional[int]
+                    build_id: int | None
                     insert_physical_object = False
                     if is_service_building:
                         if address is not None and address != "":
