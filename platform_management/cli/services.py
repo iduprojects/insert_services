@@ -16,8 +16,8 @@ from frozenlist import FrozenList
 from loguru import logger
 from numpy import nan
 from tqdm import tqdm
-from platform_management.cli.common import SingleObjectStatus
 
+from platform_management.cli.common import SingleObjectStatus
 from platform_management.dto import ServiceInsertionMapping
 
 warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")

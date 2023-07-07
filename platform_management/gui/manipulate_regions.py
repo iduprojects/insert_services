@@ -113,7 +113,6 @@ class RegionCreation(QtWidgets.QDialog):
 
 
 class RegionsWindow(QtWidgets.QWidget):
-
     EditButtons = NamedTuple(
         "EditButtons",
         [

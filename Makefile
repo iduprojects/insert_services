@@ -1,11 +1,29 @@
+CODE_DIR := platform_management
+
 gui:
-	python -m platform_management gui
+	python -m $(CODE_DIR) gui
 
 debug-gui:
-	python -m platform_management gui --verbose
+	python -m $(CODE_DIR) gui --verbose
 
 lint:
-	python -m pylint --max-line-length 120 platform_management -d duplicate-code
+	pylint $(CODE_DIR)
 
 format:
-	python -m black platform_management
+	isort $(CODE_DIR)
+	black $(CODE_DIR)
+
+install:
+	pip install .
+
+install-dev:
+	pip install -e . --config-settings editable_mode=strict
+
+build:
+	poetry build
+
+clean:
+	rm -rf ./build ./dist ./$(CODE_DIR).egg-info
+
+install-from-build:
+	python -m wheel install dist/$(CODE_DIR)-*.whl

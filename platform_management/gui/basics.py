@@ -4,12 +4,11 @@ Common Qt widgets to use in GUI application.
 """
 import json
 from typing import Any, Callable, List, NamedTuple, Optional, Sequence, Tuple
-from frozenlist import FrozenList
 
 import psycopg2  # pylint: disable=unused-import
-from PySide6 import QtCore, QtGui, QtWidgets
-
+from frozenlist import FrozenList
 from loguru import logger
+from PySide6 import QtCore, QtGui, QtWidgets
 
 logger = logger.bind(name="basics")
 
@@ -84,7 +83,6 @@ class ColorizingComboBox(QtWidgets.QComboBox):
 
 
 class CheckableTableView(QtWidgets.QTableView):
-
     colorTable = NamedTuple("ColorTable", [("on", QtGui.QColor), ("off", QtGui.QColor)])(
         QtGui.QColor(152, 224, 173), QtGui.QColor(248, 161, 164)
     )  # type: ignore

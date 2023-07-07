@@ -18,7 +18,7 @@ def replace_with_default(dataframe: pd.DataFrame, default_values: Dict[str, Any]
 
     Returns new dataframe with null entries replaced with given defaults
     """
-    for (column, value) in default_values.items():
+    for column, value in default_values.items():
         if column in dataframe:
             dataframe[column] = dataframe[column].fillna(value)
         else:

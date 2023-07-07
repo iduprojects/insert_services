@@ -11,8 +11,8 @@ from PySide6 import QtCore, QtGui, QtWidgets
 from platform_management.database_properties import Properties
 from platform_management.gui.insert_services import InsertionWindow
 from platform_management.gui.manipulate_cities import CitiesWindow
-from platform_management.gui.update_services import UpdatingWindow
 from platform_management.gui.manipulate_regions import RegionsWindow
+from platform_management.gui.update_services import UpdatingWindow
 
 InitWindowDefaultValues = NamedTuple(
     "InitWindowDefaultValues",
@@ -29,7 +29,6 @@ logger = logger.bind(name="gui_main")
 
 
 class InitWindow(QtWidgets.QWidget):
-
     DatabaseFields = NamedTuple(
         "DatabaseFields",
         [

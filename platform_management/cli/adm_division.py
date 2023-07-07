@@ -16,8 +16,8 @@ import psycopg2
 from loguru import logger
 from numpy import nan
 from tqdm import tqdm
-from platform_management.cli.common import SingleObjectStatus
 
+from platform_management.cli.common import SingleObjectStatus
 from platform_management.dto import AdmDivisionInsertionMapping
 
 warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")

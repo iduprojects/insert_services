@@ -11,9 +11,9 @@ import pandas as pd
 from loguru import logger
 from PySide6 import QtCore, QtGui, QtWidgets
 
+from platform_management import get_properties_keys
 from platform_management.database_properties import Properties
 from platform_management.gui.basics import ColoringTableWidget, ColorizingComboBox, check_geometry_correctness
-from platform_management import get_properties_keys
 
 logger = logger.bind(name="gui_update_services")
 
@@ -418,7 +418,6 @@ class BuildingCreation(QtWidgets.QDialog):
 
 
 class UpdatingWindow(QtWidgets.QWidget):
-
     EditButtons = NamedTuple(
         "EditButtons",
         [

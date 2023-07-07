@@ -6,10 +6,10 @@ import itertools
 import json
 import time
 from typing import Any, Callable, List, Literal, NamedTuple, Optional, Sequence, Tuple, Union
-from frozenlist import FrozenList
 
 import pandas as pd
 import psycopg2  # pylint: disable=unused-import
+from frozenlist import FrozenList
 from loguru import logger
 from PySide6 import QtCore, QtGui, QtWidgets
 

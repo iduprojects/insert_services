@@ -17,8 +17,8 @@ from frozenlist import FrozenList
 from loguru import logger
 from numpy import nan
 from tqdm import tqdm
-from platform_management.cli.common import SingleObjectStatus
 
+from platform_management.cli.common import SingleObjectStatus
 from platform_management.dto import BuildingInsertionMapping
 from platform_management.utils import simplify_data
 

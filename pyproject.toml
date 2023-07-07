@@ -1,3 +1,39 @@
+[tool.poetry]
+name = "platform-management"
+version = "0.1.0"
+description = "An utility for database management for Platform of Digital Urban Studies (ITMO, IDU, 2023)"
+authors = ["Aleksei Sokol <kanootoko@gmail.com>"]
+license = "MIT"
+readme = "README.md"
+packages = [{ include = "platform_management" }]
+
+[tool.poetry.scripts]
+platform-management = "platform_management:__main__.main"
+
+[tool.poetry.dependencies]
+python = ">=3.9,<3.12"
+click = "^8.1.4"
+frozenlist = "^1.3.3"
+loguru = "^0.7.0"
+odfpy = "^1.4.1"
+openpyxl = "^3.1.2"
+pandas = "^2.0.3"
+psycopg2 = "^2.9.6"
+pyside6 = "^6.5.1.1"
+tqdm = "^4.65.0"
+xlrd = "^2.0.1"
+
+
+[tool.poetry.group.dev.dependencies]
+black = "^23.3.0"
+pylint = "^2.17.4"
+pre-commit = "^3.3.3"
+isort = "^5.12.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
 [tool.black]
 line-length = 120
 target-version = ['py38']
@@ -5,3 +41,13 @@ target-version = ['py38']
 [tool.pylint.format]
 max-line-length = 120
 expected-line-ending-format = "LF"
+disable = ["duplicate-code"]
+
+[tool.isort]
+multi_line_output = 3
+include_trailing_comma = true
+force_grid_wrap = 0
+use_parentheses = true
+ensure_newline_before_comments = true
+line_length = 120
+split_on_trailing_comma = true
