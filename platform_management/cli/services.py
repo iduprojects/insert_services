@@ -633,10 +633,6 @@ def add_services(  # pylint: disable=too-many-branches,too-many-statements,too-m
                                         "Обновлен существующий сервис без здания"
                                         f" (phys_id = {phys_id}, functional_object_id = {res[0]})"
                                     )
-                                    results[i] = (
-                                        f"Сервис полностью совпадает с информацией в БД (build_id = {build_id},"
-                                        f" phys_id = {phys_id}, functional_object_id = {res[0]})"
-                                    )
                                 continue
                             # if no service present, but physical_object found
                             added_to_geom += 1
