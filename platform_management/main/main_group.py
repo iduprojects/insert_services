@@ -21,8 +21,7 @@ if os.path.isfile(envfile):
 
 @click.group()
 def main():
-    """
-    IDU - Platform Management Tool.
+    """IDU - Platform Management Tool.
 
     Includes CLI and GUI modes to manipulate database entities.
     """

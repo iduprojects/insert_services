@@ -458,26 +458,19 @@ def add_services(  # pylint: disable=too-many-branches,too-many-statements,too-m
                             # too high (address is wrong or it's not a concrete house)
                             if mapping.geometry in row:
                                 cur.execute(
-                                    "WITH new_geom AS (SELECT ST_SetSRID(ST_GeomFromGeoJSON(%s) AS geom)"
+                                    "WITH new_geom AS (SELECT ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326) AS geom)"
                                     " SELECT ST_GeometryType(geometry), phys.id, build.id, build.address"
-                                    " FROM ("
-                                    "       SELECT geometry,"
-                                    "       ST_Buffer(geometry::geography, 20)::geometry AS buffered_geometry,"
-                                    "       phys.id AS phys_id,"
-                                    "       build.id as build_id,"
-                                    "       build.address as build_address"
-                                    "   FROM physical_objects phys"
-                                    "       JOIN buildings build ON build.physical_object_id = phys.id"
-                                    "   WHERE city_id = %s"
+                                    " FROM physical_objects phys"
+                                    "   JOIN buildings build ON build.physical_object_id = phys.id"
+                                    " WHERE city_id = %s"
                                     + ("    AND municipality_id = %s" if municipality_id is not None else "")
                                     + (
                                         "    AND administrative_unit_id = %s"
                                         if administrative_unit_id is not None
                                         else ""
                                     )
-                                    + " ) buildings_filtered"
-                                    " WHERE ST_Intersects((SELECT geom FROM new_geom), 4326), geometry)"
-                                    " ORDER BY ST_Intersection((SELECT geom FROM new_geom)) DESC"
+                                    + " AND ST_Intersects((SELECT geom FROM new_geom), geometry)"
+                                    " ORDER BY ST_Intersection((SELECT geom FROM new_geom), geometry) DESC"
                                     " LIMIT 1",
                                     list(
                                         filter(
@@ -488,7 +481,9 @@ def add_services(  # pylint: disable=too-many-branches,too-many-statements,too-m
                                 )
                             else:
                                 cur.execute(
-                                    "SELECT ST_GeometryType(geometry), phys.id, build.id, build.address"
+                                    "WITH new_geom AS (SELECT ST_Buffer("
+                                    "       ST_SetSRID(ST_MakePoint(%(lng)s, %(lat)s), 4326)::geography, 10)::geometry)"
+                                    " SELECT ST_GeometryType(geometry), phys.id, build.id, build.address"
                                     " FROM physical_objects phys"
                                     "   JOIN buildings build ON build.physical_object_id = phys.id"
                                     " WHERE city_id = %(city_id)s"
@@ -506,8 +501,7 @@ def add_services(  # pylint: disable=too-many-branches,too-many-statements,too-m
                                     "       ST_GeometryType(geometry) = 'ST_Point'"
                                     "           AND abs(ST_X(geometry) - %(lng)s) < 0.0001"
                                     "           AND abs(ST_Y(geometry) - %(lat)s) < 0.0001"
-                                    "       OR ST_Intersects(ST_SetSRID(ST_MakePoint(%(lng)s, %(lat)s), 4326),"
-                                    "           geometry)"
+                                    "       OR ST_Intersects((SELECT geom FROM new_geom), geometry)"
                                     "   )"
                                     " LIMIT 1",
                                     {"city_id": city_id, "lng": longitude, "lat": latitude}
@@ -740,7 +734,7 @@ def add_services(  # pylint: disable=too-many-branches,too-many-statements,too-m
                     if commit:
                         cur.execute("ROLLBACK TO previous_object")
                     else:
-                        cur.rollback()
+                        conn.rollback()
                     results[i] = f"Пропущен, вызывает ошибку: {exc}"
                     skipped += 1
         except KeyboardInterrupt:

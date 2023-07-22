@@ -83,6 +83,7 @@ from .main_group import main
     help="City to insert services to, must exist in the database",
     show_default=True,
     show_envvar=True,
+    required=True,
 )
 @click.option(
     "--service_type",
@@ -91,6 +92,7 @@ from .main_group import main
     help="Service type name or code for inserting services, must exist in the database",
     show_default=True,
     show_envvar=True,
+    required=True,
 )
 @click.option(
     "--document_latitude",
@@ -237,7 +239,7 @@ def insert_services(
     properties_mapping: list[str],
     filename: str,
 ):  # pylint: disable=too-many-arguments,too-many-locals,
-    "Insert services from geojson via command line"
+    """Insert services from geojson via command line"""
     columns_mapping = ServiceInsertionMapping(
         document_latitude,
         document_longitude,
