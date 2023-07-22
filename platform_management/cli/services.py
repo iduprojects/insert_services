@@ -425,7 +425,7 @@ def add_services(  # pylint: disable=too-many-branches,too-many-statements,too-m
                             res = None
                         if res is not None:
                             # if building with the same address found and distance between point
-                            # and the center of geometry is less than 100m
+                            # and the center of geometry is less than 200m
                             phys_id, build_id = res
                             cur.execute(
                                 "SELECT id FROM functional_objects f"
@@ -458,18 +458,31 @@ def add_services(  # pylint: disable=too-many-branches,too-many-statements,too-m
                             # too high (address is wrong or it's not a concrete house)
                             if mapping.geometry in row:
                                 cur.execute(
-                                    "SELECT ST_GeometryType(geometry), phys.id, build.id, build.address"
-                                    " FROM physical_objects phys"
-                                    "   JOIN buildings build ON build.physical_object_id = phys.id"
-                                    " WHERE city_id = %s"
-                                    + (" AND municipality_id = %s" if municipality_id is not None else "")
-                                    + (" AND administrative_unit_id = %s" if administrative_unit_id is not None else "")
-                                    + " AND ST_Intersects(ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326), geometry)"
+                                    "WITH new_geom AS (SELECT ST_SetSRID(ST_GeomFromGeoJSON(%s) AS geom)"
+                                    " SELECT ST_GeometryType(geometry), phys.id, build.id, build.address"
+                                    " FROM ("
+                                    "       SELECT geometry,"
+                                    "       ST_Buffer(geometry::geography, 20)::geometry AS buffered_geometry,"
+                                    "       phys.id AS phys_id,"
+                                    "       build.id as build_id,"
+                                    "       build.address as build_address"
+                                    "   FROM physical_objects phys"
+                                    "       JOIN buildings build ON build.physical_object_id = phys.id"
+                                    "   WHERE city_id = %s"
+                                    + ("    AND municipality_id = %s" if municipality_id is not None else "")
+                                    + (
+                                        "    AND administrative_unit_id = %s"
+                                        if administrative_unit_id is not None
+                                        else ""
+                                    )
+                                    + " ) buildings_filtered"
+                                    " WHERE ST_Intersects((SELECT geom FROM new_geom), 4326), geometry)"
+                                    " ORDER BY ST_Intersection((SELECT geom FROM new_geom)) DESC"
                                     " LIMIT 1",
                                     list(
                                         filter(
                                             lambda x: x is not None,
-                                            (city_id, municipality_id, administrative_unit_id, row[mapping.geometry]),
+                                            (row[mapping.geometry], city_id, municipality_id, administrative_unit_id),
                                         )
                                     ),
                                 )

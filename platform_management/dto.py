@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from dataclasses import fields as get_fields
 
 
-@dataclass(frozen=True)
+@dataclass
 class DatabaseCredentials:
     """
     Dataclass to store database credentials.
@@ -47,7 +47,7 @@ class DatabaseCredentials:
         return params
 
 
-@dataclass(frozen=True)
+@dataclass
 class ServiceInsertionMapping:  # pylint: disable=too-many-instance-attributes
     """Class to store the mapping between input document service properties and database columns."""
 
@@ -71,7 +71,7 @@ class ServiceInsertionMapping:  # pylint: disable=too-many-instance-attributes
             raise ValueError("At least one of (latitude+longitude) and (geometry) must be set")
 
 
-@dataclass(frozen=True)
+@dataclass
 class BuildingInsertionMapping:  # pylint: disable=too-many-instance-attributes
     """Class to store the mapping between input document building properties and database columns."""
 
@@ -94,6 +94,7 @@ class BuildingInsertionMapping:  # pylint: disable=too-many-instance-attributes
     repair_years: str | None = "repair_years"
     is_living: str | None = "is_living"
     building_year: str | None = "built_year"
+    modeled: str | None = "modeled_fields"
 
     def __post_init__(self) -> None:
         for field in get_fields(self):
@@ -102,7 +103,7 @@ class BuildingInsertionMapping:  # pylint: disable=too-many-instance-attributes
                 setattr(self, field.name, None)
 
 
-@dataclass(frozen=True)
+@dataclass
 class AdmDivisionInsertionMapping:  # pylint: disable=too-many-instance-attributes
     """Class to store the mapping between input document administrative division unit
     properties and database columns.
@@ -117,8 +118,8 @@ class AdmDivisionInsertionMapping:  # pylint: disable=too-many-instance-attribut
 
     def __post_init__(self) -> None:
         if self.geometry is None:
-            raise ValueError("Administrative division unit 'geometry' column must be set")
+            raise ValueError("Administrative division unit (geometry) column name must be set")
         if self.type_name is None:
-            raise ValueError("Administrative division unit 'type' column must be set")
+            raise ValueError("Administrative division unit (type) column name must be set")
         if self.name is None:
-            raise ValueError("Administrative division unit 'name' column must be set")
+            raise ValueError("Administrative division unit (name) column name must be set")
