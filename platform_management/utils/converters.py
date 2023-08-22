@@ -1,4 +1,6 @@
-"""Small data type converters are defined here."""
+"""Short data type converters are defined here."""
+from __future__ import annotations
+
 from PySide6 import QtCore
 
 

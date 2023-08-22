@@ -1,7 +1,8 @@
 # pylint: disable=too-many-arguments,too-many-locals,
+"""Blocks insertion logic is defined here.
 """
-Blocks insertion logic is defined here.
-"""
+from __future__ import annotations
+
 import os
 import time
 import traceback
@@ -27,8 +28,7 @@ def insert_block(
     city_id: int,
     commit: bool = True,
 ) -> int:
-    """
-    Insert block with given geometry if there is no intersections with other blocks.
+    """Insert block with given geometry if there is no intersections with other blocks.
 
     Returns an identifier of the added block.
     """
@@ -57,9 +57,7 @@ def update_block(
     geometry: str,
     commit: bool = True,
 ):
-    """
-    Update functional_object data.
-    """
+    """Update functional_object data."""
     cur.execute(
         "WITH center_t AS (SELECT ST_Centroid(%(geometry)s) center)"
         " UPDATE blocks b SET"
@@ -87,8 +85,7 @@ def add_blocks(  # pylint: disable=too-many-branches,too-many-statements
     log_n: int = 200,
     callback: Callable[[SingleObjectStatus], None] | None = None,
 ) -> pd.DataFrame:
-    """
-    Insert service objects to database.
+    """Insert service objects to database.
 
     Input:
 
@@ -107,9 +104,7 @@ def add_blocks(  # pylint: disable=too-many-branches,too-many-statements
     """
 
     def call_callback(status: str) -> None:
-        """
-        Execute callback function with a parameter corresponding to the given status.
-        """
+        """Execute callback function with a parameter corresponding to the given status."""
         if callback is not None:
             if status.startswith(("Геометрия в поле", "Пропущен (отсутствует", "Пропущен, вызывает ошибку")):
                 callback(SingleObjectStatus.ERROR)

@@ -1,7 +1,7 @@
 # pylint: disable=too-many-arguments,too-many-locals,
-"""
-Buildings insertion logic is defined here.
-"""
+"""Buildings insertion logic is defined here."""
+from __future__ import annotations
+
 import json
 import os
 import time
@@ -9,7 +9,7 @@ import traceback
 import warnings
 from dataclasses import fields as dc_fields
 from numbers import Number
-from typing import Callable
+from typing import Callable, Literal
 
 import pandas as pd
 import psycopg2
@@ -37,10 +37,10 @@ _buildings_columns_used = list(
         else f.name
     )
     for f in dc_fields(BuildingInsertionMapping)
-    if f.name not in ("geometry", "osm_id")
+    if f.name not in ("geometry", "osm_id", "modeled")
 )
 _buildings_mappings_used = list(
-    f.name for f in dc_fields(BuildingInsertionMapping) if f.name not in ("geometry", "osm_id")
+    f.name for f in dc_fields(BuildingInsertionMapping) if f.name not in ("geometry", "osm_id", "modeled")
 )
 
 
@@ -52,8 +52,7 @@ def insert_building(
     properties_mapping: dict[str, str],
     commit: bool = True,
 ) -> tuple[int, int]:
-    """
-    Insert building.
+    """Insert building.
 
     Returns identifier of the inserted building and physical object.
     """
@@ -72,6 +71,21 @@ def insert_building(
         ),
     )
     building_id = cur.fetchone()[0]  # type: ignore
+
+    if row.get(mapping.modeled, None) is not None:
+        mapping_doc_db = {
+            doc: _buildings_columns_used[_buildings_mappings_used.index(db)]
+            for db, doc in vars(mapping).items()
+            if doc is not None and db in _buildings_mappings_used
+        }
+        modeled_columns_doc = set(
+            mapping_doc_db[column.strip()] for column in row[mapping.modeled].split(",") if column in mapping_doc_db
+        )
+        if len(modeled_columns_doc) != 0:
+            cur.execute(
+                "UPDATE buildings SET modeled = %s::jsonb WHERE id = %s",
+                (json.dumps({field: 1 for field in modeled_columns_doc}), building_id),
+            )
     if commit:
         cur.execute("SAVEPOINT previous_object")
     return building_id
@@ -85,19 +99,19 @@ def update_building(
     properties_mapping: dict[str, str],
     commit: bool = True,
 ) -> bool:
-    """
-    Update building data.
+    """Update building data.
 
     Returns True if building was updated (some properties were different), False otherwise.
     """
     cur.execute(
         "SELECT "
         + ", ".join(_buildings_columns_used)
-        + ", physical_object_id, properties FROM buildings WHERE id = %s",
+        + ", physical_object_id, modeled, properties FROM buildings WHERE id = %s",
         (building_id,),
     )
     res: tuple
-    *res, physical_object_id, db_properties = cur.fetchone()  # type: ignore
+    db_modeled: dict[str, Literal[1]]
+    *res, physical_object_id, db_modeled, db_properties = cur.fetchone()  # type: ignore
     if row[mapping.geometry].startswith("{"):
         cur.execute(
             "SELECT geometry, (SELECT ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326)) FROM physical_objects WHERE id = %s",
@@ -136,14 +150,37 @@ def update_building(
             "UPDATE buildings SET properties = properties || %s::jsonb WHERE id = %s",
             (json.dumps(building_properties), building_id),
         )
-    if commit:
-        cur.execute("SAVEPOINT previous_object")
+
+    if row.get(mapping.modeled, None) is not None:
+        mapping_doc_db = {
+            doc: _buildings_columns_used[_buildings_mappings_used.index(db)]
+            for db, doc in vars(mapping).items()
+            if doc is not None and db in _buildings_mappings_used
+        }
+        modeled_columns_doc = set(
+            mapping_doc_db[column.strip()] for column in row[mapping.modeled].split(",") if column in mapping_doc_db
+        )
+        modeled_columns_db = set(db_modeled.keys())
+        to_add = modeled_columns_doc - modeled_columns_db
+        to_remove = {
+            db_field
+            for db_field in (modeled_columns_db - modeled_columns_doc)
+            if row.get(getattr(mapping, _buildings_mappings_used[_buildings_columns_used.index(db_field)])) is not None
+        }
+        if len(to_add) != 0 or len(to_remove) != 0:
+            cur.execute(
+                "UPDATE buildings SET modeled = %s::jsonb WHERE id = %s",
+                (json.dumps({field: 1 for field in ((modeled_columns_db | to_add) - to_remove)}), building_id),
+            )
 
     if geom != geom_new:
         logger.trace("Updating geometry: {} -> {}", geom_new, geom)
         cur.execute("UPDATE physical_objects SET geometry = %s WHERE id = %s", (geom_new, physical_object_id))
-        return True
-    return len(change) != 0 or db_properties != building_properties
+
+    if commit:
+        cur.execute("SAVEPOINT previous_object")
+
+    return len(change) != 0 or db_properties != building_properties or geom != geom_new
 
 
 def add_buildings(  # pylint: disable=too-many-branches,too-many-statements
@@ -159,8 +196,7 @@ def add_buildings(  # pylint: disable=too-many-branches,too-many-statements
     log_n: int = 200,
     callback: Callable[[SingleObjectStatus], None] | None = None,
 ) -> pd.DataFrame:
-    """
-    Insert buildings to database.
+    """Insert buildings to database.
 
     Input:
 
@@ -245,7 +281,10 @@ def add_buildings(  # pylint: disable=too-many-branches,too-many-statements
     building_ids: list[int] = [-1 for _ in range(buildings_df.shape[0])]
     address_prefixes = sorted(address_prefixes, key=lambda s: -len(s))
     with conn.cursor() as cur:
-        cur.execute("SELECT id FROM cities WHERE name = %(city)s or code = %(city)s", {"city": city_name})
+        cur.execute(
+            "SELECT id FROM cities WHERE name = %(city)s or code = %(city)s or id::varchar = %(city)s",
+            {"city": city_name},
+        )
         city_id = cur.fetchone()
         if city_id is None:
             logger.error(f'Заданный город "{city_name}" отсутствует в базе данных')
@@ -302,7 +341,7 @@ def add_buildings(  # pylint: disable=too-many-branches,too-many-statements
                     address: str | None = None
                     if mapping.address in row and row[mapping.address] is not None and row[mapping.address] != "":
                         for address_prefix in address_prefixes:
-                            if row.get(mapping.address, "").startswith(address_prefixes):
+                            if row.get(mapping.address, "").startswith(tuple(address_prefixes)):
                                 address = row.get(mapping.address)[len(address_prefix) :].strip(", ")
                                 break
                         else:

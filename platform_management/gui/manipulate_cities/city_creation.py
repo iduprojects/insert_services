@@ -1,4 +1,6 @@
 """City creation widget is defined here."""
+from __future__ import annotations
+
 from typing import Literal
 
 from PySide6 import QtWidgets

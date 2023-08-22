@@ -1,4 +1,6 @@
 """Geometry updation widget is defined here."""
+from __future__ import annotations
+
 from PySide6 import QtWidgets
 
 from platform_management.utils.converters import str_or_none

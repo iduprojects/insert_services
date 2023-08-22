@@ -1,6 +1,6 @@
-"""
-Cities insertion/editing module.
-"""
+"""Cities insertion/editing module."""
+from __future__ import annotations
+
 import itertools
 import json
 import time
@@ -10,6 +10,7 @@ import pandas as pd
 from loguru import logger
 from PySide6 import QtCore, QtGui, QtWidgets
 
+from platform_management.cli import refresh_materialized_views
 from platform_management.database_properties import Properties
 from platform_management.gui.basics import GeometryShow, check_geometry_correctness
 from platform_management.utils.converters import to_str
@@ -490,10 +491,7 @@ class CitiesWindow(QtWidgets.QWidget):  # pylint: disable=too-many-instance-attr
         self._log_window.insertHtml("<font color=grey>Обновление материализованных представлений...</font>")
         self._log_window.repaint()
         with self._db_properties.conn, self._db_properties.conn.cursor() as cur:
-            cur.execute("REFRESH MATERIALIZED VIEW all_buildings")
-            cur.execute("REFRESH MATERIALIZED VIEW all_services")
-            cur.execute("REFRESH MATERIALIZED VIEW all_houses")
-            cur.execute("REFRESH MATERIALIZED VIEW houses")
+            refresh_materialized_views(cur)
         logger.info("Обновление материализованных представлений завершено")
         self._log_window.insertHtml("<font color=green>Завершено</font><br>")
 

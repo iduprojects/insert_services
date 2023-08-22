@@ -12,7 +12,7 @@ def simplify_data(value: Any) -> Any:  # pylint: disable=too-many-return-stateme
     Examples:
     >>> simplify_data('123')       # 123
     >>> simplify_data('123.0')     # 123
-    >>> simplify_data('123.45)     # 123.45
+    >>> simplify_data('123.45')    # 123.45
     >>> simplify_data('123.45.67') # '123.45.67'
     >>> simplify_data('true')      # True
     >>> simplify_data('none')      # None

@@ -1,7 +1,7 @@
 # pylint: disable=too-many-arguments,too-many-locals,
-"""
-Services insertion logic is defined here.
-"""
+"""Services insertion logic is defined here."""
+from __future__ import annotations
+
 import json
 import os
 import random
@@ -35,8 +35,7 @@ def insert_object(
     properties_mapping: dict[str, str],
     commit: bool = True,
 ) -> int:
-    """
-    Insert functional_object, returning identifier of the inserted functional object.
+    """Insert functional_object, returning identifier of the inserted functional object.
 
     `service_type_id` must be vaild.
     """
@@ -104,29 +103,30 @@ def update_object(
     properties_mapping: dict[str, str],
     commit: bool = True,
 ) -> bool:
-    """
-    Update functional_object data.
+    """Update functional_object data.
 
     Returns True if service was updated (some properties were different), False otherwise.
     """
     cur.execute(
-        "SELECT name, opening_hours, website, phone, capacity, is_capacity_real, properties"
+        "SELECT name, opening_hours, website, phone, capacity, is_capacity_real, modeled, properties"
         " FROM functional_objects WHERE id = %s",
         (functional_object_id,),
     )
     res: tuple[str, str, str, str, int]
-    *res, db_properties = cur.fetchone()  # type: ignore
-    try:
-        capacity = int(float(row[mapping.capacity])) if row.get(mapping.capacity, None) is not None else None
-        is_capacity_real = capacity is not None
-    except ValueError:
-        capacity = None
-        is_capacity_real = False
-        logger.warning(
-            "Capacity value '{}' is invalid, skipping for functional object with id={}",
-            row[mapping.capacity],
-            functional_object_id,
-        )
+    *res, _db_modeled, db_properties = cur.fetchone()  # type: ignore
+    capacity: int | None = None
+    is_capacity_real: bool | None = None
+    if row.get(mapping.capacity, None) is not None:
+        try:
+            capacity = int(float(row[mapping.capacity]))
+            is_capacity_real = True
+        except ValueError:
+            logger.warning(
+                "Capacity value '{}' is invalid, skipping for functional object with id={}",
+                row[mapping.capacity],
+                functional_object_id,
+            )
+
     change = list(
         filter(
             lambda c_v_nw: c_v_nw[1] != c_v_nw[2] and c_v_nw[2] is not None and c_v_nw[2] != "",
@@ -144,13 +144,12 @@ def update_object(
             ),
         )
     )
-    if res[-1] and not mapping.capacity in row:
-        change = change[:-2]
     if len(change) > 0:
         cur.execute(
             f'UPDATE functional_objects SET {", ".join(list(map(lambda x: x[0] + "=%s", change)))} WHERE id = %s',
             list(map(lambda x: x[2], change)) + [functional_object_id],
         )
+
     functional_object_properties = {
         db_name: row[row_name]
         for db_name, row_name in properties_mapping.items()
@@ -161,6 +160,7 @@ def update_object(
             "UPDATE functional_objects SET properties = properties || %s::jsonb WHERE id = %s",
             (json.dumps(functional_object_properties), functional_object_id),
         )
+
     if commit:
         cur.execute("SAVEPOINT previous_object")
     return len(change) != 0 or db_properties != functional_object_properties
@@ -204,8 +204,7 @@ def add_services(  # pylint: disable=too-many-branches,too-many-statements,too-m
     log_n: int = 200,
     callback: Callable[[SingleObjectStatus], None] | None = None,
 ) -> pd.DataFrame:
-    """
-    Insert service objects to database.
+    """Insert service objects to database.
 
     Input:
 
@@ -289,7 +288,10 @@ def add_services(  # pylint: disable=too-many-branches,too-many-statements,too-m
     functional_ids: list[int] = [-1 for _ in range(services_df.shape[0])]
     address_prefixes = sorted(address_prefixes, key=lambda s: -len(s))
     with conn.cursor() as cur:
-        cur.execute("SELECT id FROM cities WHERE name = %(city)s or code = %(city)s", {"city": city_name})
+        cur.execute(
+            "SELECT id FROM cities WHERE name = %(city)s or code = %(city)s or id::varchar = %(city)s",
+            {"city": city_name},
+        )
         city_id = cur.fetchone()
         if city_id is None:
             logger.error(f'Заданный город "{city_name}" отсутствует в базе данных')

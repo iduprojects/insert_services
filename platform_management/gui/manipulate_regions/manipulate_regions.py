@@ -1,6 +1,6 @@
-"""
-Regions insertion/editing module.
-"""
+"""Regions insertion/editing module."""
+from __future__ import annotations
+
 import json
 import time
 from typing import Any, Callable, NamedTuple

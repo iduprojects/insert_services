@@ -1,6 +1,6 @@
-"""
-Buildings insertion command-line utility input information is defined here.
-"""
+"""Buildings insertion command-line utility input information is defined here."""
+from __future__ import annotations
+
 import click
 
 from platform_management.cli import insert_buildings_cli
@@ -80,8 +80,8 @@ from .main_group import main
     "--city",
     "-c",
     envvar="CITY",
+    required=True,
     help="City to insert services to, must exist in the database",
-    show_default=True,
     show_envvar=True,
 )
 @click.option(

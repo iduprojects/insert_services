@@ -1,6 +1,6 @@
-"""
-Services data update module.
-"""
+"""Services data update module."""
+from __future__ import annotations
+
 import itertools
 import json
 import time

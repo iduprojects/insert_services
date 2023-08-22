@@ -1,4 +1,6 @@
 """Building creation widget is defined here."""
+from __future__ import annotations
+
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from platform_management.utils.converters import (

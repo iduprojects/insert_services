@@ -1,4 +1,6 @@
 """Initial credentials window logic is defined here."""
+from __future__ import annotations
+
 import itertools
 import traceback
 from typing import NamedTuple

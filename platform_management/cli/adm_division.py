@@ -1,7 +1,7 @@
 # pylint: disable=too-many-arguments,too-many-locals,
-"""
-Administrative units and municipalities insertion logic is defined here.
-"""
+"""Administrative units and municipalities insertion logic is defined here."""
+from __future__ import annotations
+
 import operator
 import os
 import time
@@ -26,9 +26,7 @@ logger = logger.bind(name="insert_adm_division")
 
 
 class AdmDivisionType(Enum):
-    """
-    Administrative division unit type.
-    """
+    """Administrative division unit type."""
 
     ADMINISTRATIVE_UNIT = "ADMINISTRATIVE_UNIT"
     MUNICIPALITY = "MUNICIPALITY"
@@ -42,8 +40,7 @@ def insert_administrative_unit(
     city_id: int,
     commit: bool = True,
 ) -> int:
-    """
-    Insert administrative unit.
+    """Insert administrative unit.
 
     Returns an identifier of the added administrative_units.
     """
@@ -89,8 +86,7 @@ def insert_municipality(
     city_id: int,
     commit: bool = True,
 ) -> int:
-    """
-    Insert municipality.
+    """Insert municipality.
 
     Returns an identifier of the added municipality.
     """
@@ -135,9 +131,8 @@ def update_administrative_unit(
     mapping: AdmDivisionInsertionMapping,
     administrative_unit_types: dict[str, int],
     commit: bool = True,
-):
-    """
-    Update administrative_unit data.
+) -> bool:
+    """Update administrative_unit data.
 
     Returns True if data was updated, False otherwise.
     """
@@ -215,9 +210,8 @@ def update_municipality(
     mapping: AdmDivisionInsertionMapping,
     municipality_types: dict[str, int],
     commit: bool = True,
-):
-    """
-    Update administrative_unit data.
+) -> bool:
+    """Update administrative_unit data.
 
     Returns True if data was updated, False otherwise.
     """
@@ -297,8 +291,7 @@ def add_adm_division(  # pylint: disable=too-many-branches,too-many-statements
     log_n: int = 200,
     callback: Callable[[SingleObjectStatus], None] | None = None,
 ) -> pd.DataFrame:
-    """
-    Insert administrative divition units to database.
+    """Insert administrative divition units to database.
 
     Input:
 

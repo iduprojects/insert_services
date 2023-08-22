@@ -1,4 +1,6 @@
 """Territory creation widget is defined here."""
+from __future__ import annotations
+
 from frozenlist import FrozenList
 from PySide6 import QtWidgets
 

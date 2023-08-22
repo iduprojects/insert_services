@@ -11,10 +11,4 @@ from platform_management.cli import (
 )
 
 from .dto import BuildingInsertionMapping, ServiceInsertionMapping
-
-__author__ = "Aleksei Sokol"
-__maintainer__ = __author__
-
-__email__ = "kanootoko@gmail.com"
-__license__ = "MIT"
-__version__ = "0.3.1"
+from .version import VERSION as __version__

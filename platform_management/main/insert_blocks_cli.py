@@ -1,6 +1,6 @@
-"""
-Blocks insertion command-line utility input information is defined here.
-"""
+"""Blocks insertion command-line utility input information is defined here."""
+from __future__ import annotations
+
 import click
 
 from platform_management.cli import insert_blocks_cli

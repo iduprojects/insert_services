@@ -1,4 +1,6 @@
 """Regions table widget is defined here."""
+from __future__ import annotations
+
 from typing import Any, Callable, Sequence
 
 from PySide6 import QtWidgets

@@ -1,4 +1,6 @@
 """Platform territory widget is defined here."""
+from __future__ import annotations
+
 import itertools
 import json
 import time

@@ -1,6 +1,6 @@
-"""
-Services insertion command-line utility input information is defined here.
-"""
+"""Services insertion command-line utility input information is defined here."""
+from __future__ import annotations
+
 import click
 
 from platform_management.cli import insert_services_cli

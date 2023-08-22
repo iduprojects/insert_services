@@ -1,6 +1,6 @@
-"""
-Command Line Interface launch logic is defined here.
-"""
+"""Command Line Interface launch logic is defined here."""
+from __future__ import annotations
+
 import os
 import sys
 import time
@@ -30,15 +30,14 @@ LOG_HANDLER_ID = logger.add(
 )
 
 
-def common(
+def _common(
     dry_run: bool,
     verbose: bool,
     log_filename: str | None,
     database_credentials: DatabaseCredentials,
     filename: str,
 ) -> tuple[str, "psycopg2.connection"]:
-    """
-    Perform common operations for all CLI processes.
+    """Perform common operations for all CLI processes.
 
     Returns logfile name and database connection object.
     """
@@ -104,7 +103,7 @@ def common(
     return logfile, conn
 
 
-def insert_services_cli(  # pylint: disable=too-many-branches,too-many-statements,too-many-arguments,too-many-locals
+def insert_services_cli(  # pylint: disable=too-many-arguments,too-many-locals
     database_credentials: DatabaseCredentials,
     dry_run: bool,
     verbose: bool,
@@ -117,9 +116,7 @@ def insert_services_cli(  # pylint: disable=too-many-branches,too-many-statement
     properties_mapping: list[str],
     filename: str,
 ):
-    """
-    Run services insertion command line interface with the given parameters.
-    """
+    """Run services insertion command line interface with the given parameters."""
     address_prefixes = list(address_prefix)
     if len(address_prefixes) == 0:
         address_prefixes.append("Россия, Санкт-Петербург")
@@ -135,7 +132,7 @@ def insert_services_cli(  # pylint: disable=too-many-branches,too-many-statement
 
     logger.info("Соответствие (маппинг) документа: {}", columns_mapping)
 
-    logfile, conn = common(dry_run, verbose, log_filename, database_credentials, filename)
+    logfile, conn = _common(dry_run, verbose, log_filename, database_credentials, filename)
 
     services = load_objects(filename)
     logger.info('Загружено {} объектов из файла "{}"', services.shape[0], filename)
@@ -161,7 +158,7 @@ def insert_services_cli(  # pylint: disable=too-many-branches,too-many-statement
     logger.opt(colors=True).info('Завершено, лог записан в файл <green>"{}"</green>', logfile)
 
 
-def insert_buildings_cli(  # pylint: disable=too-many-branches,too-many-statements,too-many-arguments,too-many-locals
+def insert_buildings_cli(  # pylint: disable=too-many-arguments,too-many-locals
     database_credentials: DatabaseCredentials,
     dry_run: bool,
     verbose: bool,
@@ -173,9 +170,7 @@ def insert_buildings_cli(  # pylint: disable=too-many-branches,too-many-statemen
     properties_mapping: list[str],
     filename: str,
 ):
-    """
-    Run services insertion command line interface with the given parameters.
-    """
+    """Run services insertion command line interface with the given parameters."""
     address_prefixes = list(address_prefix)
     if len(address_prefixes) == 0:
         address_prefixes.append("Россия, Санкт-Петербург")
@@ -191,7 +186,7 @@ def insert_buildings_cli(  # pylint: disable=too-many-branches,too-many-statemen
 
     logger.info("Соответствие (маппинг) документа: {}", columns_mapping)
 
-    logfile, conn = common(dry_run, verbose, log_filename, database_credentials, filename)
+    logfile, conn = _common(dry_run, verbose, log_filename, database_credentials, filename)
 
     buildings = load_objects(filename)
     logger.info('Загружено {} объектов из файла "{}"', buildings.shape[0], filename)
@@ -216,7 +211,7 @@ def insert_buildings_cli(  # pylint: disable=too-many-branches,too-many-statemen
     logger.opt(colors=True).info('Завершено, лог записан в файл <green>"{}"</green>', logfile)
 
 
-def insert_blocks_cli(  # pylint: disable=too-many-branches,too-many-statements,too-many-arguments,too-many-locals
+def insert_blocks_cli(  # pylint: disable=too-many-arguments
     database_credentials: DatabaseCredentials,
     dry_run: bool,
     verbose: bool,
@@ -225,10 +220,8 @@ def insert_blocks_cli(  # pylint: disable=too-many-branches,too-many-statements,
     geometry_column: str,
     filename: str,
 ):
-    """
-    Run services insertion command line interface with the given parameters.
-    """
-    logfile, conn = common(dry_run, verbose, log_filename, database_credentials, filename)
+    """Run services insertion command line interface with the given parameters."""
+    logfile, conn = _common(dry_run, verbose, log_filename, database_credentials, filename)
 
     blocks = load_objects(filename)
     logger.info('Загружено {} объектов из файла "{}"', blocks.shape[0], filename)
@@ -251,7 +244,7 @@ def insert_blocks_cli(  # pylint: disable=too-many-branches,too-many-statements,
     logger.opt(colors=True).info('Завершено, лог записан в файл <green>"{}"</green>', logfile)
 
 
-def insert_adms_cli(  # pylint: disable=too-many-branches,too-many-statements,too-many-arguments,too-many-locals
+def insert_adms_cli(  # pylint: disable=too-many-arguments
     database_credentials: DatabaseCredentials,
     dry_run: bool,
     verbose: bool,
@@ -262,10 +255,8 @@ def insert_adms_cli(  # pylint: disable=too-many-branches,too-many-statements,to
     filename: str,
     default_type_name: str | None = None,
 ):
-    """
-    Run services insertion command line interface with the given parameters.
-    """
-    logfile, conn = common(dry_run, verbose, log_filename, database_credentials, filename)
+    """Run services insertion command line interface with the given parameters."""
+    logfile, conn = _common(dry_run, verbose, log_filename, database_credentials, filename)
 
     adms_df = load_objects(filename)
     if default_type_name is not None:

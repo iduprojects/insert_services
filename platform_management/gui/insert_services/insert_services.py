@@ -1,6 +1,6 @@
-"""
-Services insertion module.
-"""
+"""Services insertion module."""
+from __future__ import annotations
+
 import itertools
 import json
 import os

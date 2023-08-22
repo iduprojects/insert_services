@@ -1,8 +1,12 @@
 """
 Document-database mappings are defined here.
 """
+from __future__ import annotations
+
 from dataclasses import dataclass
 from dataclasses import fields as get_fields
+
+from platform_management.version import VERSION
 
 
 @dataclass
@@ -29,7 +33,7 @@ class DatabaseCredentials:
             "dbname": self.name,
             "user": self.user,
             "password": self.password,
-            "application_name": "platform_management_app",
+            "application_name": f"platform_management_app v{VERSION}",
         }
         if additional_params is not ...:
             if additional_params is not None:

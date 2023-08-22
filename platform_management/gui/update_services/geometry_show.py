@@ -1,4 +1,6 @@
 """Geometry displaying window is defined here."""
+from __future__ import annotations
+
 from PySide6 import QtWidgets
 
 
