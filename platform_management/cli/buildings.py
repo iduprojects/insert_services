@@ -410,7 +410,7 @@ def add_buildings(  # pylint: disable=too-many-branches,too-many-statements
                         + (" municipality_id = %s" if municipality_id is not None else "")
                         + (" AND " if municipality_id is not None else "")
                         + (" administrative_unit_id = %s" if administrative_unit_id is not None else "")
-                        + (" AND " if municipality_id is not None or administrative_unit_id is not None else "")
+                        + (" AND " if administrative_unit_id is not None else "")
                         + " ST_Intersects((SELECT geom FROM geom_table), geometry)"
                         " ORDER BY 3 DESC",
                         list(
