@@ -24,8 +24,6 @@ from platform_management.utils import simplify_data
 
 warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
 
-logger = logger.bind(name="insert_buildings")
-
 _buildings_columns_used = list(
     (
         "central_electro"
@@ -264,7 +262,7 @@ def add_buildings(  # pylint: disable=too-many-branches,too-many-statements
             buildings_df.loc[:, boolean_mapping] = pd.Series(
                 map(
                     lambda x: (isinstance(x, str) and x.lower().strip() in ("1", "y", "t", "true"))
-                    or (isinstance(x, Number) and x - 0 < 1e-5),
+                    or (isinstance(x, Number) and x - 0 > 1e-5),
                     buildings_df.loc[:, boolean_mapping],
                 ),
                 dtype=object,

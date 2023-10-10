@@ -12,7 +12,6 @@ from platform_management.database_properties import Properties
 from platform_management.gui.basics import GeometryShow, check_geometry_correctness
 from platform_management.utils.converters import to_str
 
-from .logging import logger
 from .region_creation import RegionCreation
 from .regions_table import PlatformRegionsTableWidget
 

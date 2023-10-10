@@ -21,6 +21,7 @@ class CityCreationWidget(QtWidgets.QDialog):
         region: str | None = None,
         population: int | None = None,
         division_type: Literal["NO_PARENT", "ADMIN_UNIT_PARENT", "MUNICIPALITY_PARENT"] | None = None,
+        local_crs: int | None = None,
         is_adding: bool = False,
         parent: QtWidgets.QWidget | None = None,
     ):
@@ -33,6 +34,7 @@ class CityCreationWidget(QtWidgets.QDialog):
         self._geometry_field.setPlaceholderText('{\n  "type": "...",\n  "coordinates": [...]\n}')
         self._geometry_field.setAcceptRichText(False)
         layout.addWidget(self._geometry_field)
+
         self._options_layout = QtWidgets.QFormLayout()
         self._name = QtWidgets.QLineEdit(name or "")
         self._name.setPlaceholderText("Санкт-Петербург")
@@ -53,7 +55,11 @@ class CityCreationWidget(QtWidgets.QDialog):
         if division_type is not None:
             self._division_type.setCurrentText(division_type)
         self._options_layout.addRow("Тип админ. деления:", self._division_type)
+        self._local_crs = QtWidgets.QLineEdit(to_str(local_crs))
+        self._population.setPlaceholderText("32636")
+        self._options_layout.addRow("Локальная с.к.:", self._local_crs)
         layout.addLayout(self._options_layout)
+
         buttons_layout = QtWidgets.QHBoxLayout()
         ok_btn = QtWidgets.QPushButton("Ок")
         ok_btn.clicked.connect(self.accept)
@@ -62,6 +68,7 @@ class CityCreationWidget(QtWidgets.QDialog):
         buttons_layout.addWidget(ok_btn)
         buttons_layout.addWidget(cancel_btn)
         layout.addLayout(buttons_layout)
+
         self.setLayout(layout)
 
     def get_geometry(self) -> str | None:
@@ -87,3 +94,7 @@ class CityCreationWidget(QtWidgets.QDialog):
     def division_type(self) -> str:
         """Get city division type value set by user."""
         return self._division_type.currentText()
+
+    def local_crs(self) -> int | None:
+        """Get city population value set by user."""
+        return int_or_none(self._local_crs.text())

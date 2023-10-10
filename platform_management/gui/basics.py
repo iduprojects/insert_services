@@ -9,8 +9,6 @@ from frozenlist import FrozenList
 from loguru import logger
 from PySide6 import QtCore, QtGui, QtWidgets
 
-logger = logger.bind(name="basics")
-
 
 def check_geometry_correctness(
     geometry_geojson: str | None, conn: "psycopg2.connection"

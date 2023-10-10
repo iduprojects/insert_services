@@ -24,7 +24,6 @@ from .defaults import (
     get_main_window_default_address_prefixes,
     get_main_window_default_values,
 )
-from .logging import logger
 
 
 class ServicesInsertionWindow(QtWidgets.QWidget):  # pylint: disable=too-many-instance-attributes

@@ -13,11 +13,10 @@ from PySide6 import QtCore, QtGui, QtWidgets
 from platform_management import get_properties_keys
 from platform_management.database_properties import Properties
 from platform_management.gui.basics import ColorizingComboBox, check_geometry_correctness
+from platform_management.gui.update_buildings.building_creation import BuildingCreationWidget
+from platform_management.gui.update_buildings.geometry_show import GeometryShowWidget
 from platform_management.utils.converters import to_str
 
-from .building_creation import BuildingCreationWidget
-from .geometry_show import GeometryShowWidget
-from .logging import logger
 from .physical_object_creation import PhysicalObjectCreationWidget
 from .platform_services_table import PlatformServicesTableWidget
 

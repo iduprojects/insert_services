@@ -1,29 +1,33 @@
 CODE_DIR := platform_management
+EXECUTABLE := platform-management
 
 gui:
-	python -m $(CODE_DIR) gui
+	poetry run $(EXECUTABLE) gui
 
 debug-gui:
-	python -m $(CODE_DIR) gui --verbose
+	poetry run $(EXECUTABLE) gui --verbose
 
 lint:
-	pylint $(CODE_DIR)
+	poetry run pylint $(CODE_DIR)
 
 format:
-	isort $(CODE_DIR)
-	black $(CODE_DIR)
+	poetry run isort $(CODE_DIR)
+	poetry run black $(CODE_DIR)
 
 install:
 	pip install .
 
 install-dev:
+	poetry install --with dev
+
+install-dev-pip:
 	pip install -e . --config-settings editable_mode=strict
 
 build:
 	poetry build
 
 clean:
-	rm -rf ./build ./dist ./$(CODE_DIR).egg-info
+	rm -rf ./build ./dist ./$(EXECUTABLE).egg-info
 
 install-from-build:
 	python -m wheel install dist/$(CODE_DIR)-*.whl

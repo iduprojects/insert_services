@@ -27,9 +27,6 @@ def get_init_window_default_values() -> InitWindowDefaultValues:
     return InitWindowDefaultValues("127.0.0.1", 5432, "city_db_final", "postgres", "postgres")
 
 
-logger = logger.bind(name="gui_main")
-
-
 class InitWindow(QtWidgets.QWidget):  # pylint: disable=too-many-instance-attributes
     """Credentials window with links to the other application parts."""
 

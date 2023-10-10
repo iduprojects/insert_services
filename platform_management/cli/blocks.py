@@ -19,9 +19,6 @@ from platform_management.cli.common import SingleObjectStatus
 
 warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
 
-logger = logger.bind(name="insert_blocks")
-
-
 def insert_block(
     cur: "psycopg2.cursor",
     geometry: str,

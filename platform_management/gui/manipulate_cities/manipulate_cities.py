@@ -11,13 +11,13 @@ from loguru import logger
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from platform_management.cli import refresh_materialized_views
+from platform_management.cli.operations import update_buildings_area, update_physical_objects_locations
 from platform_management.database_properties import Properties
 from platform_management.gui.basics import GeometryShow, check_geometry_correctness
 from platform_management.utils.converters import to_str
 
 from .cities_table import PlatformCitiesTableWidget
 from .city_creation import CityCreationWidget
-from .logging import logger
 from .territory_window import TerritoryWindow
 
 
@@ -37,6 +37,7 @@ class CitiesWindow(QtWidgets.QWidget):  # pylint: disable=too-many-instance-attr
             ("rollback", QtWidgets.QPushButton),
             ("refresh_matviews", QtWidgets.QPushButton),
             ("update_locations", QtWidgets.QPushButton),
+            ("update_area", QtWidgets.QPushButton),
         ],
     )
 
@@ -96,8 +97,9 @@ class CitiesWindow(QtWidgets.QWidget):  # pylint: disable=too-many-instance-attr
             QtWidgets.QPushButton("Список АЕ"),
             QtWidgets.QPushButton("Сохранить изменения в БД"),
             QtWidgets.QPushButton("Отмена внесенных изменений"),
-            QtWidgets.QPushButton("Обновить представления"),
+            QtWidgets.QPushButton("Обновить мат. представления"),
             QtWidgets.QPushButton("Обновить локации объектов"),
+            QtWidgets.QPushButton("Обновить площадь зданий (осн.+жил.)"),
         )
         self._edit_buttons.add.clicked.connect(self._on_city_add)
         self._edit_buttons.edit.clicked.connect(self._on_city_edit)
@@ -111,6 +113,7 @@ class CitiesWindow(QtWidgets.QWidget):  # pylint: disable=too-many-instance-attr
         self._edit_buttons.rollback.setStyleSheet("background-color: red;color: black")
         self._edit_buttons.refresh_matviews.clicked.connect(self._on_refresh_matviews)
         self._edit_buttons.update_locations.clicked.connect(self._on_update_locations)
+        self._edit_buttons.update_area.clicked.connect(self._on_update_area)
         for btn in self._edit_buttons:
             self._editing_group.addWidget(btn)
         self._right.addWidget(self._editing_group_box)
@@ -132,7 +135,7 @@ class CitiesWindow(QtWidgets.QWidget):  # pylint: disable=too-many-instance-attr
         self._db_properties.conn.rollback()
         with self._db_properties.conn.cursor() as cur:
             cur.execute(
-                "SELECT id, name, code, population, (SELECT name FROM regions WHERE id = region_id),"
+                "SELECT id, name, code, population, local_crs, (SELECT name FROM regions WHERE id = region_id),"
                 "   city_division_type, ST_Y(center), ST_X(center), ST_GeometryType(geometry),"
                 "   date_trunc('minute', created_at)::timestamp, date_trunc('minute', updated_at)::timestamp"
                 " FROM cities"
@@ -184,9 +187,9 @@ class CitiesWindow(QtWidgets.QWidget):  # pylint: disable=too-many-instance-attr
         latitude, longitude, geom_type = new_geom_tuple
         with self._db_properties.conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO cities (name, code, region_id, geometry, center, population, city_division_type)"
+                "INSERT INTO cities (name, code, region_id, geometry, center, population, local_crs, city_division_type)"
                 " VALUES (%s, %s, %s, ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326),"
-                "   ST_SnapToGrid(ST_Centroid(ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326)), 0.000001), %s, %s)"
+                "   ST_SnapToGrid(ST_Centroid(ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326)), 0.000001), %s, %s, %s)"
                 " RETURNING id",
                 (
                     dialog.name(),
@@ -199,6 +202,7 @@ class CitiesWindow(QtWidgets.QWidget):  # pylint: disable=too-many-instance-attr
                     dialog.get_geometry(),
                     dialog.get_geometry(),
                     dialog.population(),
+                    dialog.local_crs(),
                     dialog.division_type(),
                 ),
             )
@@ -211,15 +215,16 @@ class CitiesWindow(QtWidgets.QWidget):  # pylint: disable=too-many-instance-attr
         self._table.setItem(row, 0, QtWidgets.QTableWidgetItem(str(city_id)))
         self._table.setItem(row, 1, QtWidgets.QTableWidgetItem(to_str(dialog.name())))
         self._table.setItem(row, 2, QtWidgets.QTableWidgetItem(to_str(dialog.code())))
-        self._table.setItem(row, 3, QtWidgets.QTableWidgetItem(to_str(dialog.population())))
-        self._table.setItem(row, 4, QtWidgets.QTableWidgetItem(to_str(dialog.region())))
-        self._table.setItem(row, 5, QtWidgets.QTableWidgetItem(to_str(dialog.division_type())))
-        self._table.setItem(row, 6, QtWidgets.QTableWidgetItem(str(latitude)))
-        self._table.setItem(row, 7, QtWidgets.QTableWidgetItem(str(longitude)))
-        self._table.setItem(row, 8, QtWidgets.QTableWidgetItem(geom_type))
+        self._table.setItem(row, 3, QtWidgets.QTableWidgetItem(to_str(dialog.local_crs())))
+        self._table.setItem(row, 4, QtWidgets.QTableWidgetItem(to_str(dialog.population())))
+        self._table.setItem(row, 5, QtWidgets.QTableWidgetItem(to_str(dialog.region())))
+        self._table.setItem(row, 6, QtWidgets.QTableWidgetItem(to_str(dialog.division_type())))
+        self._table.setItem(row, 7, QtWidgets.QTableWidgetItem(str(latitude)))
+        self._table.setItem(row, 8, QtWidgets.QTableWidgetItem(str(longitude)))
+        self._table.setItem(row, 9, QtWidgets.QTableWidgetItem(geom_type))
         now = time.strftime("%Y-%M-%d %H:%M:00")
-        self._table.setItem(row, 9, QtWidgets.QTableWidgetItem(now))
         self._table.setItem(row, 10, QtWidgets.QTableWidgetItem(now))
+        self._table.setItem(row, 11, QtWidgets.QTableWidgetItem(now))
         for column in range(self._table.columnCount()):
             self._table.item(row, column).setBackground(QtGui.QBrush(QtCore.Qt.GlobalColor.yellow))
 
@@ -230,11 +235,11 @@ class CitiesWindow(QtWidgets.QWidget):  # pylint: disable=too-many-instance-attr
         city_id = self._table.item(row, 0).text()
         with self._db_properties.conn.cursor() as cur:
             cur.execute(
-                "SELECT ST_AsGeoJSON(geometry)::jsonb, name, code, (SELECT name FROM regions WHERE id = region_id),"
+                "SELECT ST_AsGeoJSON(geometry)::jsonb, name, code, local_crs, (SELECT name FROM regions WHERE id = region_id),"
                 " population, city_division_type FROM cities WHERE id = %s",
                 (city_id,),
             )
-            geometry, name, code, region, population, division_type = cur.fetchone()  # type: ignore
+            geometry, name, code, local_crs, region, population, division_type = cur.fetchone()  # type: ignore
         dialog = CityCreationWidget(
             f"Внесение изменений в город в строке под номером {row + 1}",
             list(self._regions),
@@ -244,6 +249,7 @@ class CitiesWindow(QtWidgets.QWidget):  # pylint: disable=too-many-instance-attr
             region,
             population,
             division_type,
+            local_crs,
         )
         if dialog.exec() != QtWidgets.QDialog.Accepted or self._additional_conn is None:
             return
@@ -266,31 +272,35 @@ class CitiesWindow(QtWidgets.QWidget):  # pylint: disable=too-many-instance-attr
                 )
             self._log_window.insertHtml(
                 f'<font color=yellowgreen>Изменена геометрия города "{dialog.name()}" c id={city_id}:'
-                f" {self._table.item(row, 8).text()}({self._table.item(row, 6).text()},"
-                f" {self._table.item(row, 7).text()})"
+                f" {self._table.item(row, 9).text()}({self._table.item(row, 6).text()},"
+                f" {self._table.item(row, 8).text()})"
                 f"->{geom_type}({new_latitude, new_longitude}</font><br>"
             )
-            self._table.item(row, 6).setText(str(new_latitude))
-            self._table.item(row, 7).setText(str(new_longitude))
-            self._table.item(row, 8).setText(geom_type)
+            self._table.item(row, 7).setText(str(new_latitude))
+            self._table.item(row, 8).setText(str(new_longitude))
+            self._table.item(row, 9).setText(geom_type)
             changed = True
-            for column in (6, 7, 8):
+            for column in (7, 8, 9):
                 self._table.item(row, column).setBackground(QtGui.QBrush(QtCore.Qt.GlobalColor.yellow))
         if name != dialog.name():
-            self._table.item(row, 1).setText(to_str(name))
+            self._table.item(row, 1).setText(to_str(dialog.name()))
             self._table.item(row, 1).setBackground(QtGui.QBrush(QtCore.Qt.GlobalColor.yellow))
             changed = True
         if code != dialog.code():
-            self._table.item(row, 2).setText(to_str(code))
+            self._table.item(row, 2).setText(to_str(dialog.code()))
             self._table.item(row, 2).setBackground(QtGui.QBrush(QtCore.Qt.GlobalColor.yellow))
             changed = True
         if population != dialog.population():
-            self._table.item(row, 3).setText(to_str(population))
+            self._table.item(row, 3).setText(to_str(dialog.population()))
             self._table.item(row, 3).setBackground(QtGui.QBrush(QtCore.Qt.GlobalColor.yellow))
             changed = True
-        if region != dialog.region():
-            self._table.item(row, 4).setText(to_str(dialog.region()))
+        if local_crs != dialog.local_crs():
+            self._table.item(row, 4).setText(to_str(dialog.local_crs()))
             self._table.item(row, 4).setBackground(QtGui.QBrush(QtCore.Qt.GlobalColor.yellow))
+            changed = True
+        if region != dialog.region():
+            self._table.item(row, 5).setText(to_str(dialog.region()))
+            self._table.item(row, 5).setBackground(QtGui.QBrush(QtCore.Qt.GlobalColor.yellow))
             changed = True
             with self._db_properties.conn.cursor() as cur:
                 cur.execute(
@@ -303,8 +313,8 @@ class CitiesWindow(QtWidgets.QWidget):  # pylint: disable=too-many-instance-attr
                     ),
                 )
         if division_type != dialog.division_type():
-            self._table.item(row, 5).setText(dialog.division_type())
-            self._table.item(row, 5).setBackground(QtGui.QBrush(QtCore.Qt.GlobalColor.yellow))
+            self._table.item(row, 6).setText(dialog.division_type())
+            self._table.item(row, 6).setBackground(QtGui.QBrush(QtCore.Qt.GlobalColor.yellow))
             changed = True
             with self._db_properties.conn.cursor() as cur:
                 cur.execute(
@@ -503,7 +513,19 @@ class CitiesWindow(QtWidgets.QWidget):  # pylint: disable=too-many-instance-attr
         self._log_window.insertHtml("<font color=grey>Обновление местоположения физических объектов...</font>")
         self._log_window.repaint()
         with self._db_properties.conn, self._db_properties.conn.cursor() as cur:
-            cur.execute("select update_physical_objects_location()")
+            update_physical_objects_locations(cur)
+        logger.info("Обновление местоположения физических объектов завершено")
+        self._log_window.insertHtml("<font color=green>Завершено</font><br>")
+
+    def _on_update_area(self) -> None:
+        """Launch buildings area update process"""
+        logger.info(
+            "Запущен процесс обновления площади здания по площади пятна геометрии и моделирования жилой площади"
+        )
+        self._log_window.insertHtml("<font color=grey>Обновление площади (общей и жилой) зданий...</font>")
+        self._log_window.repaint()
+        with self._db_properties.conn, self._db_properties.conn.cursor() as cur:
+            update_buildings_area(cur)
         logger.info("Обновление местоположения физических объектов завершено")
         self._log_window.insertHtml("<font color=green>Завершено</font><br>")
 

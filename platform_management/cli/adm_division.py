@@ -22,9 +22,6 @@ from platform_management.dto import AdmDivisionInsertionMapping
 
 warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
 
-logger = logger.bind(name="insert_adm_division")
-
-
 class AdmDivisionType(Enum):
     """Administrative division unit type."""
 

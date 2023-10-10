@@ -15,12 +15,7 @@ def run_gui(
     """Launch a graphical user interface application to manipulate Digital Urban Studies Platform database data."""
 
     logger.remove(0)
-    logger.add(
-        sys.stderr,
-        level="INFO" if not verbose else "DEBUG",
-        format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: ^8}</level> |"
-        " <cyan>{extra[name]} {name}:{line:03}</cyan> - <level>{message}</level>",
-    )
+    logger.add(sys.stderr, level="INFO" if not verbose else "DEBUG")
     logger.debug("Starting the application")
 
     InitWindow.default_values = InitWindowDefaultValues(db_addr, db_port, db_name, db_user, db_pass)

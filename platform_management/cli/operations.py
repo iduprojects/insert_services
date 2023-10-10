@@ -2,10 +2,11 @@
 from __future__ import annotations
 
 import psycopg2
+import psycopg2.extensions
 from loguru import logger
 
 
-def refresh_materialized_views(cur: "psycopg2.cursor", materialized_views_names: list[str] | None = ...) -> None:
+def refresh_materialized_views(cur: psycopg2.extensions.cursor, materialized_views_names: list[str] | None = ...) -> None:
     """Refresh given materialized views (default all_buildings, all_services, houses and all_houses)."""
 
     if materialized_views_names is None:
@@ -18,7 +19,7 @@ def refresh_materialized_views(cur: "psycopg2.cursor", materialized_views_names:
         cur.execute(f"REFRESH MATERIALIZED VIEW {name}")
 
 
-def update_physical_objects_locations(cur: "psycopg2.cursor", city_id: int | None = None) -> None:
+def update_physical_objects_locations(cur: psycopg2.extensions.cursor, city_id: int | None = None) -> None:
     """Update physical_objects references to blocks, administrative units and municipalities"""
     logger.info("Filling missing administrative units")
     cur.execute(
@@ -51,3 +52,33 @@ def update_physical_objects_locations(cur: "psycopg2.cursor", city_id: int | Non
         "WHERE block_id IS null",
         ((city_id,) if city_id is not None else None),
     )
+
+
+def update_buildings_area(cur: psycopg2.extensions.cursor) -> None:
+    """Update buildings area as ST_Area(physical_object.geometry::geography) and living area as building_area
+    * storeys_count * 0.7 while setting modeled->>'living_area'=1"""
+    logger.info("Updating buildings area")
+    cur.execute(
+        "UPDATE buildings"
+        " SET building_area = ("
+        "   SELECT ST_Area(geometry::geography)"
+        "   FROM physical_objects"
+        "   WHERE id = physical_object_id"
+        " )"
+        " WHERE building_area is NULL"
+    )
+    logger.debug("Updated {} buildings building_area", cur.rowcount)
+
+    logger.info("Modeling living_area")
+    cur.execute(
+        "UPDATE buildings"
+        " SET"
+        "   living_area = building_area * storeys_count * 0.7,"
+        "   modeled = modeled || '{\"living_area\": 1}'::jsonb"
+        " WHERE"
+        "   is_living = true"
+        "   AND living_area IS NULL"
+        "   AND building_area IS NOT NULL"
+        "   AND storeys_count IS NOT NULL"
+    )
+    logger.debug("Updated {} buildings living area", cur.rowcount)
