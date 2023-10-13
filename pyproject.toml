@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "platform-management"
-version = "0.5.0"
+version = "0.6.0"
 description = "An utility for database management for Platform of Digital Urban Studies (ITMO, IDU, 2023)"
 authors = ["Aleksei Sokol <kanootoko@gmail.com>"]
 license = "MIT"
