@@ -184,21 +184,39 @@ def insert_buildings_cli(  # pylint: disable=too-many-arguments,too-many-locals
 
     properties_mapping_dict = {entry[: entry.find(":")]: entry[entry.find(":") + 1 :] for entry in properties_mapping}
 
-    logger.info("Соответствие (маппинг) документа: {}", columns_mapping)
-
     logfile, conn = _common(dry_run, verbose, log_filename, database_credentials, filename)
 
     buildings = load_objects(filename)
     logger.info('Загружено {} объектов из файла "{}"', buildings.shape[0], filename)
+
+    # проверка multiple аргументов, введенных пользователем(заданных по умолчанию)
+    new_columns_mapping = columns_mapping
+
     for column, value in vars(columns_mapping).items():
-        if value is not None and value not in buildings.columns:
-            logger.warning('Столбец "{}" используется ({}), но не задан в файле', value, column)
+        if isinstance(value, str):
+            if value is not None and value not in buildings.columns:
+                logger.warning('Заданный столбец "{}" (название атрибута в БД "{}") не найден в файле', value, column)
+                new_columns_mapping.__setattr__(column, "Not found")
+        else:
+            flag = False
+            for value_ in list(value):
+                if value_ is not None and value_ in buildings.columns:
+                    new_columns_mapping.__setattr__(column, value_)
+                    flag = True
+            if not flag:
+                logger.warning(
+                    'Заданный столбец {}(название атрибута в БД "{}") не найдены в файле',
+                    ("".join(map(lambda s: f'"{s}" ', value))),
+                    column,
+                )
+                new_columns_mapping.__setattr__(column, "Not found")
+    logger.info("Соответствие (маппинг) документа: {}", new_columns_mapping)
 
     buildings = add_buildings(
         conn,
         buildings,
         city,
-        columns_mapping,
+        new_columns_mapping,
         properties_mapping_dict,
         address_prefixes,
         new_address_prefix,
