@@ -22,6 +22,7 @@ from platform_management.dto import ServiceInsertionMapping
 
 warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
 
+
 def insert_object(
     cur: "psycopg2.cursor",
     row: pd.Series,

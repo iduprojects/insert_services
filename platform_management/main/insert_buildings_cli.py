@@ -4,7 +4,8 @@ from __future__ import annotations
 import click
 
 from platform_management.cli import insert_buildings_cli
-from platform_management.dto import BuildingInsertionMapping, DatabaseCredentials
+from platform_management.cli.defaults import InsertBuildings as DefaultValues
+from platform_management.dto import BuildingInsertionCLIParameters, DatabaseCredentials
 
 from .main_group import main
 
@@ -89,8 +90,8 @@ from .main_group import main
     "-dg",
     envvar="DOCUMENT_GEOMETRY",
     help="Document geometry field name",
-    default="geometry",
-    show_default=True,
+    show_default=DefaultValues.document_geometry,
+    multiple=True,
     show_envvar=True,
 )
 @click.option(
@@ -98,8 +99,8 @@ from .main_group import main
     "-dA",
     envvar="DOCUMENT_ADDRESS",
     help="Document building address field name",
-    default="addr",
-    show_default=True,
+    show_default=DefaultValues.document_address,
+    multiple=True,
     show_envvar=True,
 )
 @click.option(
@@ -107,9 +108,8 @@ from .main_group import main
     "-dP",
     envvar="DOCUMENT_PROJCET_TYPE",
     help="Document building project type name field name",
-    default=["project_type", "project_ty"],
+    show_default=DefaultValues.document_project_type,
     multiple=True,
-    show_default=True,
     show_envvar=True,
 )
 @click.option(
@@ -117,9 +117,8 @@ from .main_group import main
     "-dL",
     envvar="DOCUMENT_LIVING_AREA",
     help="Document building living area field name",
-    default=["area_resid", "area_residential"],
+    show_default=DefaultValues.document_living_area,
     multiple=True,
-    show_default=True,
     show_envvar=True,
 )
 @click.option(
@@ -127,9 +126,8 @@ from .main_group import main
     "-dS",
     envvar="DOCUMENT_STOREYS_COUNT",
     help="Document buildings storeys count field name",
-    default=["building:levels", "building:level", "building_l"],
+    show_default=DefaultValues.document_storeys_count,
     multiple=True,
-    show_default=True,
     show_envvar=True,
 )
 @click.option(
@@ -137,9 +135,8 @@ from .main_group import main
     "-dR",
     envvar="DOCUMENT_RESIDENT_NUMBER",
     help="Document buildings resident number count field name",
-    default=["resident_number"],
+    show_default=DefaultValues.document_resident_number,
     multiple=True,
-    show_default=True,
     show_envvar=True,
 )
 @click.option(
@@ -147,9 +144,8 @@ from .main_group import main
     "-dI",
     envvar="DOCUMENT_OSM_ID",
     help="Document physical object OSM identifier field field name",
-    default=["id"],
+    show_default=DefaultValues.document_osm_id,
     multiple=True,
-    show_default=True,
     show_envvar=True,
 )
 @click.option(
@@ -157,9 +153,8 @@ from .main_group import main
     "-dCH",
     envvar="DOCUMENT_CENTRAL_HEATING",
     help="Document building central heating field name",
-    default=["central_heating"],
+    show_default=DefaultValues.document_central_heating,
     multiple=True,
-    show_default=True,
     show_envvar=True,
 )
 @click.option(
@@ -167,9 +162,8 @@ from .main_group import main
     "-dCC",
     envvar="DOCUMENT_CENTRAL_WATER",
     help="Document building central water field name",
-    default=["central_water"],
+    show_default=DefaultValues.document_central_water,
     multiple=True,
-    show_default=True,
     show_envvar=True,
 )
 @click.option(
@@ -177,9 +171,8 @@ from .main_group import main
     "-dCW",
     envvar="DOCUMENT_CENTRAL_HOT_WATER",
     help="Document building central hot water field name",
-    default=["central_hot_water"],
+    show_default=DefaultValues.document_central_hot_water,
     multiple=True,
-    show_default=True,
     show_envvar=True,
 )
 @click.option(
@@ -187,9 +180,8 @@ from .main_group import main
     "-dCE",
     envvar="DOCUMENT_CENTRAL_ELECTRICITY",
     help="Document building central electricity field name",
-    default=["central_electricity"],
+    show_default=DefaultValues.document_central_electricity,
     multiple=True,
-    show_default=True,
     show_envvar=True,
 )
 @click.option(
@@ -197,9 +189,8 @@ from .main_group import main
     "-dCG",
     envvar="DOCUMENT_CENTRAL_GAS",
     help="Document building central gas field name",
-    default=["central_gas"],
+    show_default=DefaultValues.document_central_gas,
     multiple=True,
-    show_default=True,
     show_envvar=True,
 )
 @click.option(
@@ -207,9 +198,8 @@ from .main_group import main
     "-dR",
     envvar="DOCUMENT_REFUSECHUTE",
     help="Document building refusechute field name",
-    default=["refusechute"],
+    show_default=DefaultValues.document_refusechute,
     multiple=True,
-    show_default=True,
     show_envvar=True,
 )
 @click.option(
@@ -217,9 +207,8 @@ from .main_group import main
     "-dU",
     envvar="DOCUMENT_UKNAME",
     help="Document building company field name",
-    default=["ukname"],
+    show_default=DefaultValues.document_ukname,
     multiple=True,
-    show_default=True,
     show_envvar=True,
 )
 @click.option(
@@ -227,9 +216,8 @@ from .main_group import main
     "-dF",
     envvar="DOCUMENT_IS_FAILING",
     help="Document building is_failing field name",
-    default=["is_failing"],
+    show_default=DefaultValues.document_is_failing,
     multiple=True,
-    show_default=True,
     show_envvar=True,
 )
 @click.option(
@@ -237,9 +225,8 @@ from .main_group import main
     "-dL",
     envvar="DOCUMENT_LIFT_COUNT",
     help="Document building lift count field name",
-    default=["lift_count", "elevators_", "elevators_count"],
+    show_default=DefaultValues.document_lift_count,
     multiple=True,
-    show_default=True,
     show_envvar=True,
 )
 @click.option(
@@ -247,9 +234,8 @@ from .main_group import main
     "-dF",
     envvar="DOCUMENT_REPAIR_YEARS",
     help="Document building repair_years field name",
-    default=["repair_years"],
+    show_default=DefaultValues.document_repair_years,
     multiple=True,
-    show_default=True,
     show_envvar=True,
 )
 @click.option(
@@ -257,9 +243,8 @@ from .main_group import main
     "-dL",
     envvar="DOCUMENT_IS_LIVING",
     help="Document building is_living field name",
-    default=["is_living"],
+    show_default=DefaultValues.document_is_living,
     multiple=True,
-    show_default=True,
     show_envvar=True,
 )
 @click.option(
@@ -267,9 +252,8 @@ from .main_group import main
     "-dL",
     envvar="DOCUMENT_BUILDING_YEAR",
     help="Document building built year",
-    default=["built_year"],
+    show_default=DefaultValues.document_building_year,
     multiple=True,
-    show_default=True,
     show_envvar=True,
 )
 @click.option(
@@ -277,7 +261,8 @@ from .main_group import main
     "-dM",
     envvar="DOCUMENT_MODELED",
     help="Document modeled fields (as in document, separated by comma) field name",
-    default="modeled_fields",
+    show_default=DefaultValues.document_modeled,
+    multiple=True,
     show_envvar=True,
 )
 @click.option(
@@ -286,8 +271,7 @@ from .main_group import main
     multiple=True,
     envvar="ADDRESS_PREFIX",
     help="Address prefix (available for multiple prefixes), no comma or space needed",
-    default=[],
-    show_default="Россия, Санкт-Петербург",
+    show_default=DefaultValues.address_prefix,
     show_envvar=True,
 )
 @click.option(
@@ -295,8 +279,7 @@ from .main_group import main
     "-nAP",
     envvar="NEW_ADDRESS_PREFIX",
     help="New address prefix that would be added to all addresses after cutting old address prefix",
-    default="",
-    show_default=True,
+    show_default=DefaultValues.new_address_prefix,
     show_envvar=True,
 )
 @click.option(
@@ -305,7 +288,7 @@ from .main_group import main
     multiple=True,
     envvar="PROPERTIES_MAPPING",
     help='Properties mapping, entries in "key_in_properties:column_in_document" format',
-    default=[],
+    show_default=DefaultValues.properties_mapping,
     show_envvar=True,
 )
 @click.argument("filename", type=click.Path(exists=True, dir_okay=False))
@@ -319,26 +302,26 @@ def insert_buildings(
     verbose: bool,
     log_filename: str | None,
     city: str,
-    document_geometry: str,
-    document_address: [str],
-    document_project_type: [str],
-    document_living_area: [str],
-    document_storeys_count: [str],
-    document_resident_number: [str],
-    document_osm_id: [str],
-    document_central_heating: [str],
-    document_central_water: [str],
-    document_central_hot_water: [str],
-    document_central_electricity: [str],
-    document_central_gas: [str],
-    document_refusechute: [str],
-    document_ukname: [str],
-    document_is_failing: [str],
-    document_lift_count: [str],
-    document_repair_years: [str],
-    document_is_living: [str],
-    document_building_year: [str],
-    document_modeled: [str],
+    document_geometry: list[str],
+    document_address: list[str],
+    document_project_type: list[str],
+    document_living_area: list[str],
+    document_storeys_count: list[str],
+    document_resident_number: list[str],
+    document_osm_id: list[str],
+    document_central_heating: list[str],
+    document_central_water: list[str],
+    document_central_hot_water: list[str],
+    document_central_electricity: list[str],
+    document_central_gas: list[str],
+    document_refusechute: list[str],
+    document_ukname: list[str],
+    document_is_failing: list[str],
+    document_lift_count: list[str],
+    document_repair_years: list[str],
+    document_is_living: list[str],
+    document_building_year: list[str],
+    document_modeled: list[str],
     address_prefix: list[str],
     new_address_prefix: str,
     properties_mapping: list[str],
@@ -356,7 +339,7 @@ def insert_buildings(
     Modeled column should contain document columnd separated by comma. Corresponding table columns will be
     marked modeled on insert.
     """
-    columns_mapping = BuildingInsertionMapping(
+    columns_mapping = BuildingInsertionCLIParameters(
         document_geometry,
         document_address,
         document_project_type,
