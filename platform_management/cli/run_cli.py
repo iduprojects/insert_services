@@ -8,8 +8,10 @@ import time
 import psycopg2
 from loguru import logger
 
+from platform_management.cli.defaults import InsertBuildings as DefaultValues
 from platform_management.dto import (
     AdmDivisionInsertionMapping,
+    BuildingInsertionCLIParameters,
     BuildingInsertionMapping,
     DatabaseCredentials,
     ServiceInsertionMapping,
@@ -164,7 +166,7 @@ def insert_buildings_cli(  # pylint: disable=too-many-arguments,too-many-locals
     verbose: bool,
     log_filename: str | None,
     city: str,
-    columns_mapping: BuildingInsertionMapping,
+    columns_mapping: BuildingInsertionCLIParameters,
     address_prefix: list[str],
     new_address_prefix: str,
     properties_mapping: list[str],
@@ -186,35 +188,39 @@ def insert_buildings_cli(  # pylint: disable=too-many-arguments,too-many-locals
 
     logfile, conn = _common(dry_run, verbose, log_filename, database_credentials, filename)
 
-    buildings = load_objects(filename)
-    logger.info('Загружено {} объектов из файла "{}"', buildings.shape[0], filename)
+    buildings_df = load_objects(filename)
+    logger.info('Загружено {} объектов из файла "{}"', buildings_df.shape[0], filename)
 
-    # проверка multiple аргументов, введенных пользователем(заданных по умолчанию)
-    new_columns_mapping = columns_mapping
+    # Получение ColumnMapping'а из MultipleColumnMapping'а с выводом warning'ов в случае, когда пользователь явно задал
+    #   варианты опций, но они не были найдены в файле
+    found_columns: dict[str, str] = {}
+    for column, value_options in vars(columns_mapping).items():
+        value_options: list[str]
+        defaults_used = value_options is None
+        if defaults_used:
+            value_options = getattr(DefaultValues, f"document_{column}")
 
-    for column, value in vars(columns_mapping).items():
-        if isinstance(value, str):
-            if value is not None and value not in buildings.columns:
-                logger.warning('Заданный столбец "{}" (название атрибута в БД "{}") не найден в файле', value, column)
-                new_columns_mapping.__setattr__(column, "Not found")
+        for value in value_options:
+            if value in buildings_df.columns:
+                found_columns[column] = value
+                break
         else:
-            flag = False
-            for value_ in list(value):
-                if value_ is not None and value_ in buildings.columns:
-                    new_columns_mapping.__setattr__(column, value_)
-                    flag = True
-            if not flag:
+            if not defaults_used:
                 logger.warning(
-                    'Заданный столбец {}(название атрибута в БД "{}") не найдены в файле',
-                    ("".join(map(lambda s: f'"{s}" ', value))),
+                    'Значение для атрибута в БД "{}" задано при загрузке ({}), но не обнаружено в файле',
                     column,
+                    (", ".join(map(lambda s: f'"{s}" ', value_options))),
                 )
-                new_columns_mapping.__setattr__(column, "Not found")
+            else:
+                logger.debug(
+                    'Значение для атрибута в БД "{}" не было обнаружено в документе из значений по-умолчанию', column
+                )
+    new_columns_mapping = BuildingInsertionMapping(**found_columns)
     logger.info("Соответствие (маппинг) документа: {}", new_columns_mapping)
 
-    buildings = add_buildings(
+    buildings_df = add_buildings(
         conn,
-        buildings,
+        buildings_df,
         city,
         new_columns_mapping,
         properties_mapping_dict,
@@ -225,7 +231,7 @@ def insert_buildings_cli(  # pylint: disable=too-many-arguments,too-many-locals
     )
 
     if logfile is not None:
-        buildings.to_csv(logfile)
+        buildings_df.to_csv(logfile)
     logger.opt(colors=True).info('Завершено, лог записан в файл <green>"{}"</green>', logfile)
 
 
