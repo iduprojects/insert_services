@@ -8,7 +8,7 @@ import random
 import time
 import traceback
 import warnings
-from typing import Callable, Union
+from typing import Callable
 
 import pandas as pd
 import psycopg2
@@ -22,8 +22,9 @@ from platform_management.dto import ServiceInsertionMapping
 
 warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
 
+
 def insert_object(
-    cur: "psycopg2.cursor",
+    cur: psycopg2.extensions.cursor,
     row: pd.Series,
     phys_id: int,
     name: str,
@@ -92,7 +93,7 @@ def insert_object(
 
 
 def update_object(
-    cur: "psycopg2.cursor",
+    cur: psycopg2.extensions.cursor,
     row: pd.Series,
     functional_object_id: int,
     name: str,
@@ -164,7 +165,7 @@ def update_object(
 
 
 def get_properties_keys(
-    cur_or_conn: Union["psycopg2.connection", "psycopg2.cursor"], city_service_type: str
+    cur_or_conn: psycopg2.extensions.connection | psycopg2.extensions.cursor, city_service_type: str
 ) -> list[str]:
     """Return a list of properties keys of a given city_service_type by name or id."""
     if isinstance(cur_or_conn, psycopg2.extensions.connection):
@@ -188,7 +189,7 @@ def get_properties_keys(
 
 
 def add_services(  # pylint: disable=too-many-branches,too-many-statements,too-many-nested-blocks
-    conn: "psycopg2.connection",
+    conn: psycopg2.extensions.connection,
     services_df: pd.DataFrame,
     city_name: str,
     service_type: str,

@@ -10,7 +10,7 @@ import pandas as pd
 from loguru import logger
 from PySide6 import QtCore, QtGui, QtWidgets
 
-from platform_management import get_properties_keys
+from platform_management.cli.services import get_properties_keys
 from platform_management.database_properties import Properties
 from platform_management.gui.basics import ColorizingComboBox, check_geometry_correctness
 from platform_management.gui.update_buildings.building_creation import BuildingCreationWidget
@@ -476,7 +476,7 @@ class ServicesUpdatingWindow(QtWidgets.QWidget):  # pylint: disable=too-many-ins
         (
             osm_id,
             address,
-            building_date,
+            building_year,
             building_area,
             repair_years,
             building_area_living,
@@ -488,7 +488,7 @@ class ServicesUpdatingWindow(QtWidgets.QWidget):  # pylint: disable=too-many-ins
         ) = (
             dialog.osm_id(),
             dialog.address(),
-            dialog.building_date(),
+            dialog.building_year(),
             dialog.repair_years(),
             dialog.building_area(),
             dialog.building_area_living(),
@@ -534,7 +534,7 @@ class ServicesUpdatingWindow(QtWidgets.QWidget):  # pylint: disable=too-many-ins
                 (new_phys_id,) * 3,
             )
             cur.execute(
-                "INSERT INTO buildings (physical_object_id, address, building_date,"
+                "INSERT INTO buildings (physical_object_id, address, building_year,"
                 "      repair_years, building_area, living_area,"
                 "   storeys_count, lift_count, resident_number, project_type, ukname,"
                 "   central_heating, central_hotwater, central_electro,"
@@ -543,7 +543,7 @@ class ServicesUpdatingWindow(QtWidgets.QWidget):  # pylint: disable=too-many-ins
                 (
                     new_phys_id,
                     address,
-                    building_date,
+                    building_year,
                     repair_years,
                     building_area,
                     building_area_living,
@@ -578,7 +578,7 @@ class ServicesUpdatingWindow(QtWidgets.QWidget):  # pylint: disable=too-many-ins
         func_id, phys_id = self._table.item(row, 0).text(), self._table.item(row, 8).text()
         with self._db_properties.conn.cursor() as cur:
             cur.execute(
-                "SELECT ST_AsGeoJSON(p.geometry), p.osm_id, b.address, b.building_date,"
+                "SELECT ST_AsGeoJSON(p.geometry), p.osm_id, b.address, b.building_year ,"
                 "   b.repair_years, b.building_area, b.living_area,"
                 "   b.storeys_count, b.lift_count, b.resident_number, b.project_type,"
                 "   b.ukname, b.central_heating, b.central_hotwater,"
@@ -691,7 +691,7 @@ class ServicesUpdatingWindow(QtWidgets.QWidget):  # pylint: disable=too-many-ins
                 ),
                 (
                     "address",
-                    "building_date",
+                    "building_year",
                     "repair_years",
                     "building_area",
                     "living_area",
@@ -711,7 +711,7 @@ class ServicesUpdatingWindow(QtWidgets.QWidget):  # pylint: disable=too-many-ins
                 res[1:],
                 (
                     dialog.address(),
-                    dialog.building_date(),
+                    dialog.building_year(),
                     dialog.repair_years(),
                     dialog.building_area(),
                     dialog.building_area_living(),

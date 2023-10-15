@@ -11,7 +11,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 
 
 def check_geometry_correctness(
-    geometry_geojson: str | None, conn: "psycopg2.connection"
+    geometry_geojson: str | None, conn: psycopg2.extensions.connection
 ) -> tuple[float, float, str] | None:
     """Check the correctness of the geometry by passing it to the PostGIS ST_GeomFromGeoJSON.
 

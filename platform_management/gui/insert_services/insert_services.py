@@ -14,6 +14,7 @@ from loguru import logger
 from PySide6 import QtCore, QtGui, QtWidgets
 
 import platform_management.cli as insert_services_cli
+from platform_management.cli.services import get_properties_keys
 from platform_management.database_properties import Properties
 from platform_management.dto import ServiceInsertionMapping
 from platform_management.gui.basics import CheckableTableView, ColorizingComboBox, ColorizingLine, DropPushButton
@@ -530,7 +531,7 @@ class ServicesInsertionWindow(QtWidgets.QWidget):  # pylint: disable=too-many-in
                 )
                 while self._properties_cnt > 0:
                     self.on_property_delete()
-                properties_available = insert_services_cli.get_properties_keys(
+                properties_available = get_properties_keys(
                     self._db_properties.conn, self._options_fields.service_type.currentText()
                 )
                 for functional_object_property in properties_available:

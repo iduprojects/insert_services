@@ -22,7 +22,7 @@ class BuildingCreationWidget(QtWidgets.QDialog):  # pylint: disable=too-many-ins
         geometry: str | None = None,
         osm_id: str | None = None,
         address: str | None = None,
-        building_date: str | None = None,
+        building_year: str | None = None,
         repair_years: str | None = None,
         building_area: float | None = None,
         living_area: float | None = None,
@@ -60,9 +60,10 @@ class BuildingCreationWidget(QtWidgets.QDialog):  # pylint: disable=too-many-ins
         self._address = QtWidgets.QLineEdit(address or "")
         self._address.setPlaceholderText("Город, улица, номер дома")
         self._options_layout.addRow("Адрес", self._address)
-        self._building_date = QtWidgets.QLineEdit(building_date or "")
-        self._building_date.setPlaceholderText("2001-2002")
-        self._options_layout.addRow("Дата постройки", self._building_date)
+        self._building_year = QtWidgets.QLineEdit(building_year or "")
+        self._building_year.setValidator(QtGui.QIntValidator(1600, 2050))
+        self._building_year.setPlaceholderText("1974")
+        self._options_layout.addRow("Дата постройки", self._building_year)
         self._repair_years = QtWidgets.QLineEdit(repair_years or "")
         self._repair_years.setPlaceholderText("2003; 2007")
         self._options_layout.addRow("Года ремонта", self._repair_years)
@@ -145,9 +146,9 @@ class BuildingCreationWidget(QtWidgets.QDialog):  # pylint: disable=too-many-ins
         """Get address value set by user."""
         return str_or_none(self._address.text())
 
-    def building_date(self) -> str | None:
+    def building_year(self) -> int | None:
         """Get building date set by user."""
-        return str_or_none(self._building_date.text())
+        return str_or_none(self._building_year.text())
 
     def repair_years(self) -> str | None:
         """Get repair years value set by user"""

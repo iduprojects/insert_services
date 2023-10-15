@@ -59,7 +59,7 @@ class Properties:
         )
 
     @property
-    def conn(self) -> "psycopg2.connection":
+    def conn(self) -> psycopg2.extensions.connection:
         """
         Database connection object if the connection was successfull. Raises exception otherwise.
         """

@@ -36,7 +36,7 @@ def _common(
     log_filename: str | None,
     database_credentials: DatabaseCredentials,
     filename: str,
-) -> tuple[str, "psycopg2.connection"]:
+) -> tuple[str, psycopg2.extensions.connection]:
     """Perform common operations for all CLI processes.
 
     Returns logfile name and database connection object.

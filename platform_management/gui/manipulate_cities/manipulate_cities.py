@@ -187,7 +187,16 @@ class CitiesWindow(QtWidgets.QWidget):  # pylint: disable=too-many-instance-attr
         latitude, longitude, geom_type = new_geom_tuple
         with self._db_properties.conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO cities (name, code, region_id, geometry, center, population, local_crs, city_division_type)"
+                "INSERT INTO cities ("
+                "   name,"
+                "   code,"
+                "   region_id,"
+                "   geometry,"
+                "   center,"
+                "   population,"
+                "   local_crs,"
+                "   city_division_type"
+                ")"
                 " VALUES (%s, %s, %s, ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326),"
                 "   ST_SnapToGrid(ST_Centroid(ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326)), 0.000001), %s, %s, %s)"
                 " RETURNING id",
@@ -235,8 +244,16 @@ class CitiesWindow(QtWidgets.QWidget):  # pylint: disable=too-many-instance-attr
         city_id = self._table.item(row, 0).text()
         with self._db_properties.conn.cursor() as cur:
             cur.execute(
-                "SELECT ST_AsGeoJSON(geometry)::jsonb, name, code, local_crs, (SELECT name FROM regions WHERE id = region_id),"
-                " population, city_division_type FROM cities WHERE id = %s",
+                "SELECT"
+                "   ST_AsGeoJSON(geometry)::jsonb,"
+                "   name,"
+                "   code,"
+                "   local_crs,"
+                "   (SELECT name FROM regions WHERE id = region_id),"
+                "   population,"
+                "   city_division_type"
+                " FROM cities"
+                " WHERE id = %s",
                 (city_id,),
             )
             geometry, name, code, local_crs, region, population, division_type = cur.fetchone()  # type: ignore

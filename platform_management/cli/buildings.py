@@ -43,7 +43,7 @@ _buildings_mappings_used = list(
 
 
 def insert_building(
-    cur: "psycopg2.cursor",
+    cur: psycopg2.extensions.cursor,
     row: pd.Series,
     physical_object_id: int,
     mapping: BuildingInsertionMapping,
@@ -90,7 +90,7 @@ def insert_building(
 
 
 def update_building(
-    cur: "psycopg2.cursor",
+    cur: psycopg2.extensions.cursor,
     row: pd.Series,
     building_id: int,
     mapping: BuildingInsertionMapping,
@@ -181,8 +181,49 @@ def update_building(
     return len(change) != 0 or db_properties != building_properties or geom != geom_new
 
 
+def get_properties_keys(
+    cur_or_conn: psycopg2.extensions.connection | psycopg2.extensions.cursor,
+    city: str,
+    living: bool,
+    non_living: bool,
+) -> list[str]:
+    """Return a list of properties keys of buildings in a given city."""
+    if isinstance(cur_or_conn, psycopg2.extensions.connection):
+        cur = cur_or_conn.cursor()
+    else:
+        cur = cur_or_conn
+    try:
+        cur.execute(
+            "WITH phys AS ("
+            "   SELECT p.id FROM physical_objects p"
+            "       JOIN cities c ON p.city_id = c.id"
+            "   WHERE c.name = %(city)s"
+            "       OR c.code = %(city)s"
+            "       OR c.id::varchar = %(city)s"
+            ")"
+            " SELECT DISTINCT jsonb_object_keys(properties)"
+            " FROM buildings"
+            " WHERE physical_object_id IN (SELECT id FROM phys) AND "
+            + (
+                " is_living = true"
+                if living and not non_living
+                else "is_living = false"
+                if non_living and not living
+                else "is_living IS null"
+                if not non_living and not living
+                else "is_living IS NOT null"
+            )
+            + " ORDER BY 1",
+            {"city": city},
+        )
+        return [r[0] for r in cur.fetchall()]
+    finally:
+        if isinstance(cur_or_conn, psycopg2.extensions.connection):
+            cur.close()
+
+
 def add_buildings(  # pylint: disable=too-many-branches,too-many-statements
-    conn: "psycopg2.connection",
+    conn: psycopg2.extensions.connection,
     buildings_df: pd.DataFrame,
     city_name: str,
     mapping: BuildingInsertionMapping,

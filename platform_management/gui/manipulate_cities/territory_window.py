@@ -31,8 +31,8 @@ class TerritoryWindow(QtWidgets.QWidget):  # pylint: disable=too-many-instance-a
 
     def __init__(  # pylint: disable=too-many-arguments,too-many-statements
         self,
-        conn: "psycopg2.connection",
-        additional_conn: "psycopg2.connection",
+        conn: psycopg2.extensions.connection,
+        additional_conn: psycopg2.extensions.connection,
         city_name: str,
         territory_type: Literal["municipality", "administrative_unit"],
         on_territory_add_callback: Callable[[int, str, str], None],

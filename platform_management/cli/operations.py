@@ -6,7 +6,9 @@ import psycopg2.extensions
 from loguru import logger
 
 
-def refresh_materialized_views(cur: psycopg2.extensions.cursor, materialized_views_names: list[str] | None = ...) -> None:
+def refresh_materialized_views(
+    cur: psycopg2.extensions.cursor, materialized_views_names: list[str] | None = ...
+) -> None:
     """Refresh given materialized views (default all_buildings, all_services, houses and all_houses)."""
 
     if materialized_views_names is None:

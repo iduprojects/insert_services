@@ -12,6 +12,7 @@ from platform_management.database_properties import Properties
 from platform_management.gui.insert_services import ServicesInsertionWindow
 from platform_management.gui.manipulate_cities import CitiesWindow
 from platform_management.gui.manipulate_regions import RegionsWindow
+from platform_management.gui.update_buildings import BuildingsUpdatingWindow
 from platform_management.gui.update_services import ServicesUpdatingWindow
 
 from .app import get_application
@@ -56,8 +57,10 @@ class InitWindow(QtWidgets.QWidget):  # pylint: disable=too-many-instance-attrib
 
         logger.debug("Creating insertion window")
         self._insertion_window = ServicesInsertionWindow(self._db_properties.copy(), self._on_restart)
-        logger.debug("Creating updating window")
-        self._updating_window = ServicesUpdatingWindow(self._db_properties.copy(), self._on_restart)
+        logger.debug("Creating services updating window")
+        self._services_updating_window = ServicesUpdatingWindow(self._db_properties.copy(), self._on_restart)
+        logger.debug("Creating buildings updating window")
+        self._buildings_updating_window = BuildingsUpdatingWindow(self._db_properties.copy(), self._on_restart)
         logger.debug("Creating cities manipulation window")
         self._cities_window = CitiesWindow(self._db_properties.copy(), self._on_restart)
         logger.debug("Creating regions manipulation window")
@@ -85,11 +88,12 @@ class InitWindow(QtWidgets.QWidget):  # pylint: disable=too-many-instance-attrib
         self._layout.addLayout(self._right)
         self._variants = QtWidgets.QButtonGroup()
         self._variants.addButton(QtWidgets.QRadioButton("&Загрузка сервисов"), 0)
-        self._variants.addButton(QtWidgets.QRadioButton("&Изменение сервисов"), 1)
-        self._variants.addButton(QtWidgets.QRadioButton("Операции с &городами"), 2)
-        self._variants.addButton(QtWidgets.QRadioButton("Операции с &регионами"), 3)
+        self._variants.addButton(QtWidgets.QRadioButton("Изменение &сервисов"), 1)
+        self._variants.addButton(QtWidgets.QRadioButton("Изменение &зданий"), 2)
+        self._variants.addButton(QtWidgets.QRadioButton("Операции с &городами"), 3)
+        self._variants.addButton(QtWidgets.QRadioButton("Операции с &регионами"), 4)
         self._variants.button(0).setChecked(True)
-        for btn_n in range(4):
+        for btn_n in range(5):
             self._right.addWidget(self._variants.button(btn_n))
 
         self._launch_btn = QtWidgets.QPushButton("З&апуск")
@@ -146,39 +150,26 @@ class InitWindow(QtWidgets.QWidget):  # pylint: disable=too-many-instance-attrib
             with self._db_properties.conn, self._db_properties.conn.cursor() as cur:
                 cur.execute("SELECT 1")
                 assert cur.fetchone()[0] == 1, "cannot connect to the database"  # type: ignore
-                self._insertion_window.change_db(
-                    self._db_properties.db_addr,
-                    self._db_properties.db_port,
-                    self._db_properties.db_name,
-                    self._db_properties.db_user,
-                    self._db_properties.db_pass,
-                )
-                self._updating_window.change_db(
-                    self._db_properties.db_addr,
-                    self._db_properties.db_port,
-                    self._db_properties.db_name,
-                    self._db_properties.db_user,
-                    self._db_properties.db_pass,
-                )
-                self._cities_window.change_db(
-                    self._db_properties.db_addr,
-                    self._db_properties.db_port,
-                    self._db_properties.db_name,
-                    self._db_properties.db_user,
-                    self._db_properties.db_pass,
-                )
-                self._regions_window.change_db(
-                    self._db_properties.db_addr,
-                    self._db_properties.db_port,
-                    self._db_properties.db_name,
-                    self._db_properties.db_user,
-                    self._db_properties.db_pass,
-                )
+                for func in (
+                    self._insertion_window.change_db,
+                    self._services_updating_window.change_db,
+                    self._buildings_updating_window.change_db,
+                    self._cities_window.change_db,
+                    self._regions_window.change_db,
+                ):
+                    func(
+                        self._db_properties.db_addr,
+                        self._db_properties.db_port,
+                        self._db_properties.db_name,
+                        self._db_properties.db_user,
+                        self._db_properties.db_pass,
+                    )
 
                 cur.execute("SELECT name FROM cities ORDER BY population DESC")
                 cities = list(itertools.chain.from_iterable(cur.fetchall()))
                 self._insertion_window.set_cities(cities)
-                self._updating_window.set_cities(cities)
+                self._services_updating_window.set_cities(cities)
+                self._buildings_updating_window.set_cities(cities)
 
                 cur.execute("SELECT name FROM city_functions ORDER BY 1")
                 items = list(itertools.chain.from_iterable(cur.fetchall()))
@@ -221,8 +212,11 @@ class InitWindow(QtWidgets.QWidget):  # pylint: disable=too-many-instance-attrib
             self._insertion_window.show()
         elif self._variants.checkedId() == 1:
             app.setApplicationDisplayName("Изменение сервисов")
-            self._updating_window.show()
+            self._services_updating_window.show()
         elif self._variants.checkedId() == 2:
+            app.setApplicationDisplayName("Изменение зданий")
+            self._buildings_updating_window.show()
+        elif self._variants.checkedId() == 3:
             app.setApplicationDisplayName("Операции с городами")
             self._cities_window.show()
         else:
@@ -231,7 +225,8 @@ class InitWindow(QtWidgets.QWidget):  # pylint: disable=too-many-instance-attrib
 
     def _on_restart(self):
         self._insertion_window.hide()
-        self._updating_window.hide()
+        self._services_updating_window.hide()
+        self._buildings_updating_window.hide()
         self._cities_window.hide()
         self._regions_window.hide()
         self.show()
@@ -246,6 +241,16 @@ class InitWindow(QtWidgets.QWidget):  # pylint: disable=too-many-instance-attrib
 
     def closeEvent(self, event: QtGui.QCloseEvent) -> None:  # pylint: disable=invalid-name
         """Log application close."""
-        if not self._insertion_window.isVisible() and not self._updating_window.isVisible():
+        if not any(
+            window.isVisible()
+            for window in (
+                self._cities_window,
+                self._regions_window,
+                self._insertion_window,
+                self._insertion_window,
+                self._services_updating_window,
+                self._buildings_updating_window,
+            )
+        ):
             logger.info("Закрыто начальное окно работы с сервисами")
         return super().closeEvent(event)

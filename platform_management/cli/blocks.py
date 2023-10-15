@@ -19,8 +19,9 @@ from platform_management.cli.common import SingleObjectStatus
 
 warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
 
+
 def insert_block(
-    cur: "psycopg2.cursor",
+    cur: psycopg2.extensions.cursor,
     geometry: str,
     city_id: int,
     commit: bool = True,
@@ -49,7 +50,7 @@ def insert_block(
 
 
 def update_block(
-    cur: "psycopg2.cursor",
+    cur: psycopg2.extensions.cursor,
     block_id: int,
     geometry: str,
     commit: bool = True,
@@ -73,7 +74,7 @@ def update_block(
 
 
 def add_blocks(  # pylint: disable=too-many-branches,too-many-statements
-    conn: "psycopg2.connection",
+    conn: psycopg2.extensions.connection,
     blocks_df: pd.DataFrame,
     city_name: str,
     geometry_column: str,

@@ -22,6 +22,7 @@ from platform_management.dto import AdmDivisionInsertionMapping
 
 warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
 
+
 class AdmDivisionType(Enum):
     """Administrative division unit type."""
 
@@ -30,7 +31,7 @@ class AdmDivisionType(Enum):
 
 
 def insert_administrative_unit(
-    cur: "psycopg2.cursor",
+    cur: psycopg2.extensions.cursor,
     row: pd.Series,
     mapping: AdmDivisionInsertionMapping,
     administrative_unit_types: dict[str, int],
@@ -76,7 +77,7 @@ def insert_administrative_unit(
 
 
 def insert_municipality(
-    cur: "psycopg2.cursor",
+    cur: psycopg2.extensions.cursor,
     row: pd.Series,
     mapping: AdmDivisionInsertionMapping,
     municipalities_types: dict[str, int],
@@ -122,7 +123,7 @@ def insert_municipality(
 
 
 def update_administrative_unit(
-    cur: "psycopg2.cursor",
+    cur: psycopg2.extensions.cursor,
     administrative_unit_id: int,
     row: pd.Series,
     mapping: AdmDivisionInsertionMapping,
@@ -201,7 +202,7 @@ def update_administrative_unit(
 
 
 def update_municipality(
-    cur: "psycopg2.cursor",
+    cur: psycopg2.extensions.cursor,
     municipality_id: int,
     row: pd.Series,
     mapping: AdmDivisionInsertionMapping,
@@ -278,7 +279,7 @@ def update_municipality(
 
 
 def add_adm_division(  # pylint: disable=too-many-branches,too-many-statements
-    conn: "psycopg2.connection",
+    conn: psycopg2.extensions.connection,
     adms_df: pd.DataFrame,
     city_name: str,
     division_type: AdmDivisionType,

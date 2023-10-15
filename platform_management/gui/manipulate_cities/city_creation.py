@@ -8,10 +8,10 @@ from PySide6 import QtWidgets
 from platform_management.utils.converters import int_or_none, str_or_none, to_str
 
 
-class CityCreationWidget(QtWidgets.QDialog):
+class CityCreationWidget(QtWidgets.QDialog):  # pylint: disable=too-many-instance-attributes
     """City creation window."""
 
-    def __init__(  # pylint: disable=too-many-arguments
+    def __init__(  # pylint: disable=too-many-arguments,too-many-locals
         self,
         text: str,
         regions: list[str],
