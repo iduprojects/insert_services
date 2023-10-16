@@ -76,35 +76,67 @@ class ServiceInsertionMapping:  # pylint: disable=too-many-instance-attributes
 
 
 @dataclass
-class BuildingInsertionMapping:  # pylint: disable=too-many-instance-attributes
-    """Class to store the mapping between input document building properties and database columns."""
+class BuildingInsertionCLIParameters:  # pylint: disable=too-many-instance-attributes
+    """Class to store user input with multiple mapping options available for each attribute.
 
-    geometry: str | None = "geometry"
-    address: str | None = "address"
-    project_type: str | None = "project_type"
-    living_area: str | None = "area_residential"
-    storeys_count: str | None = "building:levels"
-    resident_number: str | None = "resident_number"
-    osm_id: str | None = "osm_id"
-    central_heating: str | None = "central_heating"
-    central_water: str | None = "central_water"
-    central_hot_water: str | None = "central_hot_water"
-    central_electricity: str | None = "central_electricity"
-    central_gas: str | None = "central_gas"
-    refusechute: str | None = "refusechute"
-    ukname: str | None = "ukname"
-    is_failing: str | None = "is_failing"
-    lift_count: str | None = "lift_count"
-    repair_years: str | None = "repair_years"
-    is_living: str | None = "is_living"
-    building_year: str | None = "built_year"
-    modeled: str | None = "modeled_fields"
+    - None value means that parameter was not set and should be treated as default.
+    - [] value means that defaults were intentionally disabled by passing empty value or "-" as an ragument.
+    """
+
+    geometry: list[str] | None
+    address: list[str] | None
+    project_type: list[str] | None
+    living_area: list[str] | None
+    storeys_count: list[str] | None
+    resident_number: list[str] | None
+    osm_id: list[str] | None
+    central_heating: list[str] | None
+    central_water: list[str] | None
+    central_hot_water: list[str] | None
+    central_electricity: list[str] | None
+    central_gas: list[str] | None
+    refusechute: list[str] | None
+    ukname: list[str] | None
+    is_failing: list[str] | None
+    lift_count: list[str] | None
+    repair_years: list[str] | None
+    is_living: list[str] | None
+    building_year: list[str] | None
+    modeled: list[str] | None
 
     def __post_init__(self) -> None:
         for field in get_fields(self):
-            value = getattr(self, field.name)
-            if value in ("", "-"):
+            values = getattr(self, field.name)
+            if len(values) == 0:
                 setattr(self, field.name, None)
+            elif len(values) > 0 and all(value in ("", "-") for value in values):
+                setattr(self, field.name, [])
+
+
+@dataclass
+class BuildingInsertionMapping:  # pylint: disable=too-many-instance-attributes
+    """Class to store the mapping between input document building properties and database columns."""
+
+    geometry: str
+    address: str | None = None
+    project_type: str | None = None
+    living_area: str | None = None
+    storeys_count: str | None = None
+    resident_number: str | None = None
+    osm_id: str | None = None
+    central_heating: str | None = None
+    central_water: str | None = None
+    central_hot_water: str | None = None
+    central_electricity: str | None = None
+    central_gas: str | None = None
+    refusechute: str | None = None
+    ukname: str | None = None
+    is_failing: str | None = None
+    lift_count: str | None = None
+    repair_years: str | None = None
+    is_living: str | None = None
+    building_year: str | None = None
+    modeled: str | None = None
 
 
 @dataclass
