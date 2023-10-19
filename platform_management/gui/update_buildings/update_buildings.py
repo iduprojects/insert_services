@@ -151,7 +151,7 @@ class BuildingsUpdatingWindow(QtWidgets.QWidget):  # pylint: disable=too-many-in
                 "   date_trunc('second', p.updated_at)::timestamp,"  # buildings do not have `updated_at`
                 "   b.properties"
                 " FROM physical_objects p"
-                "   LEFT JOIN buildings b ON b.physical_object_id = p.id"
+                "   JOIN buildings b ON b.physical_object_id = p.id"
                 "   LEFT JOIN administrative_units au ON p.administrative_unit_id = au.id"
                 "   LEFT JOIN municipalities m ON p.municipality_id = m.id"
                 " WHERE p.city_id = (SELECT id FROM cities WHERE name = %s) AND "

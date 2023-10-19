@@ -4,11 +4,13 @@ from __future__ import annotations
 import itertools
 import json
 import time
+from math import ceil
 from typing import Any, Callable, NamedTuple
 
 import pandas as pd
 from loguru import logger
 from PySide6 import QtCore, QtGui, QtWidgets
+from tqdm import trange
 
 from platform_management.cli import refresh_materialized_views
 from platform_management.cli.operations import update_buildings_area, update_physical_objects_locations
@@ -360,6 +362,7 @@ class CitiesWindow(QtWidgets.QWidget):  # pylint: disable=too-many-instance-attr
             with self._db_properties.conn.cursor() as cur:
                 for row in rows[::-1]:
                     city_id = self._table.item(row - 1, 0).text()
+                    logger.debug("Preparing to delete city with id={}", city_id)
                     self._log_window.insertHtml(f"<font color=red>Удаление города с id={city_id}</font><br>")
                     cur.execute(
                         "SELECT f.id FROM functional_objects f JOIN physical_objects p ON f.physical_object_id = p.id"
@@ -367,29 +370,56 @@ class CitiesWindow(QtWidgets.QWidget):  # pylint: disable=too-many-instance-attr
                         (city_id,),
                     )
                     city_objects = tuple(itertools.chain.from_iterable(cur.fetchall()))
-                    if len(city_objects) == 1:
-                        city_objects *= 2
                     if len(city_objects) > 0:
-                        cur.execute(
-                            f"DELETE FROM provision.houses_services WHERE house_id IN {city_objects}"
-                            f"   OR service_id IN {city_objects}"
-                        )
-                        cur.execute(f"DELETE FROM provision.services WHERE service_id IN {city_objects}")
-                        cur.execute(f"DELETE FROM provision.houses WHERE house_id IN {city_objects}")
-                        cur.execute(f"DELETE FROM functional_objects WHERE id IN {city_objects}")
-                        cur.execute("SELECT id FROM physical_objects WHERE city_id = %s", (city_id,))
+                        logger.debug("Preparing to delete {} functional_objects", len(city_objects))
+                        for i in trange(ceil(len(city_objects) / 100), desc="Deleting functional objects"):
+                            cur.execute(
+                                "DELETE FROM functional_objects WHERE id IN %s",
+                                (city_objects[i * 100 : (i + 1) * 100],),
+                            )
+
+                    cur.execute("SELECT id FROM physical_objects WHERE city_id = %s", (city_id,))
                     city_objects = tuple(itertools.chain.from_iterable(cur.fetchall()))
-                    if len(city_objects) == 1:
-                        city_objects *= 2
                     if len(city_objects) > 0:
-                        cur.execute(f"DELETE FROM buildings WHERE physical_object_id IN {city_objects}")
-                        cur.execute("DELETE FROM physical_objects WHERE city_id = %s", (city_id,))
+                        cur.execute("SELECT id FROM buildings WHERE physical_object_id IN %s", (city_objects,))
+                        buildings_ids = tuple(itertools.chain.from_iterable(cur.fetchall()))
+                        if len(buildings_ids) > 0:
+                            # skipped to boost prformance
+                            # cur.execute(
+                            #     "DELETE FROM social_stats.sex_age_social_houses WHERE house_id IN %s",
+                            #     (buildings_ids,),
+                            # )
+                            try:
+                                logger.debug("Preparing to delete {} buildings", len(buildings_ids))
+                                for i in trange(ceil(len(buildings_ids) / 100), desc="Deleting functional objects"):
+                                    cur.execute(
+                                        "DELETE FROM buildings WHERE id IN %s",
+                                        (buildings_ids[i * 100 : (i + 1) * 100],),
+                                    )
+                            except Exception as exc:  # pylint: disable=broad-except
+                                self._log_window.insertHtml(
+                                    f"<font color=red>Произошла ошибка при удалении сервисов: {exc}."
+                                    " Проверьте таблицы, связанные с functional_objects.</font"
+                                )
+                                raise
+                        logger.debug("Preparing to delete {} physical objects", len(city_objects))
+                        for i in trange(ceil(len(city_objects) / 100), desc="Deleting functional objects"):
+                            cur.execute("DELETE FROM physical_objects WHERE city_id = %s", (city_id,))
+
+                    logger.debug("Deleting blocks, municipalities and administrative units")
                     cur.execute("DELETE FROM blocks WHERE city_id = %s", (city_id,))
                     cur.execute("UPDATE municipalities SET admin_unit_parent_id = null WHERE city_id = %s", (city_id,))
+                    cur.execute(
+                        "UPDATE administrative_units SET municipality_parent_id = null WHERE city_id = %s", (city_id,)
+                    )
+
                     cur.execute("DELETE FROM administrative_units WHERE city_id = %s", (city_id,))
                     cur.execute("DELETE FROM municipalities WHERE city_id = %s", (city_id,))
+                    logger.debug("Finally deleting city with id = {}", city_id)
                     cur.execute("DELETE FROM cities WHERE id = %s", (city_id,))
                     self._table.removeRow(row - 1)
+                logger.info("Auto-commiting city deletion")
+                self._edit_buttons.commit.click()
 
     def _on_geometry_show(self) -> None:
         row = self._table.currentRow()

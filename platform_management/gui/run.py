@@ -5,6 +5,8 @@ import sys
 from loguru import logger
 from PySide6 import QtGui
 
+from platform_management.version import VERSION
+
 from .app import get_application
 from .init_window import InitWindow, InitWindowDefaultValues
 
@@ -26,7 +28,7 @@ def run_gui(
             QtGui.QPixmap(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "resources", "icon.png"))
         )
     )
-    app.setApplicationName("IDU - Insertion Tool")
+    app.setApplicationName(f"IDU - Insertion Tool v.{VERSION}")
 
     window = InitWindow()
     window.show()
