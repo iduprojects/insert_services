@@ -1,11 +1,33 @@
+CODE_DIR := platform_management
+EXECUTABLE := platform-management
+
 gui:
-	python -m platform_management gui
+	poetry run $(EXECUTABLE) gui
 
 debug-gui:
-	python -m platform_management gui --verbose
+	poetry run $(EXECUTABLE) gui --verbose
 
 lint:
-	python -m pylint --max-line-length 120 platform_management -d duplicate-code
+	poetry run pylint $(CODE_DIR)
 
 format:
-	python -m black platform_management
+	poetry run isort $(CODE_DIR)
+	poetry run black $(CODE_DIR)
+
+install:
+	pip install .
+
+install-dev:
+	poetry install --with dev
+
+install-dev-pip:
+	pip install -e . --config-settings editable_mode=strict
+
+build:
+	poetry build
+
+clean:
+	rm -rf ./build ./dist ./$(EXECUTABLE).egg-info
+
+install-from-build:
+	python -m wheel install dist/$(CODE_DIR)-*.whl

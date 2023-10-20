@@ -8,7 +8,9 @@ dbname = os.environ.get("DB_NAME", "city_db_final")
 user = os.environ.get("DB_USER", "postgres")
 password = os.environ.get("DB_PASS", "postgres")
 
-conn: "psycopg2.connection" = psycopg2.connect(host=host, port=port, dbname=dbname, user=user, password=password)
+conn: psycopg2.extensions.connection = psycopg2.connect(
+    host=host, port=port, dbname=dbname, user=user, password=password
+)
 
 
 def to_sql(data) -> str:

@@ -1,32 +1,13 @@
 """
 IDU Digital City Platform management tool, GUI and CLI versions
 """
-
-from platform_management.cli.insert_services import (
-    InsertionMapping,
-    add_objects,
-    get_properties_keys,
+from platform_management.cli import (
+    add_buildings,
+    add_services,
+    insert_buildings_cli,
+    insert_services_cli,
     load_objects,
-    run_cli,
 )
 
-__author__ = "Aleksei Sokol"
-__maintainer__ = __author__
-
-__email__ = "kanootoko@gmail.com"
-__license__ = "MIT"
-__version__ = "0.2.0"
-
-
-__all__ = (
-    "__author__",
-    "__email__",
-    "__license__",
-    "__maintainer__",
-    "__version__",
-    "InsertionMapping",
-    "add_objects",
-    "get_properties_keys",
-    "load_objects",
-    "run_cli",
-)
+from .dto import BuildingInsertionMapping, ServiceInsertionMapping
+from .version import VERSION as __version__

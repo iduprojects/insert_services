@@ -553,14 +553,14 @@ CREATE FUNCTION refreshallmaterializedviews(schema_arg text DEFAULT 'public'::te
 	BEGIN
 		RAISE NOTICE 'Refreshing materialized view in schema %', schema_arg;
 		FOR r IN SELECT matviewname FROM pg_matviews WHERE schemaname = schema_arg and matviewname != 'age_sex_structure_district' and matviewname != 'all_services' and  matviewname != 'houses'
-			and matviewname != 'social_structure_district' 
+			and matviewname != 'social_structure_district'
 		LOOP
 			RAISE NOTICE 'Refreshing %.%', schema_arg, r.matviewname;
-			EXECUTE 'REFRESH MATERIALIZED VIEW ' || schema_arg || '.' || r.matviewname; 
+			EXECUTE 'REFRESH MATERIALIZED VIEW ' || schema_arg || '.' || r.matviewname;
 		END LOOP;
-		
+
 		RETURN 1;
-	END 
+	END
 $$;
 ALTER FUNCTION refreshallmaterializedviews(schema_arg text) OWNER TO postgres;
 

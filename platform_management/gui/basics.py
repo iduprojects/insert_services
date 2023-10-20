@@ -1,18 +1,22 @@
-# pylint: disable=c-extension-no-member
-"""
-Common Qt widgets to use in GUI application.
-"""
+"""Common Qt widgets to use in GUI application."""
+from __future__ import annotations
+
 import json
-from typing import Any, Callable, List, NamedTuple, Optional, Sequence, Tuple
-from frozenlist import FrozenList
+from typing import Any, Callable, NamedTuple, Sequence
 
 import psycopg2  # pylint: disable=unused-import
+from frozenlist import FrozenList
+from loguru import logger
 from PySide6 import QtCore, QtGui, QtWidgets
 
 
 def check_geometry_correctness(
-    geometry_geojson: Optional[str], conn: "psycopg2.connection"
-) -> Optional[Tuple[float, float, str]]:
+    geometry_geojson: str | None, conn: psycopg2.extensions.connection
+) -> tuple[float, float, str] | None:
+    """Check the correctness of the geometry by passing it to the PostGIS ST_GeomFromGeoJSON.
+
+    Return centroid (latitude, longitude, geometry type) if geometry is correct, None otherwise.
+    """
     if geometry_geojson is None:
         return None
     try:
@@ -26,17 +30,20 @@ def check_geometry_correctness(
             new_center = json.loads(new_center)
             new_longitude, new_latitude = new_center["coordinates"]
         return new_latitude, new_longitude, geom_type
-    except RuntimeError:
+    except Exception as exc:  # pylint: disable=broad-except
+        logger.debug("Exception on geometry correctness check: {!r}", exc)
         conn.rollback()
         return None
 
 
 class ColorizingLine(QtWidgets.QLineEdit):
+    """Text line with an ability to set a hook for a change on focusOut event."""
+
     def __init__(
         self,
-        callback: Callable[[Optional[QtWidgets.QLineEdit], Optional[str]], None],
-        text: Optional[str] = None,
-        parent: Optional[QtWidgets.QWidget] = None,
+        callback: Callable[[QtWidgets.QLineEdit | None, str | None], None],
+        text: str | None = None,
+        parent: QtWidgets.QWidget | None = None,
     ):
         super().__init__(parent)
         self._state: str = text or ""
@@ -57,10 +64,12 @@ class ColorizingLine(QtWidgets.QLineEdit):
 
 
 class ColorizingComboBox(QtWidgets.QComboBox):
+    """Combo box with an ability to set a hook for the change event"""
+
     def __init__(
         self,
-        callback: Callable[[Optional[QtWidgets.QComboBox], Optional[int]], None],
-        parent: Optional[QtWidgets.QWidget] = None,
+        callback: Callable[[QtWidgets.QComboBox | None, int | None], None],
+        parent: QtWidgets.QWidget | None = None,
     ):
         super().__init__(parent)
         self._callback = callback
@@ -79,6 +88,7 @@ class ColorizingComboBox(QtWidgets.QComboBox):
 
 
 class CheckableTableView(QtWidgets.QTableView):
+    """Table view with an ability to disable some of the rows from being inserted in the database."""
 
     colorTable = NamedTuple("ColorTable", [("on", QtGui.QColor), ("off", QtGui.QColor)])(
         QtGui.QColor(152, 224, 173), QtGui.QColor(248, 161, 164)
@@ -118,6 +128,7 @@ class CheckableTableView(QtWidgets.QTableView):
             super().keyPressEvent(event)
 
     def toggle_row(self, row: int) -> None:
+        """Change row uploading status."""
         item_index = self.model().index(row, 0)
         item = self.model().data(item_index)
         self.model().setData(item_index, "-" if item == "+" else "+")
@@ -128,22 +139,27 @@ class CheckableTableView(QtWidgets.QTableView):
         )
 
     def turn_row_on(self, row: int) -> None:
+        """Enable row to be uploaded."""
         item_index = self.model().index(row, 0)
         self.model().setData(item_index, "+")
         self.model().setData(item_index, CheckableTableView.colorTable.on, QtCore.Qt.BackgroundRole)
 
     def turn_row_off(self, row: int) -> None:
+        """Disable row from being uploaded."""
         item_index = self.model().index(row, 0)
         self.model().setData(item_index, "-")
         self.model().setData(item_index, CheckableTableView.colorTable.off, QtCore.Qt.BackgroundRole)
 
     def is_turned_on(self, row: int) -> bool:
+        """Return True if the row is not disabled."""
         return self.model().itemData(self.model().index(row, 0)) == "+"
 
 
 class DropPushButton(QtWidgets.QPushButton):
+    """Button with a drag-and-drop interface for files."""
+
     def __init__(
-        self, text: str, formats: List[str], callback: Callable[[str], None], parent: Optional[QtWidgets.QWidget] = None
+        self, text: str, formats: list[str], callback: Callable[[str], None], parent: QtWidgets.QWidget | None = None
     ):
         self.formats = tuple((f".{format}" for format in formats))
         self._callback = callback
@@ -165,13 +181,15 @@ class DropPushButton(QtWidgets.QPushButton):
 
 
 class ColoringTableWidget(QtWidgets.QTableWidget):
-    def __init__(
+    """Table with an ability to set a hook on a cell change"""
+
+    def __init__(  # pylint: disable=too-many-arguments
         self,
-        data: List[Sequence[Any]],
-        labels: List[str],
+        data: list[Sequence[Any]],
+        labels: list[str],
         correction_checker: Callable[[int, int, Any, str], bool] = lambda _column, _row, _old_value, _new_value: True,
         blocked_columns: Sequence[int] = FrozenList([]),
-        parent: Optional[QtWidgets.QWidget] = None,
+        parent: QtWidgets.QWidget | None = None,
     ):
         super().__init__(parent=parent)
         self._data = []
@@ -212,14 +230,18 @@ class ColoringTableWidget(QtWidgets.QTableWidget):
         return super().dataChanged(top_left, bottom_right, roles=roles)
 
     def disable_triggers(self) -> None:
+        """Disable calling callback on cell change."""
         self._initialized = False
 
     def enable_triggers(self) -> None:
+        """Enable calling callback on cell change."""
         self._initialized = True
 
 
 class GeometryShow(QtWidgets.QDialog):
-    def __init__(self, geometry: str, parent: Optional[QtWidgets.QWidget] = None):
+    """Geometry display window with option to copy GeoJSON data."""
+
+    def __init__(self, geometry: str, parent: QtWidgets.QWidget | None = None):
         super().__init__(parent=parent)
         self.window().setWindowTitle("Просмотр геометрии")
         layout = QtWidgets.QVBoxLayout()
