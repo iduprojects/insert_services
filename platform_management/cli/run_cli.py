@@ -113,17 +113,16 @@ def insert_services_cli(  # pylint: disable=too-many-arguments,too-many-locals
     city: str,
     service_type: str,
     columns_mapping: ServiceInsertionMapping,
-    address_prefix: list[str],
+    address_prefixes: list[str] | None,
     new_address_prefix: str,
     properties_mapping: list[str],
     filename: str,
 ):
     """Run services insertion command line interface with the given parameters."""
-    address_prefixes = list(address_prefix)
     if len(address_prefixes) == 0:
-        address_prefixes.append("Россия, Санкт-Петербург")
+        address_prefixes = [""]
     else:
-        address_prefixes.sort(key=len, reverse=True)
+        address_prefixes = sorted(address_prefixes, key=len, reverse=True)
 
     for entry in properties_mapping:
         if ":" not in entry:
@@ -167,17 +166,16 @@ def insert_buildings_cli(  # pylint: disable=too-many-arguments,too-many-locals
     log_filename: str | None,
     city: str,
     columns_mapping: BuildingInsertionCLIParameters,
-    address_prefix: list[str],
+    address_prefixes: list[str],
     new_address_prefix: str,
     properties_mapping: list[str],
     filename: str,
 ):
     """Run services insertion command line interface with the given parameters."""
-    address_prefixes = list(address_prefix)
     if len(address_prefixes) == 0:
-        address_prefixes.append("Россия, Санкт-Петербург")
+        address_prefixes = [""]
     else:
-        address_prefixes.sort(key=len, reverse=True)
+        address_prefixes = sorted(address_prefixes, key=len, reverse=True)
 
     for entry in properties_mapping:
         if ":" not in entry:

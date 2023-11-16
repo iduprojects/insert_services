@@ -573,7 +573,7 @@ class CitiesWindow(QtWidgets.QWidget):  # pylint: disable=too-many-instance-attr
         self._log_window.repaint()
         with self._db_properties.conn, self._db_properties.conn.cursor() as cur:
             update_buildings_area(cur)
-        logger.info("Обновление местоположения физических объектов завершено")
+        logger.info("Обновление площади зданий завершено")
         self._log_window.insertHtml("<font color=green>Завершено</font><br>")
 
     def change_db(  # pylint: disable=too-many-arguments

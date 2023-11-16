@@ -228,7 +228,7 @@ def add_buildings(  # pylint: disable=too-many-branches,too-many-statements
     city_name: str,
     mapping: BuildingInsertionMapping,
     properties_mapping: dict[str, str] = frozenset({}),
-    address_prefixes: list[str] = FrozenList(["Россия, Санкт-Петербург"]),
+    address_prefixes: list[str] = FrozenList([""]),
     new_prefix: str = "",
     commit: bool = True,
     verbose: bool = False,

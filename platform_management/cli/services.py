@@ -195,7 +195,7 @@ def add_services(  # pylint: disable=too-many-branches,too-many-statements,too-m
     service_type: str,
     mapping: ServiceInsertionMapping,
     properties_mapping: dict[str, str] = frozenset({}),
-    address_prefixes: list[str] = FrozenList(["Россия, Санкт-Петербург"]),
+    address_prefixes: list[str] = FrozenList([""]),
     new_prefix: str = "",
     commit: bool = True,
     verbose: bool = False,

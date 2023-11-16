@@ -6,7 +6,7 @@ from typing import Literal
 import click
 import psycopg2
 
-from platform_management.cli import refresh_materialized_views, update_physical_objects_locations
+from platform_management.cli import refresh_materialized_views, update_buildings_area, update_physical_objects_locations
 from platform_management.version import VERSION
 
 from .main_group import main
@@ -59,7 +59,12 @@ from .main_group import main
     show_default=True,
     show_envvar=True,
 )
-@click.argument("action", type=click.Choice(["refresh-materialized-views", "update-physical-objects-locations"], False))
+@click.argument(
+    "action",
+    type=click.Choice(
+        ["refresh-materialized-views", "update-physical-objects-locations", "update-buildings-area"], False
+    ),
+)
 def operation(
     db_addr: str,
     db_port: int,
@@ -75,9 +80,11 @@ def operation(
         dbname=db_name,
         user=db_user,
         password=db_pass,
-        application_name=f"platform_management_app v{VERSION}",
+        application_name=f"platform_management_app_v{VERSION}",
     ) as conn, conn.cursor() as cur:
         if action == "refresh-materialized-views":
             refresh_materialized_views(cur)
-        else:
+        elif action == "update-physical-objects-locations":
             update_physical_objects_locations(cur)
+        else:
+            update_buildings_area(cur)
