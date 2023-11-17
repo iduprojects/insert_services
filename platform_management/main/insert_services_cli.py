@@ -187,11 +187,12 @@ from .main_group import main
 @click.option(
     "--address_prefix",
     "-aP",
+    "address_prefixes",
     multiple=True,
     envvar="ADDRESS_PREFIX",
     help="Address prefix (available for multiple prefixes), no comma or space needed",
     default=[],
-    show_default="Россия, Санкт-Петербург",
+    show_default="",
     show_envvar=True,
 )
 @click.option(
@@ -234,7 +235,7 @@ def insert_services(
     document_phone: str,
     document_osm_id: str,
     document_capacity: str,
-    address_prefix: list[str],
+    address_prefixes: list[str],
     new_address_prefix: str,
     properties_mapping: list[str],
     filename: str,
@@ -260,7 +261,7 @@ def insert_services(
         city,
         service_type,
         columns_mapping,
-        address_prefix,
+        address_prefixes,
         new_address_prefix,
         properties_mapping,
         filename,

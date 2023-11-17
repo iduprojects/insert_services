@@ -28,7 +28,7 @@ def get_main_window_default_values() -> InsertionWindowDefaultValues:
 
 def get_main_window_default_address_prefixes() -> list[str]:
     """Return default city address prefixes."""
-    return ["Россия, Санкт-Петербург"]
+    return [""]
 
 
 def get_default_city_functions() -> list[str]:

@@ -90,7 +90,7 @@ from .main_group import main
     "-dg",
     envvar="DOCUMENT_GEOMETRY",
     help="Document geometry field name",
-    show_default=DefaultValues.document_geometry,
+    show_default=str(DefaultValues.document_geometry),
     multiple=True,
     show_envvar=True,
 )
@@ -99,7 +99,7 @@ from .main_group import main
     "-dA",
     envvar="DOCUMENT_ADDRESS",
     help="Document building address field name",
-    show_default=DefaultValues.document_address,
+    show_default=str(DefaultValues.document_address),
     multiple=True,
     show_envvar=True,
 )
@@ -108,7 +108,7 @@ from .main_group import main
     "-dP",
     envvar="DOCUMENT_PROJCET_TYPE",
     help="Document building project type name field name",
-    show_default=DefaultValues.document_project_type,
+    show_default=str(DefaultValues.document_project_type),
     multiple=True,
     show_envvar=True,
 )
@@ -117,7 +117,7 @@ from .main_group import main
     "-dL",
     envvar="DOCUMENT_LIVING_AREA",
     help="Document building living area field name",
-    show_default=DefaultValues.document_living_area,
+    show_default=str(DefaultValues.document_living_area),
     multiple=True,
     show_envvar=True,
 )
@@ -126,7 +126,7 @@ from .main_group import main
     "-dS",
     envvar="DOCUMENT_STOREYS_COUNT",
     help="Document buildings storeys count field name",
-    show_default=DefaultValues.document_storeys_count,
+    show_default=str(DefaultValues.document_storeys_count),
     multiple=True,
     show_envvar=True,
 )
@@ -135,7 +135,7 @@ from .main_group import main
     "-dR",
     envvar="DOCUMENT_RESIDENT_NUMBER",
     help="Document buildings resident number count field name",
-    show_default=DefaultValues.document_resident_number,
+    show_default=str(DefaultValues.document_resident_number),
     multiple=True,
     show_envvar=True,
 )
@@ -144,7 +144,7 @@ from .main_group import main
     "-dI",
     envvar="DOCUMENT_OSM_ID",
     help="Document physical object OSM identifier field field name",
-    show_default=DefaultValues.document_osm_id,
+    show_default=str(DefaultValues.document_osm_id),
     multiple=True,
     show_envvar=True,
 )
@@ -153,7 +153,7 @@ from .main_group import main
     "-dCH",
     envvar="DOCUMENT_CENTRAL_HEATING",
     help="Document building central heating field name",
-    show_default=DefaultValues.document_central_heating,
+    show_default=str(DefaultValues.document_central_heating),
     multiple=True,
     show_envvar=True,
 )
@@ -162,7 +162,7 @@ from .main_group import main
     "-dCC",
     envvar="DOCUMENT_CENTRAL_WATER",
     help="Document building central water field name",
-    show_default=DefaultValues.document_central_water,
+    show_default=str(DefaultValues.document_central_water),
     multiple=True,
     show_envvar=True,
 )
@@ -171,7 +171,7 @@ from .main_group import main
     "-dCW",
     envvar="DOCUMENT_CENTRAL_HOT_WATER",
     help="Document building central hot water field name",
-    show_default=DefaultValues.document_central_hot_water,
+    show_default=str(DefaultValues.document_central_hot_water),
     multiple=True,
     show_envvar=True,
 )
@@ -180,7 +180,7 @@ from .main_group import main
     "-dCE",
     envvar="DOCUMENT_CENTRAL_ELECTRICITY",
     help="Document building central electricity field name",
-    show_default=DefaultValues.document_central_electricity,
+    show_default=str(DefaultValues.document_central_electricity),
     multiple=True,
     show_envvar=True,
 )
@@ -189,7 +189,7 @@ from .main_group import main
     "-dCG",
     envvar="DOCUMENT_CENTRAL_GAS",
     help="Document building central gas field name",
-    show_default=DefaultValues.document_central_gas,
+    show_default=str(DefaultValues.document_central_gas),
     multiple=True,
     show_envvar=True,
 )
@@ -198,7 +198,7 @@ from .main_group import main
     "-dR",
     envvar="DOCUMENT_REFUSECHUTE",
     help="Document building refusechute field name",
-    show_default=DefaultValues.document_refusechute,
+    show_default=str(DefaultValues.document_refusechute),
     multiple=True,
     show_envvar=True,
 )
@@ -207,7 +207,7 @@ from .main_group import main
     "-dU",
     envvar="DOCUMENT_UKNAME",
     help="Document building company field name",
-    show_default=DefaultValues.document_ukname,
+    show_default=str(DefaultValues.document_ukname),
     multiple=True,
     show_envvar=True,
 )
@@ -216,7 +216,7 @@ from .main_group import main
     "-dF",
     envvar="DOCUMENT_IS_FAILING",
     help="Document building is_failing field name",
-    show_default=DefaultValues.document_is_failing,
+    show_default=str(DefaultValues.document_is_failing),
     multiple=True,
     show_envvar=True,
 )
@@ -225,7 +225,7 @@ from .main_group import main
     "-dL",
     envvar="DOCUMENT_LIFT_COUNT",
     help="Document building lift count field name",
-    show_default=DefaultValues.document_lift_count,
+    show_default=str(DefaultValues.document_lift_count),
     multiple=True,
     show_envvar=True,
 )
@@ -234,7 +234,7 @@ from .main_group import main
     "-dF",
     envvar="DOCUMENT_REPAIR_YEARS",
     help="Document building repair_years field name",
-    show_default=DefaultValues.document_repair_years,
+    show_default=str(DefaultValues.document_repair_years),
     multiple=True,
     show_envvar=True,
 )
@@ -243,7 +243,7 @@ from .main_group import main
     "-dL",
     envvar="DOCUMENT_IS_LIVING",
     help="Document building is_living field name",
-    show_default=DefaultValues.document_is_living,
+    show_default=str(DefaultValues.document_is_living),
     multiple=True,
     show_envvar=True,
 )
@@ -252,7 +252,7 @@ from .main_group import main
     "-dL",
     envvar="DOCUMENT_BUILDING_YEAR",
     help="Document building built year",
-    show_default=DefaultValues.document_building_year,
+    show_default=str(DefaultValues.document_building_year),
     multiple=True,
     show_envvar=True,
 )
@@ -261,17 +261,18 @@ from .main_group import main
     "-dM",
     envvar="DOCUMENT_MODELED",
     help="Document modeled fields (as in document, separated by comma) field name",
-    show_default=DefaultValues.document_modeled,
+    show_default=str(DefaultValues.document_modeled),
     multiple=True,
     show_envvar=True,
 )
 @click.option(
     "--address_prefix",
     "-aP",
+    "address_prefixes",
     multiple=True,
     envvar="ADDRESS_PREFIX",
     help="Address prefix (available for multiple prefixes), no comma or space needed",
-    show_default=DefaultValues.address_prefix,
+    show_default=str(DefaultValues.address_prefix),
     show_envvar=True,
 )
 @click.option(
@@ -279,7 +280,7 @@ from .main_group import main
     "-nAP",
     envvar="NEW_ADDRESS_PREFIX",
     help="New address prefix that would be added to all addresses after cutting old address prefix",
-    show_default=DefaultValues.new_address_prefix,
+    show_default=str(DefaultValues.new_address_prefix),
     show_envvar=True,
 )
 @click.option(
@@ -288,7 +289,7 @@ from .main_group import main
     multiple=True,
     envvar="PROPERTIES_MAPPING",
     help='Properties mapping, entries in "key_in_properties:column_in_document" format',
-    show_default=DefaultValues.properties_mapping,
+    show_default=str(DefaultValues.properties_mapping),
     show_envvar=True,
 )
 @click.argument("filename", type=click.Path(exists=True, dir_okay=False))
@@ -322,7 +323,7 @@ def insert_buildings(
     document_is_living: list[str],
     document_building_year: list[str],
     document_modeled: list[str],
-    address_prefix: list[str],
+    address_prefixes: list[str],
     new_address_prefix: str,
     properties_mapping: list[str],
     filename: str,
@@ -368,7 +369,7 @@ def insert_buildings(
         log_filename,
         city,
         columns_mapping,
-        address_prefix,
+        address_prefixes,
         new_address_prefix,
         properties_mapping,
         filename,
