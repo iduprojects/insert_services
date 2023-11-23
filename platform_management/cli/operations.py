@@ -9,12 +9,12 @@ from loguru import logger
 def refresh_materialized_views(
     cur: psycopg2.extensions.cursor, materialized_views_names: list[str] | None = ...
 ) -> None:
-    """Refresh given materialized views (default all_buildings, all_services, houses and all_houses)."""
+    """Refresh given materialized views (default all_buildings and all_services)."""
 
     if materialized_views_names is None:
         return
     if materialized_views_names is ...:
-        materialized_views_names = ["all_buildings", "all_services", "houses", "all_houses"]
+        materialized_views_names = ["all_buildings", "all_services"]
 
     for name in materialized_views_names:
         logger.info("Refreshing materialized view '{}'", name)
@@ -79,8 +79,8 @@ def update_buildings_area(cur: psycopg2.extensions.cursor) -> None:
         "   modeled = modeled || '{\"living_area\": 1}'::jsonb"
         " WHERE"
         "   is_living = true"
-        "   AND living_area IS NULL"
         "   AND building_area IS NOT NULL"
         "   AND storeys_count IS NOT NULL"
+        "   AND (living_area IS NULL OR modeled->>'living_area' = '1' OR building_area * storeys_count < living_area)"
     )
     logger.debug("Updated {} buildings living area", cur.rowcount)

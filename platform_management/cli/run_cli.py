@@ -117,6 +117,7 @@ def insert_services_cli(  # pylint: disable=too-many-arguments,too-many-locals
     new_address_prefix: str,
     properties_mapping: list[str],
     filename: str,
+    skip_logs: bool,
 ):
     """Run services insertion command line interface with the given parameters."""
     if len(address_prefixes) == 0:
@@ -152,6 +153,7 @@ def insert_services_cli(  # pylint: disable=too-many-arguments,too-many-locals
         new_address_prefix,
         not dry_run,
         verbose,
+        skip_logs=skip_logs,
     )
 
     if logfile is not None:
@@ -170,6 +172,7 @@ def insert_buildings_cli(  # pylint: disable=too-many-arguments,too-many-locals
     new_address_prefix: str,
     properties_mapping: list[str],
     filename: str,
+    skip_logs: bool,
 ):
     """Run services insertion command line interface with the given parameters."""
     if len(address_prefixes) == 0:
@@ -226,6 +229,7 @@ def insert_buildings_cli(  # pylint: disable=too-many-arguments,too-many-locals
         new_address_prefix,
         not dry_run,
         verbose,
+        skip_logs=skip_logs,
     )
 
     if logfile is not None:

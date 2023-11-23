@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import time
 import traceback
 import warnings
@@ -234,6 +235,7 @@ def add_buildings(  # pylint: disable=too-many-branches,too-many-statements
     verbose: bool = False,
     log_n: int = 200,
     callback: Callable[[SingleObjectStatus], None] | None = None,
+    skip_logs: bool = False,
 ) -> pd.DataFrame:
     """Insert buildings to database.
 
@@ -251,6 +253,7 @@ def add_buildings(  # pylint: disable=too-many-branches,too-many-statements
         - `verbose` - True to output traceback with errors, False for only error messages printing
         - `log_n` - number of inserted/updated services to log after each
         - `callback` - optional callback function which is called after every service insertion
+        - `skip_logs` - indicates whether xlsx log creation should be skipped
 
     Return:
 
@@ -315,7 +318,6 @@ def add_buildings(  # pylint: disable=too-many-branches,too-many-statements
     updated = 0  # number of updated buildings which were already present
     unchanged = 0  # number of buildings already present in the database with the same properties
     added, skipped = 0, 0
-    skip_logs = False
     results: list[str] = list(("",) * buildings_df.shape[0])
     building_ids: list[int] = [-1 for _ in range(buildings_df.shape[0])]
     address_prefixes = sorted(address_prefixes, key=lambda s: -len(s))
@@ -609,15 +611,16 @@ def add_buildings(  # pylint: disable=too-many-branches,too-many-statements
     if not skip_logs:
         filename = f"buildings_insertion_{conn.info.host}_{conn.info.port}_{conn.info.dbname}.xlsx"
         sheet_name = f'{city_name}_{time.strftime("%Y-%m-%d %H_%M-%S")}'
-        logger.opt(colors=True).info(
-            "Сохранение лога в файл Excel (нажмите Ctrl+C для отмены,"
-            " <magenta>но это может повредить файл лога</magenta>)"
-        )
+        logger.info("Сохранение лога в файл Excel (нажмите Ctrl+C для отмены)")
         try:
+            filename_tmp = f"{filename}_tmp.xlsx"
+            if os.path.isfile(filename):
+                shutil.copy(filename, filename_tmp)
             with pd.ExcelWriter(  # pylint: disable=abstract-class-instantiated
-                filename, mode=("a" if os.path.isfile(filename) else "w"), engine="openpyxl"
+                filename_tmp, mode=("a" if os.path.isfile(filename_tmp) else "w"), engine="openpyxl"
             ) as writer:
                 buildings_df.to_excel(writer, sheet_name)
+            shutil.move(filename_tmp, filename)
             logger.info(f'Лог вставки сохранен в файл "{filename}", лист "{sheet_name}"')
         except Exception as exc:  # pylint: disable=broad-except
             newlog = f"buildings_insertion_{int(time.time())}.xlsx"
@@ -631,5 +634,5 @@ def add_buildings(  # pylint: disable=too-many-branches,too-many-statements
             except Exception as exc_1:  # pylint: disable=broad-except
                 logger.error(f"Ошибка сохранения лога: {exc_1!r}")
         except KeyboardInterrupt:
-            logger.warning(f'Отмена сохранения файла лога, файл "{filename}" может быть поврежден')
+            logger.warning("Отмена сохранения файла xlsx лога")
     return buildings_df

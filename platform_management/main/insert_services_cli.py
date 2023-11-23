@@ -85,6 +85,7 @@ from .main_group import main
     show_envvar=True,
     required=True,
 )
+@click.option("--skip_logs", envvar="SKIP_LOGS", is_flag=True, help="Skip writing xlsx log file", show_envvar=True)
 @click.option(
     "--service_type",
     "-T",
@@ -224,6 +225,7 @@ def insert_services(
     verbose: bool,
     log_filename: str | None,
     city: str,
+    skip_logs: bool,
     service_type: str,
     document_latitude: str,
     document_longitude: str,
@@ -265,4 +267,5 @@ def insert_services(
         new_address_prefix,
         properties_mapping,
         filename,
+        skip_logs,
     )
