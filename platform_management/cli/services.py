@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import random
+import shutil
 import time
 import traceback
 import warnings
@@ -201,6 +202,7 @@ def add_services(  # pylint: disable=too-many-branches,too-many-statements,too-m
     verbose: bool = False,
     log_n: int = 200,
     callback: Callable[[SingleObjectStatus], None] | None = None,
+    skip_logs: bool = False,
 ) -> pd.DataFrame:
     """Insert service objects to database.
 
@@ -219,6 +221,7 @@ def add_services(  # pylint: disable=too-many-branches,too-many-statements,too-m
         - `verbose` - True to output traceback with errors, False for only error messages printing
         - `log_n` - number of inserted/updated services to log after each
         - `callback` - optional callback function which is called after every service insertion
+        - `skip_logs` - indicates whether xlsx log creation should be skipped
 
     Return:
 
@@ -772,28 +775,32 @@ def add_services(  # pylint: disable=too-many-branches,too-many-statements,too-m
         f" <green>{added_to_address} добавлены в здания по совпадению адреса</green>,"
         f" <yellow>{added_to_geom} добавлены в физические объекты/здания по совпадению геометрии</yellow>"
     )
-    filename = f"services_insertion_{conn.info.host}_{conn.info.port}_{conn.info.dbname}.xlsx"
-    sheet_name = f'{service_type.replace("/", "_")}_{time.strftime("%Y-%m-%d %H_%M-%S")}'
-    logger.opt(colors=True).info(
-        "Сохранение лога в файл Excel (нажмите Ctrl+C для отмены, <magenta>но это может повредить файл лога</magenta>)"
-    )
-    try:
-        with pd.ExcelWriter(  # pylint: disable=abstract-class-instantiated
-            filename, mode=("a" if os.path.isfile(filename) else "w"), engine="openpyxl"
-        ) as writer:
-            services_df.to_excel(writer, sheet_name)
-        logger.info(f'Лог вставки сохранен в файл "{filename}", лист "{sheet_name}"')
-    except Exception as exc:  # pylint: disable=broad-except
-        newlog = f"services_insertion_{int(time.time())}.xlsx"
-        logger.error(
-            f'Ошибка при сохранении лога вставки в файл "{filename}",'
-            f' лист "{sheet_name}": {exc!r}. Попытка сохранения с именем {newlog}'
-        )
+    if not skip_logs:
+        filename = f"services_insertion_{conn.info.host}_{conn.info.port}_{conn.info.dbname}.xlsx"
+        sheet_name = f'{city_name}_{service_type.replace("/", "_")}_{time.strftime("%Y-%m-%d %H_%M-%S")}'
+        logger.opt(colors=True).info("Сохранение лога в файл Excel (нажмите Ctrl+C для отмены)")
         try:
-            services_df.to_excel(newlog, sheet_name)
-            logger.success("Сохранение прошло успешно")
-        except Exception as exc_1:  # pylint: disable=broad-except
-            logger.error(f"Ошибка сохранения лога: {exc_1!r}")
-    except KeyboardInterrupt:
-        logger.warning(f'Отмена сохранения файла лога, файл "{filename}" может быть поврежден')
+            filename_tmp = f"{filename}_tmp.xlsx"
+            if os.path.isfile(filename):
+                shutil.copy(filename, filename_tmp)
+            with pd.ExcelWriter(  # pylint: disable=abstract-class-instantiated
+                filename_tmp, mode=("a" if os.path.isfile(filename_tmp) else "w"), engine="openpyxl"
+            ) as writer:
+                services_df.to_excel(writer, sheet_name)
+            shutil.move(filename_tmp, filename)
+            logger.info(f'Лог вставки сохранен в файл "{filename}", лист "{sheet_name}"')
+        except Exception as exc:  # pylint: disable=broad-except
+            newlog = f"services_insertion_{int(time.time())}.xlsx"
+            logger.error(
+                f'Ошибка при сохранении лога вставки в файл "{filename}",'
+                f' лист "{sheet_name}": {exc!r}. Попытка сохранения с именем {newlog}'
+            )
+            try:
+                services_df.to_excel(newlog, sheet_name)
+                logger.success("Сохранение прошло успешно")
+            except Exception as exc_1:  # pylint: disable=broad-except
+                logger.error(f"Ошибка сохранения лога: {exc_1!r}")
+        except KeyboardInterrupt:
+            logger.warning("Отмена сохранения файла лога")
+
     return services_df

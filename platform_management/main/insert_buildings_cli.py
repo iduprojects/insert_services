@@ -85,6 +85,7 @@ from .main_group import main
     help="City to insert services to, must exist in the database",
     show_envvar=True,
 )
+@click.option("--skip_logs", envvar="SKIP_LOGS", is_flag=True, help="Skip writing xlsx log file", show_envvar=True)
 @click.option(
     "--document_geometry",
     "-dg",
@@ -303,6 +304,7 @@ def insert_buildings(
     verbose: bool,
     log_filename: str | None,
     city: str,
+    skip_logs: bool,
     document_geometry: list[str],
     document_address: list[str],
     document_project_type: list[str],
@@ -373,4 +375,5 @@ def insert_buildings(
         new_address_prefix,
         properties_mapping,
         filename,
+        skip_logs,
     )

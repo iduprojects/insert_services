@@ -70,6 +70,7 @@ class TerritoryWindow(QtWidgets.QWidget):  # pylint: disable=too-many-instance-a
         self._other_parent_id_column = (
             "municipality_parent_id" if territory_type == "municipality" else "admin_unit_parent_id"
         )
+        self._outer_id = f"{territory_type}_id"
         self._city_name = city_name
 
         self.window().setWindowTitle(f'Город "{city_name}" - список {self._territory_name_plural}')
@@ -323,6 +324,18 @@ class TerritoryWindow(QtWidgets.QWidget):  # pylint: disable=too-many-instance-a
                     cur.execute(
                         f"UPDATE {self._other_territory_table} SET {self._other_parent_id_column} = null"
                         f" WHERE {self._other_parent_id_column} = %s",
+                        (territory_id,),
+                    )
+                    cur.execute(
+                        f"UPDATE {self._territory_table} SET parent_id = null WHERE parent_id = %s",
+                        (territory_id,),
+                    )
+                    cur.execute(
+                        f"UPDATE physical_objects SET {self._outer_id} = null WHERE {self._outer_id} = %s",
+                        (territory_id,),
+                    )
+                    cur.execute(
+                        f"UPDATE blocks SET {self._outer_id} = null WHERE {self._outer_id} = %s",
                         (territory_id,),
                     )
                     cur.execute(f"DELETE FROM {self._territory_table} WHERE id = %s", (territory_id,))
