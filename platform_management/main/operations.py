@@ -72,7 +72,7 @@ def operation(
     db_user: str,
     db_pass: str,
     action: Literal["refresh-materialized-views", "update-physical-objects-locations"],
-):  # pylint: disable=too-many-arguments,too-many-locals,
+):  # pylint: disable=too-many-arguments
     "Insert blocks from geojson via command line"
     with psycopg2.connect(
         host=db_addr,

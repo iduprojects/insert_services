@@ -12,6 +12,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 
 from platform_management.cli.services import get_properties_keys
 from platform_management.database_properties import Properties
+from platform_management.db.operations.deletion import delete_functional_object
 from platform_management.gui.basics import ColorizingComboBox, check_geometry_correctness
 from platform_management.gui.update_buildings.building_creation import BuildingCreationWidget
 from platform_management.gui.update_buildings.geometry_show import GeometryShowWidget
@@ -297,7 +298,7 @@ class ServicesUpdatingWindow(QtWidgets.QWidget):  # pylint: disable=too-many-ins
                     func_id = self._table.item(row - 1, 0).text()
                     self._log_window.insertHtml(f'<font color=red>{func_id}{", " if i != len(rows) - 1 else ""}</font>')
                     self._log_window.repaint()
-                    cur.execute("DELETE FROM functional_objects WHERE id = %s", (func_id,))
+                    delete_functional_object(cur, func_id)
                     self._table.removeRow(row - 1)
                 self._log_window.insertHtml("</font><br>")
 
