@@ -559,7 +559,7 @@ class CitiesWindow(QtWidgets.QWidget):  # pylint: disable=too-many-instance-attr
         )
         self._log_window.insertHtml("<font color=grey>Обновление местоположения физических объектов...</font>")
         self._log_window.repaint()
-        with self._db_properties.conn, self._db_properties.conn.cursor() as cur:
+        with self._db_properties.conn.cursor() as cur:
             update_physical_objects_locations(cur)
         logger.info("Обновление местоположения физических объектов завершено")
         self._log_window.insertHtml("<font color=green>Завершено</font><br>")
@@ -571,7 +571,7 @@ class CitiesWindow(QtWidgets.QWidget):  # pylint: disable=too-many-instance-attr
         )
         self._log_window.insertHtml("<font color=grey>Обновление площади (общей и жилой) зданий...</font>")
         self._log_window.repaint()
-        with self._db_properties.conn, self._db_properties.conn.cursor() as cur:
+        with self._db_properties.conn.cursor() as cur:
             update_buildings_area(cur)
         logger.info("Обновление площади зданий завершено")
         self._log_window.insertHtml("<font color=green>Завершено</font><br>")

@@ -434,7 +434,7 @@ def add_buildings(  # pylint: disable=too-many-branches,too-many-statements
                     # if no building with the same address found or distance is
                     # too high (address is wrong or it's not a concrete house)
                     cur.execute(
-                        "WITH geom_table AS (SELECT %s::geometry AS geom)"
+                        "WITH geom_table AS (SELECT ST_Buffer(%s::geometry::geography, 10)::geometry AS geom)"
                         " SELECT"
                         "   build.id,"
                         "   build.address,"
