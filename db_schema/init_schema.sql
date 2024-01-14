@@ -62,7 +62,7 @@ CREATE TABLE cities (
     center geometry(Point, 4326) NOT NULL,
     region_id integer REFERENCES regions(id),
     population int,
-    city_division_type city_division_type,
+    city_division_type city_division_type DEFAULT 'ADMIN_UNIT_PARENT'::city_division_type,
     local_crs integer,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL

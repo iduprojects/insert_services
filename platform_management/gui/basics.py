@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any, Callable, NamedTuple, Sequence
 
 import psycopg2  # pylint: disable=unused-import
@@ -180,6 +181,27 @@ class DropPushButton(QtWidgets.QPushButton):
             self._callback(event.mimeData().text()[len("file:///") :])
 
 
+class NumericTableWidgetItem(QtWidgets.QTableWidgetItem):
+    """Table cell which tries to use numeric sorting when arguments are both representable as float"""
+
+    float_regexp = re.compile(r"^[0-9]*\.?[0-9]+$")
+
+    def __init__(self, value: Any):
+        super().__init__(str(value))
+
+    def __lt__(self, other: QtWidgets.QTableWidgetItem):
+        left = self.text()
+        right = other.text()
+
+        if (
+            NumericTableWidgetItem.float_regexp.match(left) is not None
+            and NumericTableWidgetItem.float_regexp.match(right) is not None
+        ):
+            return float(left) < float(right)
+
+        return left < right
+
+
 class ColoringTableWidget(QtWidgets.QTableWidget):
     """Table with an ability to set a hook on a cell change"""
 
@@ -193,27 +215,25 @@ class ColoringTableWidget(QtWidgets.QTableWidget):
     ):
         super().__init__(parent=parent)
         self._data = []
-        self._initialized = False
+        self.disable_triggers()
         self._checker = correction_checker
         self.setRowCount(len(data))
         self.setColumnCount(len(labels))
         self.setHorizontalHeaderLabels(labels)
         for i, row in enumerate(data):
             self._data.append(list(row))
-            for j, item in enumerate(row):
+            for j, item in enumerate(self._data[-1]):
                 self.setItem(
                     i,
                     j,
-                    QtWidgets.QTableWidgetItem(
-                        str(item or "" if not isinstance(item, bool) else "True" if item else "False")
-                    ),
+                    NumericTableWidgetItem(item or "" if not isinstance(item, bool) else "True" if item else "False"),
                 )
             for j in blocked_columns:
                 item = self.item(i, j)
                 item.setBackground(QtGui.QColor.fromRgb(140, 140, 140))
                 item.setForeground(QtGui.QColor.fromRgb(0, 0, 0))
                 item.setFlags(QtCore.Qt.ItemIsEnabled)
-        self._initialized = True
+        self.enable_triggers()
 
     def dataChanged(  # pylint: disable=invalid-name
         self, top_left: QtCore.QModelIndex, bottom_right: QtCore.QModelIndex, roles: Sequence[int] = ...
