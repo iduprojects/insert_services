@@ -6,6 +6,7 @@ import json
 import os
 import time
 import traceback
+import uuid
 from typing import Any, Callable, Iterable, NamedTuple
 
 import pandas as pd
@@ -410,7 +411,11 @@ class ServicesInsertionWindow(QtWidgets.QWidget):  # pylint: disable=too-many-in
         finally:
             self._load_objects_btn.setEnabled(True)
             QtWidgets.QApplication.restoreOverrideCursor()
-        dataframe = self.table_as_dataframe().join(results[["result", "functional_obj_id"]]).fillna("")
+        dataframe = (
+            self.table_as_dataframe()
+            .join(results[["result", "functional_obj_id"]], lsuffix=f"_{str(uuid.uuid4())[:5]}")
+            .fillna("")
+        )
         self._table_axes += ["Результат", "id Функционального объекта"]
         self._table_model.appendColumn(list(map(QtGui.QStandardItem, dataframe["result"])))
         self._table_model.appendColumn(

@@ -1,11 +1,12 @@
 """Materialized views refresh methods are defined here."""
 from __future__ import annotations
+
 from math import ceil
-from tqdm import tqdm
 
 import psycopg2
 import psycopg2.extensions
 from loguru import logger
+from tqdm import tqdm
 
 
 def refresh_materialized_views(
@@ -20,7 +21,7 @@ def refresh_materialized_views(
 
         for name in materialized_views_names:
             logger.info("Refreshing materialized view '{}'", name)
-        cur.execute(f"REFRESH MATERIALIZED VIEW {name}")
+            cur.execute(f"REFRESH MATERIALIZED VIEW {name}")
 
 
 def update_physical_objects_locations(cur: psycopg2.extensions.cursor, city_id: int | None = None) -> None:
@@ -42,14 +43,14 @@ def update_physical_objects_locations(cur: psycopg2.extensions.cursor, city_id: 
         ((city_id,) if city_id is not None else None),
     )
     logger.info("Filling missing blocks")
-    if city_id is not None:
+    if city_id is None:
         cur.execute("SELECT id FROM physical_objects WHERE block_id IS NULL")
     else:
         cur.execute("SELECT id FROM physical_objects WHERE city_id = %s AND block_id IS NULL", (city_id,))
     phys_ids = [row[0] for row in cur.fetchall()]
-    block_size = 2000
-    for block_number in tqdm(range(ceil(len(phys_ids) / block_size))):
-        blocks_part = tuple(phys_ids[block_number * block_size : (block_number + 1) * block_size])
+    batch_size = 2000
+    for batch_number in tqdm(range(ceil(len(phys_ids) / batch_size))):
+        blocks_part = tuple(phys_ids[batch_number * batch_size : (batch_number + 1) * batch_size])
         cur.execute(
             "UPDATE physical_objects p SET"
             "   block_id = (SELECT b.id FROM blocks b"
@@ -68,7 +69,7 @@ def update_physical_objects_locations(cur: psycopg2.extensions.cursor, city_id: 
 
 def update_buildings_area(cur: psycopg2.extensions.cursor, update_all_modeled: bool = False) -> None:
     """Update buildings area as ST_Area(physical_object.geometry::geography) and living area as building_area
-    \* storeys_count * 0.7 while setting modeled->>'living_area'=1.
+    \\* storeys_count \\* 0.7 while setting modeled->>'living_area'=1.
 
     :param update_all_modeled: indicates that every living building area will be recalculated."""
     logger.info("Updating buildings area")
@@ -79,7 +80,7 @@ def update_buildings_area(cur: psycopg2.extensions.cursor, update_all_modeled: b
         "   FROM physical_objects"
         "   WHERE id = physical_object_id"
         " )"
-        " WHERE building_area is NULL"
+        " WHERE building_area is NULL or building_area = 0"
     )
     logger.debug("Updated {} buildings building_area", cur.rowcount)
 
