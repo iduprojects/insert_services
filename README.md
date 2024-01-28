@@ -85,7 +85,7 @@ Columns mapping from document to database can be configured via parameters (ever
 
 Other parameters:
 
-* `--document_address_prefix` or `-dAP` for adding a document address prefix (default: _Россия, Санкт-Петербург_)
+* `--document_address_prefix` or `-dAP` for adding a document address prefix (default: "")
 * `--new_address_prefix` or `-nAP` for setting a prefix to add to every new address (default empty)
 * `--log` or `-l` for setting a name for log file (default: datetime in format _YYYY-MM-DD HH-mm-ss-\<filename\>.csv_)
 * `--dry_run` or `-d` for dry run (changes will be aborted, but indexes still moved)

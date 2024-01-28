@@ -44,11 +44,12 @@ class TerritoryCreationWidget(QtWidgets.QDialog):
         if territory_type is not None:
             self._territory_type.setCurrentText(territory_type)
         self._options_layout.addRow("Тип территории:", self._territory_type)
-        self._parent_territory = QtWidgets.QComboBox()
-        self._parent_territory.addItems(["-"] + parents)
-        if parent_territory is not None:
-            self._parent_territory.setCurrentText(parent_territory)
-        self._options_layout.addRow("Родительская территория:", self._parent_territory)
+        if len(parents) > 0:
+            self._parent_territory = QtWidgets.QComboBox()
+            self._parent_territory.addItems(["-"] + parents)
+            if parent_territory is not None:
+                self._parent_territory.setCurrentText(parent_territory)
+            self._options_layout.addRow("Родительская территория:", self._parent_territory)
         layout.addLayout(self._options_layout)
         buttons_layout = QtWidgets.QHBoxLayout()
         ok_btn = QtWidgets.QPushButton("Ок")

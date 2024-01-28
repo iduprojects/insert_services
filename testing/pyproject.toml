@@ -1,0 +1,19 @@
+[tool.poetry]
+name = "platform-management-testing"
+version = "0.1.0"
+description = "Virtual environment for easy integrational testing of platform_management"
+authors = ["Aleksei Sokol <kanootoko@gmail.com>"]
+license = "MIT"
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = ">=3.9,<3.12"
+platform-management = {path = "..", develop = true}
+geopandas = "^0.14.2"
+psycopg2 = "^2.9.9"
+pg-save = "^0.3.0"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

@@ -11,6 +11,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 
 from platform_management.cli.buildings import get_properties_keys
 from platform_management.database_properties import Properties
+from platform_management.db.operations.deletion import delete_building
 from platform_management.gui.basics import check_geometry_correctness
 from platform_management.utils.converters import to_str
 
@@ -262,11 +263,7 @@ class BuildingsUpdatingWindow(QtWidgets.QWidget):  # pylint: disable=too-many-in
                         f'<font color=red>{building_id}{", " if i != len(rows) - 1 else ""}</font>'
                     )
                     self._log_window.repaint()
-                    cur.execute("SELECT physical_object_id FROM buildings WHERE id = %s", (building_id,))
-                    phys_id = cur.fetchone()[0]  # type: ignore
-                    cur.execute("DELETE FROM functional_objects WHERE physical_object_id = %s", (phys_id,))
-                    cur.execute("DELETE FROM buildings WHERE id = %s", (building_id,))
-                    cur.execute("DELETE FROM physical_objects WHERE id = %s", (phys_id,))
+                    delete_building(cur, building_id)
                     self._table.removeRow(row - 1)
                 self._log_window.insertHtml("</font><br>")
 

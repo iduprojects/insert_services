@@ -1,8 +1,6 @@
 """City creation widget is defined here."""
 from __future__ import annotations
 
-from typing import Literal
-
 from PySide6 import QtWidgets
 
 from platform_management.utils.converters import int_or_none, str_or_none, to_str
@@ -20,7 +18,6 @@ class CityCreationWidget(QtWidgets.QDialog):  # pylint: disable=too-many-instanc
         code: str | None = None,
         region: str | None = None,
         population: int | None = None,
-        division_type: Literal["NO_PARENT", "ADMIN_UNIT_PARENT", "MUNICIPALITY_PARENT"] | None = None,
         local_crs: int | None = None,
         is_adding: bool = False,
         parent: QtWidgets.QWidget | None = None,
@@ -50,11 +47,6 @@ class CityCreationWidget(QtWidgets.QDialog):  # pylint: disable=too-many-instanc
         self._population = QtWidgets.QLineEdit(to_str(population))
         self._population.setPlaceholderText("6000000")
         self._options_layout.addRow("Население:", self._population)
-        self._division_type = QtWidgets.QComboBox()
-        self._division_type.addItems(["NO_PARENT", "ADMIN_UNIT_PARENT", "MUNICIPALITY_PARENT"])
-        if division_type is not None:
-            self._division_type.setCurrentText(division_type)
-        self._options_layout.addRow("Тип админ. деления:", self._division_type)
         self._local_crs = QtWidgets.QLineEdit(to_str(local_crs))
         self._population.setPlaceholderText("32636")
         self._options_layout.addRow("Локальная с.к.:", self._local_crs)
@@ -90,10 +82,6 @@ class CityCreationWidget(QtWidgets.QDialog):  # pylint: disable=too-many-instanc
     def population(self) -> int | None:
         """Get city population value set by user."""
         return int_or_none(self._population.text())
-
-    def division_type(self) -> str:
-        """Get city division type value set by user."""
-        return self._division_type.currentText()
 
     def local_crs(self) -> int | None:
         """Get city population value set by user."""

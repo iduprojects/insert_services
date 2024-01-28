@@ -47,7 +47,7 @@ def insert_administrative_unit(
         "WITH geometry_t AS (SELECT ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326) geometry),"
         " center_t AS (SELECT ST_Centroid(geometry) center FROM geometry_t)"
         " INSERT INTO administrative_units (parent_id, city_id, type_id, name, geometry,"
-        "   center, population, municipality_parent_id)"
+        "   center, population)"
         " VALUES ("
         "   (SELECT id FROM administrative_units WHERE name = %s),"
         "   %s,"
@@ -66,7 +66,6 @@ def insert_administrative_unit(
             row[mapping.name],
             row.get(mapping.population),
             city_id,
-            row.get(mapping.parent_other_type),
         ),
     )
     idx = cur.fetchone()[0]
@@ -143,8 +142,7 @@ def update_administrative_unit(
         "   (SELECT lower(full_name) FROM administrative_unit_types WHERE id = au.type_id),"
         "   name,"
         "   geometry,"
-        "   population,"
-        "   (SELECT name FROM municipalities WHERE id = au.municipality_parent_id)"
+        "   population"
         " FROM administrative_units au"
         " WHERE id = %s",
         (row[mapping.geometry], administrative_unit_id),
@@ -179,13 +177,6 @@ def update_administrative_unit(
         db_fields.append("population")
         preparations.append("%(population)s")
         values.append({"population": row[mapping.population]})
-
-    if row.get(mapping.parent_other_type) is not None and row[mapping.parent_other_type] != data[5]:
-        db_fields.append("municipality_parent_id")
-        preparations.append(
-            "(SELECT id FROM municipalities WHERE city_id = %(city_id)s AND name = %(parent_other_type)s)"
-        )
-        values.append({"city_id": city_id, "parent_other_type": row[mapping.parent_other_type]})
 
     if len(db_fields) == 0:
         return False
@@ -351,7 +342,10 @@ def add_adm_division(  # pylint: disable=too-many-branches,too-many-statements
     adm_ids: list[int] = [-1 for _ in range(adms_df.shape[0])]
 
     with conn.cursor() as cur:
-        cur.execute("SELECT id FROM cities WHERE name = %(city)s or code = %(city)s", {"city": city_name})
+        cur.execute(
+            "SELECT id FROM cities WHERE name = %(city)s OR code = %(city)s OR id::varchar = %(city)s",
+            {"city": city_name},
+        )
         city_id = cur.fetchone()
         if city_id is None:
             logger.error(f'Заданный город "{city_name}" отсутствует в базе данных')
@@ -511,7 +505,7 @@ def add_adm_division(  # pylint: disable=too-many-branches,too-many-statements
     else:
         logger.success("Вставка муниципальных образований завершена")
     logger.opt(colors=True).info(
-        "{} единиц деления обработано: <green>{} добавлены</green>, <yellow>{} обновлены</yellow>, "
+        "{:4} единиц деления обработано: <green>{} добавлены</green>, <yellow>{} обновлены</yellow>, "
         " <blue>{} оставлены без изменений</blue>, <red>{} пропущены</red>",
         i + 1,
         added,

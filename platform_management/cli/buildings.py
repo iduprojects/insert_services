@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import time
 import traceback
 import warnings
@@ -228,12 +229,13 @@ def add_buildings(  # pylint: disable=too-many-branches,too-many-statements
     city_name: str,
     mapping: BuildingInsertionMapping,
     properties_mapping: dict[str, str] = frozenset({}),
-    address_prefixes: list[str] = FrozenList(["Россия, Санкт-Петербург"]),
-    new_prefix: str = "",
+    address_prefixes: list[str] = FrozenList([""]),
+    new_prefix: str | None = None,
     commit: bool = True,
     verbose: bool = False,
     log_n: int = 200,
     callback: Callable[[SingleObjectStatus], None] | None = None,
+    skip_logs: bool = False,
 ) -> pd.DataFrame:
     """Insert buildings to database.
 
@@ -251,6 +253,7 @@ def add_buildings(  # pylint: disable=too-many-branches,too-many-statements
         - `verbose` - True to output traceback with errors, False for only error messages printing
         - `log_n` - number of inserted/updated services to log after each
         - `callback` - optional callback function which is called after every service insertion
+        - `skip_logs` - indicates whether xlsx log creation should be skipped
 
     Return:
 
@@ -276,20 +279,24 @@ def add_buildings(  # pylint: disable=too-many-branches,too-many-statements
                 callback(SingleObjectStatus.ERROR)
                 logger.warning("Could not get the category of result based on status: {}", results[i - 1])
 
+    if new_prefix is None:
+        new_prefix = ""
+
     logger.info(f"Вставка зданий, всего {buildings_df.shape[0]} объектов")
     logger.info(f'Город вставки - "{city_name}". Список префиксов: {address_prefixes}, новый префикс: "{new_prefix}"')
 
     buildings_df = buildings_df.copy().replace({nan: None})
     for i in range(buildings_df.shape[1]):
-        buildings_df.iloc[:, i] = pd.Series(
-            map(
-                lambda x: float(x.replace(",", "."))
-                if isinstance(x, str) and len(x) != 1 and x.count(",") == 1 and x.replace(",", "1").isnumeric()
-                else x,
-                buildings_df.iloc[:, i],
-            ),
-            dtype=object,
-        )
+        if buildings_df[buildings_df.columns[i]].dtype == "O":  # replacing 1,23 -> 1.23
+            buildings_df.iloc[:, i] = pd.Series(
+                map(
+                    lambda x: float(x.replace(",", "."))
+                    if isinstance(x, str) and len(x) != 1 and x.count(",") == 1 and x.replace(",", "1").isnumeric()
+                    else x,
+                    buildings_df.iloc[:, i],
+                ),
+                dtype=object,
+            )
     for boolean_mapping in (
         mapping.is_living,
         mapping.is_failing,
@@ -306,7 +313,6 @@ def add_buildings(  # pylint: disable=too-many-branches,too-many-statements
                     or (isinstance(x, Number) and x - 0 > 1e-5),
                     buildings_df.loc[:, boolean_mapping],
                 ),
-                dtype=object,
             )
     if mapping.address in buildings_df.columns:
         buildings_df[mapping.address] = buildings_df[mapping.address].apply(
@@ -315,13 +321,12 @@ def add_buildings(  # pylint: disable=too-many-branches,too-many-statements
     updated = 0  # number of updated buildings which were already present
     unchanged = 0  # number of buildings already present in the database with the same properties
     added, skipped = 0, 0
-    skip_logs = False
     results: list[str] = list(("",) * buildings_df.shape[0])
     building_ids: list[int] = [-1 for _ in range(buildings_df.shape[0])]
     address_prefixes = sorted(address_prefixes, key=lambda s: -len(s))
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT id FROM cities WHERE name = %(city)s or code = %(city)s or id::varchar = %(city)s",
+            "SELECT id FROM cities WHERE name = %(city)s OR code = %(city)s OR id::varchar = %(city)s",
             {"city": city_name},
         )
         city_id = cur.fetchone()
@@ -432,7 +437,7 @@ def add_buildings(  # pylint: disable=too-many-branches,too-many-statements
                     # if no building with the same address found or distance is
                     # too high (address is wrong or it's not a concrete house)
                     cur.execute(
-                        "WITH geom_table AS (SELECT %s::geometry AS geom)"
+                        "WITH geom_table AS (SELECT ST_Buffer(%s::geometry::geography, 10)::geometry AS geom)"
                         " SELECT"
                         "   build.id,"
                         "   build.address,"
@@ -599,7 +604,7 @@ def add_buildings(  # pylint: disable=too-many-branches,too-many-statements
     logger.opt(colors=True).info(
         "Обработано {:4} зданий из {}: <green>{} добавлены</green>, <yellow>{} обновлены</yellow>,"
         " <blue>{} оставлены без изменений</blue>, <red>{} пропущены</red>",
-        i,
+        i + 1,
         buildings_df.shape[0],
         added,
         updated,
@@ -609,15 +614,16 @@ def add_buildings(  # pylint: disable=too-many-branches,too-many-statements
     if not skip_logs:
         filename = f"buildings_insertion_{conn.info.host}_{conn.info.port}_{conn.info.dbname}.xlsx"
         sheet_name = f'{city_name}_{time.strftime("%Y-%m-%d %H_%M-%S")}'
-        logger.opt(colors=True).info(
-            "Сохранение лога в файл Excel (нажмите Ctrl+C для отмены,"
-            " <magenta>но это может повредить файл лога</magenta>)"
-        )
+        logger.info("Сохранение лога в файл Excel (нажмите Ctrl+C для отмены)")
         try:
+            filename_tmp = f"{filename}_tmp.xlsx"
+            if os.path.isfile(filename):
+                shutil.copy(filename, filename_tmp)
             with pd.ExcelWriter(  # pylint: disable=abstract-class-instantiated
-                filename, mode=("a" if os.path.isfile(filename) else "w"), engine="openpyxl"
+                filename_tmp, mode=("a" if os.path.isfile(filename_tmp) else "w"), engine="openpyxl"
             ) as writer:
                 buildings_df.to_excel(writer, sheet_name)
+            shutil.move(filename_tmp, filename)
             logger.info(f'Лог вставки сохранен в файл "{filename}", лист "{sheet_name}"')
         except Exception as exc:  # pylint: disable=broad-except
             newlog = f"buildings_insertion_{int(time.time())}.xlsx"
@@ -631,5 +637,5 @@ def add_buildings(  # pylint: disable=too-many-branches,too-many-statements
             except Exception as exc_1:  # pylint: disable=broad-except
                 logger.error(f"Ошибка сохранения лога: {exc_1!r}")
         except KeyboardInterrupt:
-            logger.warning(f'Отмена сохранения файла лога, файл "{filename}" может быть поврежден')
+            logger.warning("Отмена сохранения файла xlsx лога")
     return buildings_df

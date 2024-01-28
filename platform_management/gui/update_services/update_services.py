@@ -12,6 +12,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 
 from platform_management.cli.services import get_properties_keys
 from platform_management.database_properties import Properties
+from platform_management.db.operations.deletion import delete_functional_object
 from platform_management.gui.basics import ColorizingComboBox, check_geometry_correctness
 from platform_management.gui.update_buildings.building_creation import BuildingCreationWidget
 from platform_management.gui.update_buildings.geometry_show import GeometryShowWidget
@@ -297,19 +298,7 @@ class ServicesUpdatingWindow(QtWidgets.QWidget):  # pylint: disable=too-many-ins
                     func_id = self._table.item(row - 1, 0).text()
                     self._log_window.insertHtml(f'<font color=red>{func_id}{", " if i != len(rows) - 1 else ""}</font>')
                     self._log_window.repaint()
-                    cur.execute(
-                        "DELETE FROM provision.houses_services WHERE house_id = %s OR service_id = %s", (func_id,) * 2
-                    )
-                    cur.execute("DELETE FROM provision.services WHERE service_id = %s", (func_id,))
-                    cur.execute("DELETE FROM provision.houses WHERE house_id = %s", (func_id,))
-                    cur.execute("SELECT physical_object_id FROM functional_objects WHERE id = %s", (func_id,))
-                    phys_id = cur.fetchone()[0]  # type: ignore
-                    cur.execute("DELETE FROM functional_objects WHERE id = %s", (func_id,))
-                    cur.execute("SELECT count(*) FROM functional_objects WHERE physical_object_id = %s", (phys_id,))
-                    phys_count = cur.fetchone()[0]  # type: ignore
-                    if phys_count == 0:
-                        cur.execute("DELETE FROM buildings WHERE physical_object_id = %s", (phys_id,))
-                        cur.execute("DELETE FROM physical_objects WHERE id = %s", (phys_id,))
+                    delete_functional_object(cur, func_id)
                     self._table.removeRow(row - 1)
                 self._log_window.insertHtml("</font><br>")
 
@@ -331,7 +320,7 @@ class ServicesUpdatingWindow(QtWidgets.QWidget):  # pylint: disable=too-many-ins
 
     def _on_add_physical_object(self) -> None:
         row = self._table.currentRow()
-        func_id, _phys_id = self._table.item(row, 0).text(), self._table.item(row, 8).text()
+        func_id, phys_id = self._table.item(row, 0).text(), self._table.item(row, 8).text()
         dialog = PhysicalObjectCreationWidget(
             f"Введите информацию о физическом объекте для сервиса в строке {row + 1} в поля ниже", is_adding=True
         )
@@ -381,7 +370,7 @@ class ServicesUpdatingWindow(QtWidgets.QWidget):  # pylint: disable=too-many-ins
                 )
             self._log_window.insertHtml(
                 f"<font color=yellowgreen>Добавлен физический объект для сервиса с"
-                " id={func_id}: {phys_id}->{new_phys_id}"
+                f" id={func_id}: {phys_id}->{new_phys_id}"
                 f" ({self._table.item(row, 11).text()}({self._table.item(row, 9).text()},"
                 f" {self._table.item(row, 10).text()})"
                 f"->{geom_type}({new_latitude, new_longitude}))</font><br>"

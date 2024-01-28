@@ -64,12 +64,9 @@ class TerritoryWindow(QtWidgets.QWidget):  # pylint: disable=too-many-instance-a
             "municipality_types" if territory_type == "municipality" else "administrative_unit_types"
         )
         self._other_territory_table = "administrative_units" if territory_type == "municipality" else "municipalities"
-        self._parent_id_column = (
-            "admin_unit_parent_id" if territory_type == "municipality" else "municipality_parent_id"
-        )
-        self._other_parent_id_column = (
-            "municipality_parent_id" if territory_type == "municipality" else "admin_unit_parent_id"
-        )
+        self._parent_id_column = "admin_unit_parent_id" if territory_type == "municipality" else None
+        self._other_parent_id_column = None if territory_type == "municipality" else "admin_unit_parent_id"
+        self._outer_id = f"{territory_type}_id"
         self._city_name = city_name
 
         self.window().setWindowTitle(f'Город "{city_name}" - список {self._territory_name_plural}')
@@ -94,8 +91,12 @@ class TerritoryWindow(QtWidgets.QWidget):  # pylint: disable=too-many-instance-a
             cur.execute(
                 f"SELECT id, name, population,"
                 f"       (SELECT full_name FROM {self._territory_types_table} WHERE id = type_id),"
-                f"      (SELECT name FROM {self._other_territory_table} WHERE id = {self._parent_id_column}),"
-                "       ST_Y(center), ST_X(center), ST_GeometryType(geometry),"
+                + (
+                    f"      (SELECT name FROM {self._other_territory_table} WHERE id = {self._parent_id_column}),"
+                    if self._parent_id_column is not None
+                    else "null,"
+                )
+                + "       ST_Y(center), ST_X(center), ST_GeometryType(geometry),"
                 "       date_trunc('minute', created_at)::timestamp, date_trunc('minute', updated_at)::timestamp"
                 f" FROM {self._territory_table}"
                 " WHERE city_id = (SELECT id from cities WHERE name = %s)"
@@ -103,13 +104,16 @@ class TerritoryWindow(QtWidgets.QWidget):  # pylint: disable=too-many-instance-a
                 (self._city_name,),
             )
             territories = cur.fetchall()
-            cur.execute(
-                f"SELECT name FROM {self._other_territory_table}"
-                " WHERE city_id = (SELECT id from cities WHERE name = %s)"
-                " ORDER BY 1",
-                (self._city_name,),
-            )
-            self._parents = list(itertools.chain.from_iterable(cur.fetchall()))
+            if self._parent_id_column is not None:
+                cur.execute(
+                    f"SELECT name FROM {self._other_territory_table}"
+                    " WHERE city_id = (SELECT id from cities WHERE name = %s)"
+                    " ORDER BY 1",
+                    (self._city_name,),
+                )
+                self._parents = list(itertools.chain.from_iterable(cur.fetchall()))
+            else:
+                self._parents = []
             cur.execute(f"SELECT full_name FROM {self._territory_types_table} ORDER BY id")
             self._territory_types = list(itertools.chain.from_iterable(cur.fetchall()))
         self._table = PlatformTerritoriesTableWidget(territories)
@@ -137,6 +141,9 @@ class TerritoryWindow(QtWidgets.QWidget):  # pylint: disable=too-many-instance-a
 
         self._right_scroll.setFixedWidth(int(right_width * 1.1))
         self._editing_group_box.setFixedWidth(right_width)
+
+        if self._parent_id_column is None:
+            self._table.hideColumn(self._table.LABELS.index("Родительская территория"))
 
     def _on_territory_add(self) -> None:
         dialog = TerritoryCreationWidget(
@@ -196,8 +203,12 @@ class TerritoryWindow(QtWidgets.QWidget):  # pylint: disable=too-many-instance-a
         with self._conn.cursor() as cur:
             cur.execute(
                 "SELECT ST_AsGeoJSON(geometry), name, population,"
-                f"   (SELECT name FROM {self._other_territory_table} WHERE id = {self._parent_id_column}),"
-                f"   (SELECT full_name FROM {self._territory_types_table} WHERE id = type_id)"
+                + (
+                    f"   (SELECT name FROM {self._other_territory_table} WHERE id = {self._parent_id_column}),"
+                    if self._parent_id_column is not None
+                    else "null,"
+                )
+                + f"   (SELECT full_name FROM {self._territory_types_table} WHERE id = type_id)"
                 f" FROM {self._territory_table} WHERE id = %s",
                 (self._table.item(row, 0).text(),),
             )
@@ -320,9 +331,22 @@ class TerritoryWindow(QtWidgets.QWidget):  # pylint: disable=too-many-instance-a
                 for row in rows[::-1]:
                     territory_id = self._table.item(row - 1, 0).text()
                     deleting.append((int(self._table.item(row - 1, 0).text()), self._table.item(row - 1, 1).text()))
+                    if self._other_parent_id_column is not None:
+                        cur.execute(
+                            f"UPDATE {self._other_territory_table} SET {self._other_parent_id_column} = null"
+                            f" WHERE {self._other_parent_id_column} = %s",
+                            (territory_id,),
+                        )
                     cur.execute(
-                        f"UPDATE {self._other_territory_table} SET {self._other_parent_id_column} = null"
-                        f" WHERE {self._other_parent_id_column} = %s",
+                        f"UPDATE {self._territory_table} SET parent_id = null WHERE parent_id = %s",
+                        (territory_id,),
+                    )
+                    cur.execute(
+                        f"UPDATE physical_objects SET {self._outer_id} = null WHERE {self._outer_id} = %s",
+                        (territory_id,),
+                    )
+                    cur.execute(
+                        f"UPDATE blocks SET {self._outer_id} = null WHERE {self._outer_id} = %s",
                         (territory_id,),
                     )
                     cur.execute(f"DELETE FROM {self._territory_table} WHERE id = %s", (territory_id,))

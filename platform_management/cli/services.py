@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import random
+import shutil
 import time
 import traceback
 import warnings
@@ -195,12 +196,13 @@ def add_services(  # pylint: disable=too-many-branches,too-many-statements,too-m
     service_type: str,
     mapping: ServiceInsertionMapping,
     properties_mapping: dict[str, str] = frozenset({}),
-    address_prefixes: list[str] = FrozenList(["Россия, Санкт-Петербург"]),
-    new_prefix: str = "",
+    address_prefixes: list[str] = FrozenList([""]),
+    new_prefix: str | None = None,
     commit: bool = True,
     verbose: bool = False,
     log_n: int = 200,
     callback: Callable[[SingleObjectStatus], None] | None = None,
+    skip_logs: bool = False,
 ) -> pd.DataFrame:
     """Insert service objects to database.
 
@@ -219,6 +221,7 @@ def add_services(  # pylint: disable=too-many-branches,too-many-statements,too-m
         - `verbose` - True to output traceback with errors, False for only error messages printing
         - `log_n` - number of inserted/updated services to log after each
         - `callback` - optional callback function which is called after every service insertion
+        - `skip_logs` - indicates whether xlsx log creation should be skipped
 
     Return:
 
@@ -269,6 +272,9 @@ def add_services(  # pylint: disable=too-many-branches,too-many-statements,too-m
             else:
                 callback(SingleObjectStatus.ERROR)
                 logger.warning("Could not get the category of result based on status: {}", results[i - 1])
+
+    if new_prefix is None:
+        new_prefix = ""
 
     logger.info(f'Вставка сервисов типа "{service_type}", всего {services_df.shape[0]} объектов')
     logger.info(f'Город вставки - "{city_name}". Список префиксов: {address_prefixes}, новый префикс: "{new_prefix}"')
@@ -325,9 +331,15 @@ def add_services(  # pylint: disable=too-many-branches,too-many-statements,too-m
                     call_callback(results[i - 1])
                 if i % log_n == 0:
                     logger.opt(colors=True).info(
-                        f"Обработано {i:4} сервисов из {services_df.shape[0]}:"
-                        f" <green>{added_as_points + added_to_address + added_to_geom} добавлены</green>,"
-                        f" <yellow>{updated} обновлены</yellow>, <red>{skipped} пропущены</red>"
+                        "Обработано {:4} сервисов из {}: <green>{} добавлены</green>,"
+                        " <yellow>{} обновлены</yellow>, <blue>{} оставлены без изменений</blue>,"
+                        " <red>{} пропущены</red>",
+                        i,
+                        services_df.shape[0],
+                        added_as_points + added_to_address + added_to_geom,
+                        updated,
+                        unchanged,
+                        skipped,
                     )
                     if commit:
                         cur.execute("SAVEPOINT previous_object")
@@ -374,9 +386,9 @@ def add_services(  # pylint: disable=too-many-branches,too-many-statements,too-m
                             continue
                     address: str | None = None
                     if is_service_building:
-                        if mapping.address in row:
+                        if row.get(mapping.address) is not None:
                             for address_prefix in address_prefixes:
-                                if row.get(mapping.address, "").startswith(address_prefix):
+                                if row[mapping.address].startswith(address_prefix):
                                     address = row.get(mapping.address)[len(address_prefix) :].strip(", ")
                                     break
                             else:
@@ -458,7 +470,11 @@ def add_services(  # pylint: disable=too-many-branches,too-many-statements,too-m
                             # too high (address is wrong or it's not a concrete house)
                             if mapping.geometry in row:
                                 cur.execute(
-                                    "WITH new_geom AS (SELECT ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326) AS geom)"
+                                    "WITH new_geom AS ("
+                                    "   SELECT ST_Buffer("
+                                    "       ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326)::geography, 30"
+                                    "   )::geometry AS geom"
+                                    " )"
                                     " SELECT ST_GeometryType(geometry), phys.id, build.id, build.address"
                                     " FROM physical_objects phys"
                                     "   JOIN buildings build ON build.physical_object_id = phys.id"
@@ -570,30 +586,44 @@ def add_services(  # pylint: disable=too-many-branches,too-many-statements,too-m
                                     results[i] += ". Обновлена геометрия здания с точки"
                             else:  # if no building found by address or geometry
                                 insert_physical_object = True
-                    else:
+                    else:  # service-physical_object
                         if mapping.geometry in row:
                             cur.execute(
-                                "SELECT ST_GeometryType(geometry), id FROM physical_objects phys"
+                                "WITH new_geometry AS (SELECT ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326) as geom),"
+                                "   new_area AS (SELECT ST_Area((SELECT geom FROM new_geometry)::geography) as area)"
+                                " SELECT ST_GeometryType(geometry), phys.id, f.id FROM physical_objects phys"
+                                " JOIN functional_objects f ON f.physical_object_id = phys.id"
+                                "   AND city_service_type_id = %s"
                                 " WHERE city_id = %s"
-                                "   AND (SELECT EXISTS"
-                                "       (SELECT 1 FROM buildings where physical_object_id = phys.id)) = false"
                                 + ("  AND municipality_id = %s" if municipality_id is not None else "")
                                 + ("  AND administrative_unit_id = %s" if administrative_unit_id is not None else "")
-                                + "   AND (ST_CoveredBy(ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326), geometry))"
+                                + "   AND (ST_Intersects((SELECT geom FROM new_geometry), geometry))"
+                                "   AND ST_Area(ST_Intersection((SELECT geom FROM new_geometry), geometry)::geography)"
+                                "       /"
+                                "       GREATEST(0.1, LEAST(ST_Area(geometry::geography), (SELECT area FROM new_area)))"
+                                "       BETWEEN 0.8 AND 1.2"
                                 " LIMIT 1",
                                 list(
                                     filter(
                                         lambda x: x is not None,
-                                        (city_id, municipality_id, administrative_unit_id, row[mapping.geometry]),
+                                        (
+                                            row[mapping.geometry],
+                                            service_type_id,
+                                            city_id,
+                                            municipality_id,
+                                            administrative_unit_id,
+                                        ),
                                     )
                                 ),
                             )
                         else:
                             cur.execute(
-                                "SELECT ST_GeometryType(geometry), id FROM physical_objects phys"
+                                "WITH new_geometry AS (SELECT ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326) as geom),"
+                                "   new_area AS (SELECT ST_Area((SELECT geom FROM new_geometry)::geography) as area)"
+                                " SELECT ST_GeometryType(geometry), phys.id, f.id FROM physical_objects phys"
+                                " JOIN functional_objects f ON f.physical_object_id = phys.id"
+                                "   AND city_service_type_id = %(service_type)s"
                                 " WHERE city_id = %(city_id)s"
-                                "   AND (SELECT EXISTS"
-                                "       (SELECT 1 FROM buildings where physical_object_id = phys.id)) = false"
                                 + (" AND municipality_id = %(municipality_id)s" if municipality_id is not None else "")
                                 + (
                                     " AND administrative_unit_id = %(administrative_unit_id)s"
@@ -605,7 +635,12 @@ def add_services(  # pylint: disable=too-many-branches,too-many-statements,too-m
                                 "   AND abs(ST_Y(geometry) - %(lat)s) < 0.0001"
                                 "   OR ST_Intersects(ST_SetSRID(ST_MakePoint(%(lng)s, %(lat)s), 4326), geometry))"
                                 " LIMIT 1",
-                                {"city_id": city_id, "lng": longitude, "lat": latitude}
+                                {
+                                    "city_id": city_id,
+                                    "lng": longitude,
+                                    "lat": latitude,
+                                    "service_type_id,": service_type_id,
+                                }
                                 | ({"municipality_id": municipality_id} if municipality_id is not None else set())
                                 | (
                                     {"administrative_unit_id": administrative_unit_id}
@@ -615,31 +650,21 @@ def add_services(  # pylint: disable=too-many-branches,too-many-statements,too-m
                             )
                         res = cur.fetchone()
                         if res is not None:  # if physical_object found by geometry
-                            current_geom_type, phys_id = res
-                            cur.execute(
-                                "SELECT id FROM functional_objects f "
-                                " WHERE physical_object_id = %s AND city_service_type_id = %s AND name = %s"
-                                " LIMIT 1",
-                                (phys_id, service_type_id, name),
-                            )
-                            res = cur.fetchone()
-                            if res is not None:  # if service is already present in this pysical_object
-                                functional_ids[i] = res[0]
-                                if update_object(cur, row, res[0], name, mapping, properties_mapping, commit):
-                                    updated += 1
-                                else:
-                                    unchanged += 1
-                                    results[i] = (
-                                        "Обновлен существующий сервис без здания"
-                                        f" (phys_id = {phys_id}, functional_object_id = {res[0]})"
-                                    )
-                                continue
-                            # if no service present, but physical_object found
-                            added_to_geom += 1
-                            results[i] = (
-                                "Сервис вставлен в физический объект," f" подходящий по геометрии (phys_id = {phys_id})"
-                            )
-                            if current_geom_type == "Point" and geom_type != "Point":
+                            current_geom_type, phys_id, func_id = res
+                            functional_ids[i] = func_id
+                            if update_object(cur, row, func_id, name, mapping, properties_mapping, commit):
+                                updated += 1
+                                results[i] = (
+                                    "Обновлен существующий сервис без здания"
+                                    f" (phys_id = {phys_id}, functional_object_id = {res[0]})"
+                                )
+                            else:
+                                unchanged += 1
+                                results[i] = (
+                                    "Существующий сервис без здания оствлен без изменений"
+                                    f" (phys_id = {phys_id}, functional_object_id = {res[0]})"
+                                )
+                            if current_geom_type == "ST_Point" and geom_type != "ST_Point":
                                 cur.execute(
                                     "WITH tmp AS (SELECT geometry FROM (VALUES"
                                     "   (ST_Centroid(ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326)))) tmp_inner(geometry))"
@@ -648,8 +673,8 @@ def add_services(  # pylint: disable=too-many-branches,too-many-statements,too-m
                                     "   center = ST_Centroid((SELECT geometry FROM tmp))"
                                 )
                                 results[i] += ". Обновлена геометрия физического объекта с точки"
-                        else:
-                            insert_physical_object = True
+                            continue
+                        insert_physical_object = True
                     if insert_physical_object:
                         if mapping.geometry in row:
                             cur.execute(
@@ -764,36 +789,45 @@ def add_services(  # pylint: disable=too-many-branches,too-many-statements,too-m
     services_df["functional_obj_id"] = pd.Series(functional_ids, index=services_df.index)
     logger.success(f'Вставка сервисов типа "{service_type}" завершена')
     logger.opt(colors=True).info(
-        f"{i+1} сервисов обработано: <green>{added_as_points + added_to_address + added_to_geom} добавлены</green>,"
-        f" <yellow>{updated} обновлены</yellow>, <red>{skipped} пропущены</red>"
+        "{:4} сервисов обработано: <green>{} добавлены</green>, <yellow>{} обновлены</yellow>,"
+        " <blue>{} оставлены без изменений</blue>, <red>{} пропущены</red>",
+        i + 1,
+        added_as_points + added_to_address + added_to_geom,
+        updated,
+        unchanged,
+        skipped,
     )
     logger.opt(colors=True).info(
         f"<cyan>{added_as_points} сервисов были добавлены в новые физические объекты/здания</cyan>,"
         f" <green>{added_to_address} добавлены в здания по совпадению адреса</green>,"
-        f" <yellow>{added_to_geom} добавлены в физические объекты/здания по совпадению геометрии</yellow>"
+        f" <yellow>{added_to_geom} добавлены в здания по совпадению геометрии</yellow>"
     )
-    filename = f"services_insertion_{conn.info.host}_{conn.info.port}_{conn.info.dbname}.xlsx"
-    sheet_name = f'{service_type.replace("/", "_")}_{time.strftime("%Y-%m-%d %H_%M-%S")}'
-    logger.opt(colors=True).info(
-        "Сохранение лога в файл Excel (нажмите Ctrl+C для отмены, <magenta>но это может повредить файл лога</magenta>)"
-    )
-    try:
-        with pd.ExcelWriter(  # pylint: disable=abstract-class-instantiated
-            filename, mode=("a" if os.path.isfile(filename) else "w"), engine="openpyxl"
-        ) as writer:
-            services_df.to_excel(writer, sheet_name)
-        logger.info(f'Лог вставки сохранен в файл "{filename}", лист "{sheet_name}"')
-    except Exception as exc:  # pylint: disable=broad-except
-        newlog = f"services_insertion_{int(time.time())}.xlsx"
-        logger.error(
-            f'Ошибка при сохранении лога вставки в файл "{filename}",'
-            f' лист "{sheet_name}": {exc!r}. Попытка сохранения с именем {newlog}'
-        )
+    if not skip_logs:
+        filename = f"services_insertion_{conn.info.host}_{conn.info.port}_{conn.info.dbname}.xlsx"
+        sheet_name = f'{city_name}_{service_type.replace("/", "_")}_{time.strftime("%Y-%m-%d %H_%M-%S")}'
+        logger.opt(colors=True).info("Сохранение лога в файл Excel (нажмите Ctrl+C для отмены)")
         try:
-            services_df.to_excel(newlog, sheet_name)
-            logger.success("Сохранение прошло успешно")
-        except Exception as exc_1:  # pylint: disable=broad-except
-            logger.error(f"Ошибка сохранения лога: {exc_1!r}")
-    except KeyboardInterrupt:
-        logger.warning(f'Отмена сохранения файла лога, файл "{filename}" может быть поврежден')
+            filename_tmp = f"{filename}_tmp.xlsx"
+            if os.path.isfile(filename):
+                shutil.copy(filename, filename_tmp)
+            with pd.ExcelWriter(  # pylint: disable=abstract-class-instantiated
+                filename_tmp, mode=("a" if os.path.isfile(filename_tmp) else "w"), engine="openpyxl"
+            ) as writer:
+                services_df.to_excel(writer, sheet_name)
+            shutil.move(filename_tmp, filename)
+            logger.info(f'Лог вставки сохранен в файл "{filename}", лист "{sheet_name}"')
+        except Exception as exc:  # pylint: disable=broad-except
+            newlog = f"services_insertion_{int(time.time())}.xlsx"
+            logger.error(
+                f'Ошибка при сохранении лога вставки в файл "{filename}",'
+                f' лист "{sheet_name}": {exc!r}. Попытка сохранения с именем {newlog}'
+            )
+            try:
+                services_df.to_excel(newlog, sheet_name)
+                logger.success("Сохранение прошло успешно")
+            except Exception as exc_1:  # pylint: disable=broad-except
+                logger.error(f"Ошибка сохранения лога: {exc_1!r}")
+        except KeyboardInterrupt:
+            logger.warning("Отмена сохранения файла лога")
+
     return services_df
