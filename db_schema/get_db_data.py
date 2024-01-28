@@ -111,3 +111,55 @@ with open(filename, "w", encoding="utf-8") as f:
         insert_values(cur.fetchall(), f)
 
         print("\nEND TRANSACTION;", file=f)
+
+filename = "init_provision.sql"
+if os.path.exists(filename):
+    os.rename(filename, f"{filename}.bak")
+with open(filename, "w", encoding="utf-8") as f:
+    print("BEGIN TRANSACTION;\n", file=f)
+
+    print(
+        "\nINSERT INTO provision.normatives ("
+        "   city_service_type_id,"
+        "   normative,"
+        "   max_load,"
+        "   radius_meters,"
+        "   public_transport_time,"
+        "   service_evaluation,"
+        "   house_evaluation,"
+        "   last_calculations"
+        ") VALUES",
+        file=f,
+    )
+    cur.execute(
+        "SELECT"
+        "   concat('(SELECT id FROM city_service_types WHERE code = ''',"
+        "       (SELECT code FROM city_service_types WHERE id = city_service_type_id), ''')'),"
+        "   concat('''', normative, ''''),"
+        "   concat('''', max_load, ''''),"
+        "   radius_meters,"
+        "   public_transport_time,"
+        "    concat('''', service_evaluation::text, '''::jsonb'),"
+        "    concat('''', house_evaluation::text, '''::jsonb'),"
+        "   null as last_calculations"
+        " FROM provision.normatives"
+        " ORDER BY city_service_type_id"
+    )
+    insert_values(cur.fetchall(), f)
+
+    print(
+        "\nINSERT INTO maintenance.social_groups_city_service_types (social_group_id, city_service_type_id) VALUES",
+        file=f,
+    )
+    cur.execute(
+        "SELECT"
+        "   concat('(SELECT id FROM social_groups WHERE code = ''',"
+        "       (SELECT code FROM social_groups WHERE id = social_group_id), ''')'),"
+        "   concat('(SELECT id FROM city_service_types WHERE code = ''',"
+        "       (SELECT code FROM city_service_types WHERE id = city_service_type_id), ''')')"
+        " FROM maintenance.social_groups_city_service_types"
+        " ORDER BY social_group_id, city_service_type_id"
+    )
+    insert_values(cur.fetchall(), f)
+
+    print("\nEND TRANSACTION;", file=f)

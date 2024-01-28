@@ -158,10 +158,12 @@ def insert_services_cli(  # pylint: disable=too-many-arguments,too-many-locals
 
     if logfile is not None:
         services.to_csv(logfile)
-    logger.opt(colors=True).info('Завершено, лог записан в файл <green>"{}"</green>', logfile)
+        logger.opt(colors=True).info('Завершено, лог записан в файл <green>"{}"</green>', logfile)
+    else:
+        logger.info("Завершено, запись лога пропущена")
 
 
-def insert_buildings_cli(  # pylint: disable=too-many-arguments,too-many-locals
+def insert_buildings_cli(  # pylint: disable=too-many-arguments,too-many-locals,too-many-branches
     database_credentials: DatabaseCredentials,
     dry_run: bool,
     verbose: bool,
@@ -234,7 +236,9 @@ def insert_buildings_cli(  # pylint: disable=too-many-arguments,too-many-locals
 
     if logfile is not None:
         buildings_df.to_csv(logfile)
-    logger.opt(colors=True).info('Завершено, лог записан в файл <green>"{}"</green>', logfile)
+        logger.opt(colors=True).info('Завершено, лог записан в файл <green>"{}"</green>', logfile)
+    else:
+        logger.info("Завершено, запись лога пропущена")
 
 
 def insert_blocks_cli(  # pylint: disable=too-many-arguments
@@ -267,7 +271,9 @@ def insert_blocks_cli(  # pylint: disable=too-many-arguments
 
     if logfile is not None:
         blocks.to_csv(logfile)
-    logger.opt(colors=True).info('Завершено, лог записан в файл <green>"{}"</green>', logfile)
+        logger.opt(colors=True).info('Завершено, лог записан в файл <green>"{}"</green>', logfile)
+    else:
+        logger.info("Завершено, запись лога пропущена")
 
 
 def insert_adms_cli(  # pylint: disable=too-many-arguments
@@ -309,4 +315,6 @@ def insert_adms_cli(  # pylint: disable=too-many-arguments
 
     if logfile is not None:
         adms_df.to_csv(logfile)
-    logger.opt(colors=True).info('Завершено, лог записан в файл <green>"{}"</green>', logfile)
+        logger.opt(colors=True).info('Завершено, лог записан в файл <green>"{}"</green>', logfile)
+    else:
+        logger.info("Завершено, запись лога пропущена")

@@ -1,0 +1,14 @@
+version: "3.4"
+
+name: "platform-management-test"
+
+services:
+  database:
+    image: postgis/postgis:15-3.3
+    container_name: "platform-management-test-db"
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    ports:
+      - 5454:5432
+    shm_size: 1g

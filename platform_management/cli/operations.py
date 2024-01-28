@@ -98,4 +98,4 @@ def update_buildings_area(cur: psycopg2.extensions.cursor, update_all_modeled: b
         + (" OR modeled->>'living_area' = '1'" if update_all_modeled else "")
         + ")"
     )
-    logger.debug("Updated {} buildings living area", cur.rowcount)
+    logger.debug("Updated {} buildings living_area", cur.rowcount)
