@@ -230,7 +230,7 @@ def add_buildings(  # pylint: disable=too-many-branches,too-many-statements
     mapping: BuildingInsertionMapping,
     properties_mapping: dict[str, str] = frozenset({}),
     address_prefixes: list[str] = FrozenList([""]),
-    new_prefix: str = "",
+    new_prefix: str | None = None,
     commit: bool = True,
     verbose: bool = False,
     log_n: int = 200,
@@ -279,20 +279,24 @@ def add_buildings(  # pylint: disable=too-many-branches,too-many-statements
                 callback(SingleObjectStatus.ERROR)
                 logger.warning("Could not get the category of result based on status: {}", results[i - 1])
 
+    if new_prefix is None:
+        new_prefix = ""
+
     logger.info(f"Вставка зданий, всего {buildings_df.shape[0]} объектов")
     logger.info(f'Город вставки - "{city_name}". Список префиксов: {address_prefixes}, новый префикс: "{new_prefix}"')
 
     buildings_df = buildings_df.copy().replace({nan: None})
     for i in range(buildings_df.shape[1]):
-        buildings_df.iloc[:, i] = pd.Series(
-            map(
-                lambda x: float(x.replace(",", "."))
-                if isinstance(x, str) and len(x) != 1 and x.count(",") == 1 and x.replace(",", "1").isnumeric()
-                else x,
-                buildings_df.iloc[:, i],
-            ),
-            dtype=object,
-        )
+        if buildings_df[buildings_df.columns[i]].dtype == "O":  # replacing 1,23 -> 1.23
+            buildings_df.iloc[:, i] = pd.Series(
+                map(
+                    lambda x: float(x.replace(",", "."))
+                    if isinstance(x, str) and len(x) != 1 and x.count(",") == 1 and x.replace(",", "1").isnumeric()
+                    else x,
+                    buildings_df.iloc[:, i],
+                ),
+                dtype=object,
+            )
     for boolean_mapping in (
         mapping.is_living,
         mapping.is_failing,
@@ -309,7 +313,6 @@ def add_buildings(  # pylint: disable=too-many-branches,too-many-statements
                     or (isinstance(x, Number) and x - 0 > 1e-5),
                     buildings_df.loc[:, boolean_mapping],
                 ),
-                dtype=object,
             )
     if mapping.address in buildings_df.columns:
         buildings_df[mapping.address] = buildings_df[mapping.address].apply(
@@ -323,7 +326,7 @@ def add_buildings(  # pylint: disable=too-many-branches,too-many-statements
     address_prefixes = sorted(address_prefixes, key=lambda s: -len(s))
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT id FROM cities WHERE name = %(city)s or code = %(city)s or id::varchar = %(city)s",
+            "SELECT id FROM cities WHERE name = %(city)s OR code = %(city)s OR id::varchar = %(city)s",
             {"city": city_name},
         )
         city_id = cur.fetchone()
@@ -601,7 +604,7 @@ def add_buildings(  # pylint: disable=too-many-branches,too-many-statements
     logger.opt(colors=True).info(
         "Обработано {:4} зданий из {}: <green>{} добавлены</green>, <yellow>{} обновлены</yellow>,"
         " <blue>{} оставлены без изменений</blue>, <red>{} пропущены</red>",
-        i,
+        i + 1,
         buildings_df.shape[0],
         added,
         updated,

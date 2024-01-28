@@ -197,7 +197,7 @@ def add_services(  # pylint: disable=too-many-branches,too-many-statements,too-m
     mapping: ServiceInsertionMapping,
     properties_mapping: dict[str, str] = frozenset({}),
     address_prefixes: list[str] = FrozenList([""]),
-    new_prefix: str = "",
+    new_prefix: str | None = None,
     commit: bool = True,
     verbose: bool = False,
     log_n: int = 200,
@@ -272,6 +272,9 @@ def add_services(  # pylint: disable=too-many-branches,too-many-statements,too-m
             else:
                 callback(SingleObjectStatus.ERROR)
                 logger.warning("Could not get the category of result based on status: {}", results[i - 1])
+
+    if new_prefix is None:
+        new_prefix = ""
 
     logger.info(f'Вставка сервисов типа "{service_type}", всего {services_df.shape[0]} объектов')
     logger.info(f'Город вставки - "{city_name}". Список префиксов: {address_prefixes}, новый префикс: "{new_prefix}"')

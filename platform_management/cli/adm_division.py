@@ -342,7 +342,10 @@ def add_adm_division(  # pylint: disable=too-many-branches,too-many-statements
     adm_ids: list[int] = [-1 for _ in range(adms_df.shape[0])]
 
     with conn.cursor() as cur:
-        cur.execute("SELECT id FROM cities WHERE name = %(city)s or code = %(city)s", {"city": city_name})
+        cur.execute(
+            "SELECT id FROM cities WHERE name = %(city)s OR code = %(city)s OR id::varchar = %(city)s",
+            {"city": city_name},
+        )
         city_id = cur.fetchone()
         if city_id is None:
             logger.error(f'Заданный город "{city_name}" отсутствует в базе данных')
@@ -502,7 +505,7 @@ def add_adm_division(  # pylint: disable=too-many-branches,too-many-statements
     else:
         logger.success("Вставка муниципальных образований завершена")
     logger.opt(colors=True).info(
-        "{} единиц деления обработано: <green>{} добавлены</green>, <yellow>{} обновлены</yellow>, "
+        "{:4} единиц деления обработано: <green>{} добавлены</green>, <yellow>{} обновлены</yellow>, "
         " <blue>{} оставлены без изменений</blue>, <red>{} пропущены</red>",
         i + 1,
         added,
