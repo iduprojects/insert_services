@@ -522,7 +522,7 @@ def add_adm_division(  # pylint: disable=too-many-branches,too-many-statements
         with pd.ExcelWriter(  # pylint: disable=abstract-class-instantiated
             filename, mode=("a" if os.path.isfile(filename) else "w"), engine="openpyxl"
         ) as writer:
-            adms_df.to_excel(writer, sheet_name)
+            adms_df.to_excel(writer, sheet_name=sheet_name)
         logger.info(f'Лог вставки сохранен в файл "{filename}", лист "{sheet_name}"')
     except Exception as exc:  # pylint: disable=broad-except
         newlog = f"services_insertion_{int(time.time())}.xlsx"
@@ -531,7 +531,7 @@ def add_adm_division(  # pylint: disable=too-many-branches,too-many-statements
             f' лист "{sheet_name}": {exc!r}. Попытка сохранения с именем {newlog}'
         )
         try:
-            adms_df.to_excel(newlog, sheet_name)
+            adms_df.to_excel(newlog, sheet_name=sheet_name)
             logger.success('Сохранение в файл "{}" прошло успешно', newlog)
         except Exception as exc_1:  # pylint: disable=broad-except
             logger.error(f"Ошибка сохранения лога: {exc_1!r}")

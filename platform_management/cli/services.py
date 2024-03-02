@@ -498,7 +498,9 @@ def add_services(  # pylint: disable=too-many-branches,too-many-statements,too-m
                             else:
                                 cur.execute(
                                     "WITH new_geom AS (SELECT ST_Buffer("
-                                    "       ST_SetSRID(ST_MakePoint(%(lng)s, %(lat)s), 4326)::geography, 10)::geometry)"
+                                    "       ST_SetSRID("
+                                    "           ST_MakePoint(%(lng)s, %(lat)s), 4326)::geography, 10"
+                                    "       )::geometry AS geom)"
                                     " SELECT ST_GeometryType(geometry), phys.id, build.id, build.address"
                                     " FROM physical_objects phys"
                                     "   JOIN buildings build ON build.physical_object_id = phys.id"

@@ -252,8 +252,8 @@ def insert_services(
         document_website,
         document_phone,
         document_address,
-        document_osm_id,
         document_capacity,
+        document_osm_id,
     )
     insert_services_cli(
         DatabaseCredentials(db_addr, db_port, db_name, db_user, db_pass),

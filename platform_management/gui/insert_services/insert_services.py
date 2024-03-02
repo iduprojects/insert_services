@@ -376,8 +376,8 @@ class ServicesInsertionWindow(QtWidgets.QWidget):  # pylint: disable=too-many-in
                     self._document_fields.website.currentText(),
                     self._document_fields.phone.currentText(),
                     self._document_fields.address.currentText(),
-                    self._document_fields.osm_id.currentText(),
                     self._document_fields.capacity.currentText(),
+                    self._document_fields.osm_id.currentText(),
                 ),
                 {
                     self._properties_group.itemAtPosition(i + 2, 0)
