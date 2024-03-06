@@ -592,7 +592,7 @@ CREATE MATERIALIZED VIEW social_stats.calculated_social_people_buildings AS (
     sh.scenario,
     sh.social_group_id,
     sum(
-        sh.men_0  + sh.men_1  + sh.men_2  + sh.men_3  + sh.men_4  + sh.men_5  + sh.men_6  + sh.men_7  + sh.men_8  + sh.men_9  +
+        sh.men_0::integer  + sh.men_1  + sh.men_2  + sh.men_3  + sh.men_4  + sh.men_5  + sh.men_6  + sh.men_7  + sh.men_8  + sh.men_9  +
         sh.men_10 + sh.men_11 + sh.men_12 + sh.men_13 + sh.men_14 + sh.men_15 + sh.men_16 + sh.men_17 + sh.men_18 + sh.men_19 +
         sh.men_20 + sh.men_21 + sh.men_22 + sh.men_23 + sh.men_24 + sh.men_25 + sh.men_26 + sh.men_27 + sh.men_28 + sh.men_29 +
         sh.men_30 + sh.men_31 + sh.men_32 + sh.men_33 + sh.men_34 + sh.men_35 + sh.men_36 + sh.men_37 + sh.men_38 + sh.men_39 +

@@ -622,7 +622,7 @@ def add_buildings(  # pylint: disable=too-many-branches,too-many-statements
             with pd.ExcelWriter(  # pylint: disable=abstract-class-instantiated
                 filename_tmp, mode=("a" if os.path.isfile(filename_tmp) else "w"), engine="openpyxl"
             ) as writer:
-                buildings_df.to_excel(writer, sheet_name)
+                buildings_df.to_excel(writer, sheet_name=sheet_name)
             shutil.move(filename_tmp, filename)
             logger.info(f'Лог вставки сохранен в файл "{filename}", лист "{sheet_name}"')
         except Exception as exc:  # pylint: disable=broad-except
@@ -632,7 +632,7 @@ def add_buildings(  # pylint: disable=too-many-branches,too-many-statements
                 f' лист "{sheet_name}": {exc!r}. Попытка сохранения с именем {newlog}'
             )
             try:
-                buildings_df.to_excel(newlog, sheet_name)
+                buildings_df.to_excel(newlog, sheet_name=sheet_name)
                 logger.success("Сохранение прошло успешно")
             except Exception as exc_1:  # pylint: disable=broad-except
                 logger.error(f"Ошибка сохранения лога: {exc_1!r}")
